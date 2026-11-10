@@ -22,12 +22,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.core.constants import MAX_INTEGER_COLUMN, REASON_MIN_LENGTH
+from src.core.fields import CurrencyCode
 from src.core.messages import needs_time_zone
 from src.core.responses import OffsetPagination
 from src.core.validation import bind_request_model
 from src.modules.finance.models import MatchStatus, PaymentMethod, PaymentStatus
 from src.modules.finance.models import VendorInvoiceStatus as InvoiceStatus
-from src.modules.finance.schemas import Currency, VendorInvoiceCreate
+from src.modules.finance.schemas import VendorInvoiceCreate
 from src.modules.job_work.models import (
     JobWorkOrderStatus,
     JobWorkProcess,
@@ -133,7 +134,7 @@ class VendorPortalInvoiceCreate(BaseModel):
     invoice_date: date
     due_date: date | None = None
     goods_receipt_id: uuid.UUID | None = None
-    currency: Currency | None = None
+    currency: CurrencyCode | None = None
     round_off_amount: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     notes: str | None = Field(default=None, max_length=2000)
     lines: list[VendorPortalInvoiceLineIn] = Field(min_length=1, max_length=200)

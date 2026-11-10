@@ -4839,6 +4839,34 @@ vendors and warehouses schemas; `src/modules/users/schemas.py` -
 no migration is needed; a form that states its own limit should be raised with
 it.
 
+## §INPUT-2. A currency is three letters, whatever case it was typed in
+
+**Assumed.** Every request field that names a currency - a price-list row, an
+item's vendor link, a vendor master, the company, an RFQ, a quotation, a
+purchase order, a sales order, a vendor invoice or payment (from staff or the
+vendor portal) and a collections follow-up - and the ageing and outstanding
+reports' `currency` filter accept three ASCII letters in any case, with any
+surrounding spaces, and store or match the upper-case code: `inr` is `INR`.
+Anything else is a 422 `VALIDATION_ERROR` that names the currency. No list of
+ISO 4217 codes is consulted, so `ABC` is accepted.
+
+**Why.** Each module checked its own way: finance, procurement and sales
+refused `inr`; the company, vendors and products upper-cased it; products and
+vendors stored `1A$`; collections refused a bad code as a business rule where
+finance answered a field error. Books are kept per currency (§27) and a code
+is matched exactly, so `inr` beside `INR` would be a second denomination, and
+a code that matches no row reports a party with open items as owing nothing.
+The web app already upper-cases every currency it sends.
+
+**Where.** `src/core/fields.py` - `currency_code`, `CurrencyCode`;
+`src/modules/finance/service.py` - `normalise_currency`;
+`src/core/messages.py` - `CURRENCY_CODE_INVALID`.
+`tests/unit/test_core_fields.py`.
+
+**Impact if wrong.** If only real ISO 4217 codes may be used, that needs a
+currency master to check against; check it in `currency_code`, which every
+currency field and filter goes through.
+
 ## §REF-1. A tenant reference check holds what a write newly names
 
 **Assumed.** A bare id another module owns - a transporter, a document - is

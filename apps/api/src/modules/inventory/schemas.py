@@ -42,6 +42,7 @@ from src.core.constants import (
     MAX_SERIAL_BULK,
     REASON_MIN_LENGTH,
 )
+from src.core.fields import NonNegativeMoney, Reason
 from src.core.messages import REASON_TOO_SHORT, date_before
 from src.core.validation import reject_null
 from src.modules.inventory.models import (
@@ -69,14 +70,16 @@ Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
 #: A document line's free-text notes (docs/assumptions.md §INPUT-1).
 LineNotes = Annotated[str, Field(max_length=MAX_LINE_NOTES_LENGTH)]
 
-Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
-PositiveQuantity = Annotated[Decimal, Field(gt=0, le=Decimal("99999999999999"))]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
+#: Bounded by the quantity column's integer digits but not by its scale: a finer
+#: value reaches the service, which rounds it to four places with ``to_quantity``
+#: and refuses one that rounds to zero. Named apart from ``src.core.fields``'s
+#: ``PositiveQuantity``, which refuses a fifth decimal place at the door.
+UnscaledPositiveQuantity = Annotated[Decimal, Field(gt=0, le=Decimal("99999999999999"))]
+UnscaledNonNegativeQuantity = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
 NonZeroQuantity = Annotated[
     Decimal, Field(ge=Decimal("-99999999999999"), le=Decimal("99999999999999"))
 ]
 UnitCost = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
-NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 
 #: A single request may not post more lines than this. An unbounded document
 #: would hold row locks on an unbounded number of balances for an unbounded
@@ -315,7 +318,7 @@ class StockBatchCreate(BaseModel):
     manufactured_on: date | None = None
     expires_on: date | None = None
     received_on: date | None = None
-    initial_quantity: NonNegativeQuantity = Decimal("0")
+    initial_quantity: UnscaledNonNegativeQuantity = Decimal("0")
     unit_cost: UnitCost = Decimal("0")
     notes: Notes | None = None
 
@@ -480,7 +483,7 @@ class StockTransferLineCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: uuid.UUID
-    quantity: PositiveQuantity
+    quantity: UnscaledPositiveQuantity
     batch_id: uuid.UUID | None = None
     #: Required for a serial-tracked item, and forbidden otherwise by the
     #: service once it has the item master. One physical unit per quantity.
@@ -830,7 +833,7 @@ class PhysicalCountEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     line_id: uuid.UUID
-    counted_quantity: NonNegativeQuantity
+    counted_quantity: UnscaledNonNegativeQuantity
     serial_numbers: list[str] | None = Field(
         default=None, max_length=MAX_SERIALS_PER_PHYSICAL_COUNT_LINE
     )
@@ -948,7 +951,7 @@ class BinMoveLineCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: uuid.UUID
-    quantity: PositiveQuantity
+    quantity: UnscaledPositiveQuantity
     batch_id: uuid.UUID | None = None
     #: Where the stock is now. ``None`` is the warehouse's unbinned position.
     from_location_id: uuid.UUID | None = None
@@ -1056,7 +1059,7 @@ class ScrapDisposalLineCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: uuid.UUID
-    quantity: PositiveQuantity
+    quantity: UnscaledPositiveQuantity
     batch_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
 
@@ -1154,7 +1157,7 @@ class InternalIssueLineCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: uuid.UUID
-    quantity: PositiveQuantity
+    quantity: UnscaledPositiveQuantity
     batch_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
     serial_ids: list[uuid.UUID] = Field(

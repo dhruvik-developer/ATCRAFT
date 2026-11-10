@@ -22,6 +22,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.constants import REASON_MIN_LENGTH
+from src.core.fields import CurrencyCode
 from src.modules.collections.models import FollowUpChannel, FollowUpOutcome, FollowUpStatus
 from src.modules.customers.models import CustomerType
 
@@ -69,7 +70,7 @@ class FollowUpCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     customer_id: uuid.UUID
-    currency: Annotated[str, Field(min_length=3, max_length=3)]
+    currency: CurrencyCode
     assigned_to_id: uuid.UUID | None = None
     next_action_date: date | None = None
 

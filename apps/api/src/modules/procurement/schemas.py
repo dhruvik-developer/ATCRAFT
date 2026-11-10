@@ -34,6 +34,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN, REASON_MIN_LENGTH
 from src.core.demand_provenance import DemandReference
+from src.core.fields import (
+    CurrencyCode,
+    NonNegativeMoney,
+    NonNegativeQuantity,
+    PositiveQuantity,
+    Reason,
+)
 from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, date_before, duplicate_line_numbers, listed
 from src.core.validation import reject_null
 from src.modules.procurement.models import (
@@ -60,15 +67,10 @@ from src.modules.procurement.service_rules import (
 
 # --- reusable constrained scalars --------------------------------------------
 
-PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
-NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 NonNegativeUnitPrice = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6)]
 DiscountPercentage = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
 TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
-CurrencyCode = Annotated[str, Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")]
 Priority = Annotated[int, Field(ge=MIN_PRIORITY, le=MAX_PRIORITY)]
-Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 LeadTimeDays = Annotated[int, Field(ge=0, le=3650)]
 PaymentTermsDays = Annotated[int, Field(ge=0, le=365)]
 #: The pools a purchase return may draw from - ``models.RETURNABLE_STOCK_STATES``

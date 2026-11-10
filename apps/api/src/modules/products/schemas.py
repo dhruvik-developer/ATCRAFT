@@ -25,13 +25,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.common.codes import normalise_code, strip_optional
 from src.core.constants import (
-    CURRENCY_CODE_LENGTH,
     DEFAULT_CURRENCY,
     MAX_DESCRIPTION_LENGTH,
     MAX_INTEGER_COLUMN,
     MAX_NOTES_LENGTH,
     REASON_MIN_LENGTH,
 )
+from src.core.fields import CurrencyCode
 from src.core.messages import date_before
 from src.core.pagination import bind_query_filters
 from src.modules.products.models import (
@@ -791,9 +791,7 @@ class PriceCreate(_Base):
 
     variant_id: uuid.UUID | None = None
     price_type: PriceType
-    currency: Annotated[
-        str, Field(min_length=CURRENCY_CODE_LENGTH, max_length=CURRENCY_CODE_LENGTH)
-    ] = DEFAULT_CURRENCY
+    currency: CurrencyCode = DEFAULT_CURRENCY
     price: PriceField
     min_quantity: QuantityField = Decimal("0")
     valid_from: date
@@ -870,9 +868,7 @@ class VendorLinkCreate(_Base):
     order_multiple: QuantityField = Decimal("0")
     last_purchase_price: PriceField | None = None
     last_purchase_date: date | None = None
-    currency: Annotated[
-        str, Field(min_length=CURRENCY_CODE_LENGTH, max_length=CURRENCY_CODE_LENGTH)
-    ] = DEFAULT_CURRENCY
+    currency: CurrencyCode = DEFAULT_CURRENCY
 
     @field_validator("manufacturer_part_number")
     @classmethod

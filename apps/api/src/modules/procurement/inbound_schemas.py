@@ -19,10 +19,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import MAX_INTEGER_COLUMN
+from src.core.fields import NonNegativeMoney, NonNegativeQuantity
 from src.core.messages import date_before, needs_time_zone
 from src.modules.documents.schemas import DocumentRead
 from src.modules.procurement.models import PurchaseOrderStatus
-from src.modules.procurement.schemas import NonNegativeMoney, NonNegativeQuantity
 
 
 class InboundTrackingStatus(StrEnum):

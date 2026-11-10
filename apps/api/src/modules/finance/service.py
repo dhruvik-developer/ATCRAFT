@@ -91,9 +91,10 @@ from src.core.errors import (
     ValidationError,
     referenced_in_use,
 )
+from src.core.fields import currency_code
 from src.core.ids import new_id
 from src.core.logging import get_logger
-from src.core.messages import date_before, inactive_record, plural
+from src.core.messages import CURRENCY_CODE_INVALID, date_before, inactive_record, plural
 from src.core.pagination import DateCursor, DateCursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -111,7 +112,6 @@ from src.modules.finance.models import (
     AGEING_BUCKET_LABELS,
     ALLOCATABLE_PAYMENT_STATUSES,
     COST_CENTRE_ACCOUNT_TYPES,
-    CURRENCY_CODE_LENGTH,
     EDITABLE_INVOICE_STATUSES,
     JOB_WORK_ALLOW_FREE_LINES,
     MAX_JOURNAL_LINES,
@@ -5202,25 +5202,22 @@ async def post_customer_adjustment(
 
 
 def normalise_currency(raw: str | None) -> str | None:
-    """Accept an ISO-4217 alphabetic code, or nothing at all.
+    """A report's ``currency`` filter, read by the rule every currency field applies.
 
-    ASSUMPTION: a currency is a code, not a spelling. A caller's string is
-    trimmed and upper-cased before it is compared against a stored column, so
-    ``inr`` and ``INR`` cannot become two different books; and anything that is
-    not three letters is refused outright. The alternative - passing an
-    unrecognised string through to the ``WHERE`` clause - matches no row and
-    reports a company with a full payables book as owing nothing, which is the
-    one answer a finance report must never give by accident.
+    ``inr`` is ``INR`` and anything that is not three letters is refused -
+    ``src.core.fields.currency_code``, docs/assumptions.md §INPUT-2. The refusal
+    matters most here: an unrecognised string passed through to the ``WHERE``
+    clause matches no row and reports a company with a full payables book as
+    owing nothing, which is the one answer a finance report must never give by
+    accident. A filter can also arrive from a worker, so it is checked here
+    rather than only at the route.
     """
     if raw is None:
         return None
-    candidate = raw.strip().upper()
-    if not (len(candidate) == CURRENCY_CODE_LENGTH and candidate.isalpha()):
-        raise ValidationError(
-            "A currency is a three-letter ISO 4217 code, e.g. INR.",
-            details={"currency": raw},
-        )
-    return candidate
+    try:
+        return str(currency_code(raw))
+    except ValueError:
+        raise ValidationError(CURRENCY_CODE_INVALID, details={"currency": raw}) from None
 
 
 async def company_currency(session: AsyncSession, tenant: TenantContext) -> str:

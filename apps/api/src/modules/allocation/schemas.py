@@ -24,7 +24,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.common.codes import clean_text
-from src.core.constants import REASON_MIN_LENGTH
+from src.core.fields import Reason
 from src.modules.allocation.models import (
     DEFAULT_RESERVATION_PRIORITY,
     DemandType,
@@ -33,9 +33,12 @@ from src.modules.allocation.models import (
     ReservationType,
 )
 
-Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
-PositiveQuantity = Annotated[Decimal, Field(gt=0, le=Decimal("99999999999999"))]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
+#: Bounded by the quantity column's integer digits but not by its scale: a finer
+#: value reaches the service, which rounds it to four places with ``to_quantity``
+#: and refuses one that rounds to zero. Named apart from ``src.core.fields``'s
+#: ``PositiveQuantity``, which refuses a fifth decimal place at the door.
+UnscaledPositiveQuantity = Annotated[Decimal, Field(gt=0, le=Decimal("99999999999999"))]
+UnscaledNonNegativeQuantity = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
 #: Bounded so a client cannot express a priority the ranking cannot compare
 #: meaningfully, and so the column's integer range is never the limiting factor.
 Priority = Annotated[int, Field(ge=0, le=9999)]
@@ -67,7 +70,7 @@ class ReservationCreate(BaseModel):
 
     item_id: uuid.UUID
     warehouse_id: uuid.UUID
-    quantity: PositiveQuantity
+    quantity: UnscaledPositiveQuantity
     demand_type: DemandType
     demand_id: uuid.UUID
     demand_line_id: uuid.UUID | None = None
@@ -146,7 +149,7 @@ class ReleaseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: Reason
-    quantity: PositiveQuantity | None = None
+    quantity: UnscaledPositiveQuantity | None = None
 
 
 class AvailableToPromiseRead(BaseModel):
@@ -209,7 +212,7 @@ class ReallocationRequestCreate(BaseModel):
 
     item_id: uuid.UUID
     warehouse_id: uuid.UUID
-    quantity: PositiveQuantity
+    quantity: UnscaledPositiveQuantity
     to_demand_type: DemandType
     to_demand_id: uuid.UUID
     to_demand_line_id: uuid.UUID | None = None
@@ -301,8 +304,6 @@ class ReallocationRequestRead(BaseModel):
 
 __all__ = [
     "AvailableToPromiseRead",
-    "NonNegativeQuantity",
-    "PositiveQuantity",
     "Priority",
     "ReallocationCandidateRead",
     "ReallocationDecision",
@@ -314,4 +315,6 @@ __all__ = [
     "ReservationCreate",
     "ReservationFilters",
     "ReservationRead",
+    "UnscaledNonNegativeQuantity",
+    "UnscaledPositiveQuantity",
 ]

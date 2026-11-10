@@ -29,7 +29,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from src.core.constants import REASON_MIN_LENGTH
+from src.core.fields import CurrencyCode, LongReason, NonNegativeMoney, PositiveQuantity, Reason
 from src.core.messages import date_before
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.finance.models import (
@@ -51,14 +51,9 @@ from src.modules.finance.models import (
 
 Money = Annotated[Decimal, Field(max_digits=18, decimal_places=4)]
 PositiveMoney = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
-NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
-PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 UnitPriceIn = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6)]
 TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
-Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=500)]
 Notes = Annotated[str, Field(max_length=2000)]
-Currency = Annotated[str, Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")]
 
 #: Upper bound on a ledger statement page. A statement is read a page at a time
 #: and an unbounded one would be both a slow query and an unusable document.
@@ -416,7 +411,7 @@ class VendorInvoiceCreate(BaseModel):
     #: row. A module-level default here would let a company keeping books in one
     #: denomination silently accumulate invoices in another, which is precisely
     #: the disagreement that made the ageing report unreadable.
-    currency: Currency | None = None
+    currency: CurrencyCode | None = None
     round_off_amount: Money = Decimal("0")
     notes: Notes | None = None
     lines: Annotated[list[VendorInvoiceLineIn], Field(min_length=1, max_length=MAX_INVOICE_LINES)]
@@ -697,19 +692,19 @@ class InvoiceApproval(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    override_reason: Reason | None = None
+    override_reason: LongReason | None = None
 
 
 class DisputeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: Reason
+    reason: LongReason
 
 
 class ReasonRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: Reason
+    reason: LongReason
 
 
 # -----------------------------------------------------------------------------
@@ -751,7 +746,7 @@ class PaymentCreate(BaseModel):
     #: NULL means the company's own currency - see ``VendorInvoiceCreate``.
     #: Allocation refuses to settle an invoice with a payment in a different
     #: denomination, so the two defaults have to come from the same place.
-    currency: Currency | None = None
+    currency: CurrencyCode | None = None
     reference_number: Annotated[str, Field(max_length=64)] | None = None
     bank_name: Annotated[str, Field(max_length=120)] | None = None
     instrument_date: date | None = None
@@ -930,11 +925,6 @@ class PaymentFilters(BaseModel):
 # Customer adjustments
 # -----------------------------------------------------------------------------
 
-#: Bounded to what the customers module accepts on its own ``OutstandingAdjustment``
-#: payload (3-255 characters): the reason is forwarded verbatim, so a reason
-#: that passes here must not fail validation there and become a 500.
-AdjustmentReason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
-
 
 class CustomerAdjustmentCreate(BaseModel):
     """A debit or credit note against a customer's account, posted by hand.
@@ -952,7 +942,10 @@ class CustomerAdjustmentCreate(BaseModel):
     amount: PositiveMoney
     account_id: uuid.UUID
     entry_date: date | None = Field(default=None, description="Defaults to today")
-    reason: AdjustmentReason
+    #: The shared ``Reason``, which the customers module's ``OutstandingAdjustment``
+    #: also applies: the reason is forwarded verbatim, so one that passes here
+    #: must not fail validation there and become a 500.
+    reason: Reason
 
 
 class CustomerAdjustmentRead(BaseModel):

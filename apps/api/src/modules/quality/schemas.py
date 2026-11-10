@@ -29,6 +29,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import REASON_MIN_LENGTH
+from src.core.fields import NonNegativeQuantity, PositiveQuantity, Reason
 from src.core.messages import date_before
 from src.modules.quality.models import (
     ALLOWED_VALUE_LENGTH,
@@ -46,11 +47,8 @@ from src.modules.quality.models import (
 
 # --- reusable constrained scalars --------------------------------------------
 
-PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 Measurement = Annotated[Decimal, Field(max_digits=18, decimal_places=6)]
 SamplePercentage = Annotated[Decimal, Field(gt=0, le=100, max_digits=9, decimal_places=4)]
-Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 Code = Annotated[str, Field(min_length=2, max_length=64)]
 Name = Annotated[str, Field(min_length=2, max_length=255)]
 ParameterName = Annotated[str, Field(min_length=1, max_length=PARAMETER_NAME_LENGTH)]

@@ -1376,15 +1376,27 @@ class TestPaymentCreate:
         assert data["status"] == "DRAFT"
         assert await value(session, Payment.party_id, uuid.UUID(data["id"])) == customer_id
 
+    async def test_a_lower_case_currency_is_recorded_as_its_code(
+        self, api_client, session, tenant, purchase
+    ):
+        """docs/assumptions.md §INPUT-2: ``inr`` is ``INR``, never a second denomination."""
+        response = await api_client.post(
+            "/finance/payments", json=payment_json(purchase.vendor_id, currency=" inr ")
+        )
+
+        data = ok(response, 201)
+        assert data["currency"] == "INR"
+        assert await value(session, Payment.currency, uuid.UUID(data["id"])) == "INR"
+
     @pytest.mark.parametrize(
         ("change", "field"),
         [
             ({"payment_type": "RECEIPT"}, "_root"),
             ({"payment_method": "ADJUSTMENT"}, "payment_method"),
             ({"amount": "0"}, "amount"),
-            ({"currency": "inr"}, "currency"),
+            ({"currency": "1A$"}, "currency"),
         ],
-        ids=["receipt-from-a-vendor", "noncash-method", "zero-amount", "lower-case-currency"],
+        ids=["receipt-from-a-vendor", "noncash-method", "zero-amount", "non-code-currency"],
     )
     async def test_a_malformed_payment_is_a_field_error(
         self, api_client, session, tenant, purchase, change, field

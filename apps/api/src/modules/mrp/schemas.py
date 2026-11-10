@@ -36,8 +36,8 @@ from pydantic import (
 )
 
 from src.common.codes import clean_text
-from src.core.constants import REASON_MIN_LENGTH
 from src.core.demand_provenance import RootDemandProvenance, project_demand_provenance
+from src.core.fields import PositiveQuantity, Reason
 from src.core.messages import date_before
 from src.core.types import to_quantity
 from src.modules.mrp.models import (
@@ -50,16 +50,6 @@ from src.modules.mrp.models import (
     MrpSuggestionStatus,
     MrpSuggestionType,
 )
-
-# ``decimal_places`` is not decoration: every quantity written by this module is
-# ``Numeric(18,4)`` and is quantised with ``to_quantity`` on the way in, so a
-# request for 0.00004 of something is silently rounded to zero and then rejected
-# by the ``quantity > 0`` check constraint as an unexplained 500. Bounding the
-# scale here turns that into the 422 it always was.
-PositiveQuantity = Annotated[
-    Decimal, Field(gt=0, le=Decimal("99999999999999"), max_digits=18, decimal_places=4)
-]
-Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 #: Bound on a single manual-demand payload. A planner types these by hand; a
 #: request carrying thousands is a bulk import, which is a different endpoint

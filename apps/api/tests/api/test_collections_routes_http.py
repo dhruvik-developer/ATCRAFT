@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today
 from src.core.deps import Principal, TenantContext
+from src.core.messages import CURRENCY_CODE_INVALID
 from src.core.permissions import Permission
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.collections import service as collections_service
@@ -288,14 +289,15 @@ class TestOpeningAFollowUp:
         assert error["details"] == {"customer_id": str(customer_id), "currency": "INR"}
         assert await follow_ups_of(session, customer_id) == 0
 
-    async def test_a_currency_that_is_not_an_iso_code_is_refused(
+    async def test_a_currency_that_is_not_an_iso_code_is_refused_on_its_field(
         self, api_client, session, customer_id
     ):
+        """The one currency rule (docs/assumptions.md §INPUT-2): a field error, as in finance."""
         response = await api_client.post(
             "/collections/follow-ups", json={"customer_id": str(customer_id), "currency": "1NR"}
         )
 
-        assert refused(response, 422, "BUSINESS_RULE_VIOLATION")["details"] == {"currency": "1NR"}
+        assert field_errors(response)["currency"] == [CURRENCY_CODE_INVALID]
         assert await follow_ups_of(session, customer_id) == 0
 
     async def test_an_unknown_assignee_is_not_found(self, api_client, session, customer_id):

@@ -120,6 +120,8 @@ def success_message(subject: str, action: SuccessAction) -> str:
 #: refusals read the same way.
 FIELDS_NEED_ATTENTION = "Some fields need attention."
 INVALID_VALUE = "Enter a valid value."
+#: A currency field or filter given anything but an ISO 4217 alphabetic code.
+CURRENCY_CODE_INVALID = "Currency must be a three-letter ISO 4217 code, e.g. INR."
 MALFORMED_JSON = "The request body must contain valid JSON."
 
 # --- request failures ----------------------------------------------------------
@@ -367,6 +369,7 @@ def verdict_differs_from_inspection(document: str, inspections: str) -> str:
 
 
 __all__ = [
+    "CURRENCY_CODE_INVALID",
     "CURRENT_PASSWORD_INCORRECT",
     "DEALER_ACCOUNT_REQUIRED",
     "DISCOUNT_EITHER_NOT_BOTH",

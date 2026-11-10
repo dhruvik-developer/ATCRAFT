@@ -36,11 +36,11 @@ from src.common.tax_ids import (
     validate_pan,
 )
 from src.core.constants import (
-    CURRENCY_CODE_LENGTH,
     DEFAULT_CURRENCY,
     MAX_NOTES_LENGTH,
     REASON_MIN_LENGTH,
 )
+from src.core.fields import CurrencyCode
 from src.modules.vendors.models import (
     DEFAULT_RATING_WINDOW_DAYS,
     MAX_RATING_WINDOW_DAYS,
@@ -207,9 +207,7 @@ class VendorCreate(_StatutoryConsistency):
     payment_terms_days: int = Field(default=0, ge=0, le=365)
     credit_limit: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     lead_time_days: int = Field(default=0, ge=0, le=999)
-    currency: str = Field(
-        default=DEFAULT_CURRENCY, min_length=CURRENCY_CODE_LENGTH, max_length=CURRENCY_CODE_LENGTH
-    )
+    currency: CurrencyCode = DEFAULT_CURRENCY
 
     bank_name: str | None = Field(default=None, max_length=120)
     bank_branch: str | None = Field(default=None, max_length=120)
@@ -243,7 +241,7 @@ class VendorCreate(_StatutoryConsistency):
     _pan = field_validator("pan")(_optional_pan)
     _ifsc = field_validator("bank_ifsc", mode="before")(_optional_ifsc)
     _swift = field_validator("bank_swift")(_optional_swift)
-    _upper = field_validator("msme_number", "state_code", "currency")(_upper_optional)
+    _upper = field_validator("msme_number", "state_code")(_upper_optional)
     _strip = field_validator(
         "address_line1",
         "address_line2",
@@ -285,7 +283,7 @@ class VendorUpdate(_StatutoryConsistency):
     payment_terms_days: int | None = Field(default=None, ge=0, le=365)
     credit_limit: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     lead_time_days: int | None = Field(default=None, ge=0, le=999)
-    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    currency: CurrencyCode | None = None
 
     bank_name: str | None = Field(default=None, max_length=120)
     bank_branch: str | None = Field(default=None, max_length=120)
@@ -316,7 +314,7 @@ class VendorUpdate(_StatutoryConsistency):
     _pan = field_validator("pan")(_optional_pan)
     _ifsc = field_validator("bank_ifsc", mode="before")(_optional_ifsc)
     _swift = field_validator("bank_swift")(_optional_swift)
-    _upper = field_validator("msme_number", "state_code", "currency")(_upper_optional)
+    _upper = field_validator("msme_number", "state_code")(_upper_optional)
     _strip = field_validator(
         "address_line1",
         "address_line2",

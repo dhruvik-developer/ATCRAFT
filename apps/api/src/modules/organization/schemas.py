@@ -22,7 +22,6 @@ say whether a well-formed GSTIN is actually registered.
 
 from __future__ import annotations
 
-import re
 import uuid
 from datetime import date, datetime
 from typing import Annotated
@@ -34,6 +33,7 @@ from src.common.banking import validate_optional_ifsc
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
 from src.core.constants import MAX_NOTES_LENGTH, REASON_MIN_LENGTH
+from src.core.fields import CurrencyCode
 from src.core.validation import reject_null
 from src.modules.organization.models import CostCentreType
 
@@ -76,13 +76,6 @@ def _validate_timezone(value: str) -> str:
     return name
 
 
-def _validate_currency(value: str) -> str:
-    code = value.strip().upper()
-    if not re.match(r"^[A-Z]{3}$", code):
-        raise ValueError("Currency must be a three-letter ISO 4217 code, e.g. INR.")
-    return code
-
-
 # -----------------------------------------------------------------------------
 # Company
 # -----------------------------------------------------------------------------
@@ -121,7 +114,7 @@ class CompanyUpdate(BaseModel):
     postal_code: str | None = Field(default=None, max_length=16)
     country: str | None = Field(default=None, min_length=1, max_length=80)
 
-    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    currency: CurrencyCode | None = None
     financial_year_start_month: int | None = Field(default=None, ge=1, le=12)
     timezone: str | None = Field(default=None, min_length=1, max_length=64)
     logo_document_id: uuid.UUID | None = None
@@ -178,11 +171,6 @@ class CompanyUpdate(BaseModel):
     @classmethod
     def _upper_cin(cls, value: str | None) -> str | None:
         return _upper_optional(value)
-
-    @field_validator("currency")
-    @classmethod
-    def _currency(cls, value: str | None) -> str | None:
-        return None if value is None else _validate_currency(value)
 
     @field_validator("timezone")
     @classmethod

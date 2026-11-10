@@ -24,7 +24,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.core.constants import REASON_MIN_LENGTH
+from src.core.fields import NonNegativeQuantity, PositiveQuantity, Reason
 from src.core.messages import (
     OUTPUT_SERIAL_LENGTH,
     OUTPUT_SERIAL_REPEATED,
@@ -40,9 +40,6 @@ from src.modules.assembly.models import (
 
 # --- reusable constrained scalars --------------------------------------------
 
-PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
-Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 AssemblyLine = Annotated[str, Field(min_length=1, max_length=ASSEMBLY_LINE_LENGTH)]
 Notes = Annotated[str, Field(max_length=2000)]
 #: Lower is more urgent - the production order's bounds, on the allocation scale.

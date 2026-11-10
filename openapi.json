@@ -14694,6 +14694,7 @@
               {
                 "maxLength": 3,
                 "minLength": 3,
+                "pattern": "^[A-Z]{3}$",
                 "type": "string"
               },
               {
@@ -27107,6 +27108,7 @@
           "currency": {
             "maxLength": 3,
             "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
             "title": "Currency",
             "type": "string"
           },
@@ -49238,6 +49240,7 @@
             "default": "INR",
             "maxLength": 3,
             "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
             "title": "Currency",
             "type": "string"
           },
@@ -76317,6 +76320,7 @@
             "default": "INR",
             "maxLength": 3,
             "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
             "title": "Currency",
             "type": "string"
           },
@@ -78345,6 +78349,7 @@
             "default": "INR",
             "maxLength": 3,
             "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
             "title": "Currency",
             "type": "string"
           },
@@ -81925,6 +81930,7 @@
               {
                 "maxLength": 3,
                 "minLength": 3,
+                "pattern": "^[A-Z]{3}$",
                 "type": "string"
               },
               {

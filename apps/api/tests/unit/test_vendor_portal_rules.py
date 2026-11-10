@@ -169,9 +169,19 @@ def test_a_bill_finance_refuses_is_a_field_error_not_a_500(
     assert field in refused.value.details["fields"], refused.value.details
 
 
-def test_a_lower_case_currency_is_refused_at_the_portal_door() -> None:
+def test_the_portal_door_reads_a_currency_the_way_finance_does() -> None:
+    """One shared rule on both sides (docs/assumptions.md §INPUT-2).
+
+    A lower-case code is the same currency at the door and in finance's body, so
+    nothing finance refuses can pass the portal; a code that is not three letters
+    is refused when the request is parsed, on the field.
+    """
+    bill = VendorPortalInvoiceCreate(**_bill(currency=" inr "))
+
+    assert bill.currency == "INR"
+    assert bill.staff_payload(uuid.uuid4()).currency == "INR"
     with pytest.raises(PydanticValidationError) as refused:
-        VendorPortalInvoiceCreate(**_bill(currency="inr"))
+        VendorPortalInvoiceCreate(**_bill(currency="1A$"))
     assert [error["loc"] for error in refused.value.errors()] == [("currency",)]
 
 

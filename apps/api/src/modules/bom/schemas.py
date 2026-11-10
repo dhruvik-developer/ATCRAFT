@@ -28,6 +28,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import REASON_MIN_LENGTH
+from src.core.fields import NonNegativeMoney, NonNegativeQuantity, PositiveQuantity
 from src.core.messages import (
     date_before,
     duplicate_line_numbers,
@@ -38,10 +39,7 @@ from src.modules.bom.models import BomStatus, BomType
 
 # --- reusable constrained scalars --------------------------------------------
 
-PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 ScrapPercentage = Annotated[Decimal, Field(ge=0, lt=100, max_digits=9, decimal_places=4)]
-NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 
 #: A BOM with more lines than this is a data-entry accident, not a product. The
 #: bound matters because create and update both replace the whole line set in

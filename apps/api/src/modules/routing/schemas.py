@@ -31,7 +31,7 @@ from pydantic import (
 )
 
 from src.common.codes import normalise_code
-from src.core.constants import REASON_MIN_LENGTH
+from src.core.fields import NonNegativeMoney, NonNegativeQuantity, Reason
 from src.core.messages import date_before, duplicate_operation_sequences, listed
 from src.modules.routing.models import (
     DEFAULT_WORKING_HOURS_PER_DAY,
@@ -46,8 +46,6 @@ from src.modules.routing.models import (
 # --- reusable constrained scalars --------------------------------------------
 
 NonNegativeMinutes = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
-NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
-NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 WorkingHours = Annotated[
     Decimal, Field(gt=0, le=MAX_WORKING_HOURS_PER_DAY, max_digits=18, decimal_places=4)
 ]
@@ -55,7 +53,6 @@ WorkingHours = Annotated[
 CodeField = Annotated[str, Field(min_length=1, max_length=32)]
 RoutingCodeField = Annotated[str, Field(min_length=1, max_length=64)]
 NameField = Annotated[str, Field(min_length=1, max_length=255)]
-ReasonField = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 #: A routing with more steps than this is a data-entry accident, not a process.
 #: The bound matters because create and update both replace the whole operation
@@ -244,7 +241,7 @@ class MachineStatusChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: MachineStatus
-    reason: ReasonField
+    reason: Reason
     #: Optional on any transition, but the reason the payload exists: completing
     #: maintenance is the moment the next service date is known.
     next_maintenance_date: date | None = None
@@ -454,7 +451,7 @@ class ReasonRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: ReasonField
+    reason: Reason
 
 
 class RoutingStatusChange(ReasonRequest):

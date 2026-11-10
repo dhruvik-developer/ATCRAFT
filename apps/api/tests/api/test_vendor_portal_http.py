@@ -750,7 +750,7 @@ async def test_a_bill_finance_refuses_is_a_field_error_that_writes_nothing(
     }
     priced = {"quantity": "1", "unit_price": "40"}
     refusals = [
-        ({"currency": "inr"}, "currency"),
+        ({"currency": "1A$"}, "currency"),
         ({"due_date": (today() - timedelta(days=1)).isoformat()}, "_root"),
         (
             {
@@ -778,8 +778,10 @@ async def test_a_bill_finance_refuses_is_a_field_error_that_writes_nothing(
         assert field in error["details"]["fields"], error
 
     assert (await session.scalar(invoices), await session.scalar(audits)) == before
-    accepted = await api_client.post("/vendor-portal/invoices", json=bill)
+    # A lower-case code is the company's currency, not a refusal (docs/assumptions.md §INPUT-2).
+    accepted = await api_client.post("/vendor-portal/invoices", json={**bill, "currency": "inr"})
     assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["data"]["currency"] == "INR"
 
 
 async def test_a_rejection_at_inspection_reaches_the_vendors_quality_contact(

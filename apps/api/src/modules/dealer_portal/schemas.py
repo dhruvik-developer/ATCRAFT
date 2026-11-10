@@ -12,11 +12,10 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.constants import MAX_INTEGER_COLUMN, REASON_MIN_LENGTH
+from src.core.constants import MAX_INTEGER_COLUMN
+from src.core.fields import LongReason
 from src.modules.dealer_portal.models import AvailabilityBand, OfferScopeKind
 from src.modules.sales.models import SalesOrderLineStatus, SalesOrderStatus
-
-Reason = Field(min_length=REASON_MIN_LENGTH, max_length=500)
 
 
 class DealerOfferSnippet(BaseModel):
@@ -251,7 +250,7 @@ class DealerCheckoutRequest(BaseModel):
 class DealerCancelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Reason
+    reason: LongReason
 
 
 class DealerOrderFilters(BaseModel):
