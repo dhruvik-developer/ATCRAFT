@@ -6,16 +6,22 @@ the next consignment picks up exactly where this one stopped. Getting it wrong
 means either shipping twice or telling a customer their order is complete when it
 is not, and neither is visible until they complain.
 
-Everything here is pure: no database, no session, no fixtures.
+Everything here is pure: no database, no session, no fixtures - the status walk
+runs with its writer and its one read replaced.
 """
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
+from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError
+from src.modules.audit.models import AuditAction
 from src.modules.dispatch.service import dispatch_balance, sales_order_status_path
 from src.modules.sales.models import SalesOrderStatus
 
@@ -169,3 +175,65 @@ def test_every_step_of_the_path_is_a_legal_sales_order_transition() -> None:
 
 def test_an_already_dispatched_order_is_not_moved_again() -> None:
     assert sales_order_status_path(SalesOrderStatus.DISPATCHED, fully_dispatched=True) == ()
+
+
+# -----------------------------------------------------------------------------
+# The walk itself writes nothing: every hop is the sales module's own transition
+# -----------------------------------------------------------------------------
+
+
+async def test_every_hop_of_the_walk_is_the_sales_modules_own_transition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``sales_orders.status`` has one writer, and the dispatch walk is not a second one.
+
+    The walk used to assert, assign and audit each hop itself, beside a sales
+    docstring claiming its helper was the only writer of the column. It now
+    hands each hop - the INVOICED one for already-invoiced goods included - to
+    that helper, which asserts, stamps and audits it.
+    """
+    from src.modules.dispatch import service as dispatch_service
+
+    hops: list[tuple[str, str, str, AuditAction]] = []
+
+    async def transition(
+        session: Any,
+        tenant: Any,
+        order: Any,
+        target: SalesOrderStatus,
+        *,
+        reason: str,
+        repo: Any,
+        action: AuditAction,
+    ) -> Any:
+        hops.append((str(order.status), str(target), reason, action))
+        order.status = target
+        return order
+
+    async def nothing_uninvoiced(self: Any, order_id: uuid.UUID) -> int:
+        return 0
+
+    monkeypatch.setattr(dispatch_service, "transition_sales_order", transition)
+    monkeypatch.setattr(
+        dispatch_service.SalesOrderLineRepository, "uninvoiced_line_count", nothing_uninvoiced
+    )
+    order = SimpleNamespace(id=uuid.uuid4(), code="SO-0007", status=SalesOrderStatus.ALLOCATED)
+    tenant = TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+
+    final = await dispatch_service._advance_sales_order(
+        None,  # type: ignore[arg-type]
+        tenant,
+        sales_order=order,
+        fully_dispatched=True,
+        dispatch_code="DSP-0003",
+    )
+
+    assert final == "INVOICED"
+    assert [(source, target) for source, target, _, _ in hops] == [
+        ("ALLOCATED", "PARTIALLY_DISPATCHED"),
+        ("PARTIALLY_DISPATCHED", "DISPATCHED"),
+        ("DISPATCHED", "INVOICED"),
+    ]
+    assert {action for *_, action in hops} == {AuditAction.DISPATCH_CHANGE}
+    assert hops[0][2] == "Dispatch DSP-0003"
+    assert hops[-1][2] == "Dispatch DSP-0003 completed already-invoiced goods"

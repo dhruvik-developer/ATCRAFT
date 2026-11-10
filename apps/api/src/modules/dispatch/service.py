@@ -158,17 +158,18 @@ from src.modules.packing.models import PackingOrder, PackingOrderStatus
 from src.modules.products.models import Item
 from src.modules.sales.models import SalesOrderLine, SalesOrderStatus
 from src.modules.sales.service import (
+    AUDIT_SALES_ORDER,
     SALES_ORDER_LIFECYCLE,
     dispatchable_quantity,
     line_status_for,
     live_reservations,
     live_reserved,
 )
+from src.modules.sales.service import _transition as transition_sales_order
 
 log = get_logger(__name__)
 
 AUDIT_DISPATCH = "dispatch"
-AUDIT_SALES_ORDER = "sales_order"
 
 #: What the ledger rows this module posts point back at. A bare string matching
 #: ``inventory_transactions.reference_type``: the ledger outlives its source, so
@@ -2318,27 +2319,22 @@ async def _advance_sales_order(
 ) -> str:
     """Walk the order to the status its dispatched quantities now imply.
 
-    Each hop is asserted by the sales module's own state machine and audited
-    separately, so the order's history reads as the sequence it actually went
-    through rather than as a jump the machine does not describe.
+    Each hop goes through the sales module's own transition - asserted by its
+    state machine and audited separately - so the order's history reads as the
+    sequence it actually went through rather than as a jump the machine does not
+    describe, and ``sales_orders.status`` keeps the one writer it claims.
     """
+    orders = SalesOrderRepository(session, tenant)
     current = SalesOrderStatus(sales_order.status)
     for target in sales_order_status_path(current, fully_dispatched=fully_dispatched):
-        SALES_ORDER_LIFECYCLE.assert_transition(current, target)
-        sales_order.status = target
-        sales_order.updated_by_id = tenant.user_id
-        await session.flush()
-        await record_status_change(
+        await transition_sales_order(
             session,
-            company_id=tenant.company_id,
-            entity_type=AUDIT_SALES_ORDER,
-            entity_id=sales_order.id,
-            entity_code=sales_order.code,
-            from_status=str(current),
-            to_status=str(target),
-            user_id=tenant.user_id,
-            action=AuditAction.DISPATCH_CHANGE,
+            tenant,
+            sales_order,
+            target,
             reason=f"Dispatch {dispatch_code}",
+            repo=orders,
+            action=AuditAction.DISPATCH_CHANGE,
         )
         current = target
     if (
@@ -2347,22 +2343,15 @@ async def _advance_sales_order(
         and await SalesOrderLineRepository(session, tenant).uninvoiced_line_count(sales_order.id)
         == 0
     ):
-        SALES_ORDER_LIFECYCLE.assert_transition(current, SalesOrderStatus.INVOICED)
-        sales_order.status = SalesOrderStatus.INVOICED
-        sales_order.updated_by_id = tenant.user_id
-        await record_status_change(
+        await transition_sales_order(
             session,
-            company_id=tenant.company_id,
-            entity_type=AUDIT_SALES_ORDER,
-            entity_id=sales_order.id,
-            entity_code=sales_order.code,
-            from_status=str(current),
-            to_status=str(SalesOrderStatus.INVOICED),
-            user_id=tenant.user_id,
-            action=AuditAction.DISPATCH_CHANGE,
+            tenant,
+            sales_order,
+            SalesOrderStatus.INVOICED,
             reason=f"Dispatch {dispatch_code} completed already-invoiced goods",
+            repo=orders,
+            action=AuditAction.DISPATCH_CHANGE,
         )
-        await session.flush()
         current = SalesOrderStatus.INVOICED
     return str(current)
 

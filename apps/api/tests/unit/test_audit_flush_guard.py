@@ -42,7 +42,6 @@ PER_ROW_FLUSH_ALLOWED: dict[str, str] = {
         "load-bearing: the flush sends each demotion before the new default is promoted "
         "(partial unique index, checked per statement)"
     ),
-    "modules/dispatch/service.py::_advance_sales_order": "one order's status hops: at most three",
     "modules/finance/service.py::ensure_system_accounts": (
         "a fixed handful of control accounts, provisioned once per tenant"
     ),

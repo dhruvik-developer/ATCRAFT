@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.common.document_access import register_document_entity_resolver
+from src.common.repository import BaseRepository
 from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.currency import assert_customer_currency
@@ -3182,14 +3183,17 @@ async def _transition(
     target: SalesOrderStatus,
     *,
     reason: str,
-    repo: SalesOrderRepository,
+    repo: BaseRepository[SalesOrder],
     action: AuditAction = AuditAction.STATUS_CHANGE,
 ) -> SalesOrder:
     """Move an order's status and record it.
 
-    Every status change funnels through here, so there is exactly one place that
-    writes ``sales_orders.status`` and exactly one place that writes the matching
-    audit row (master rules section 73).
+    Every status change funnels through here - this module's own, the dispatch
+    module's walk through PARTIALLY_DISPATCHED and DISPATCHED, and finance's moves
+    into and back out of INVOICED - so there is exactly one place that writes
+    ``sales_orders.status`` and exactly one place that writes the matching audit
+    row (master rules section 73). ``repo`` only stamps the editor, so any
+    tenant-scoped repository of the table will do.
     """
     current = SalesOrderStatus(order.status)
     SALES_ORDER_LIFECYCLE.assert_transition(current, target)
