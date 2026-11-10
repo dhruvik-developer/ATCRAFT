@@ -27,13 +27,14 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.deps import TenantContext
+from src.core.errors import NotFoundError
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.courier_tracking import service as courier_service
 from src.modules.courier_tracking.models import CourierAccount, CourierProvider
@@ -46,6 +47,7 @@ from src.modules.dispatch.schemas import (
     DispatchLineIn,
     DispatchRequest,
 )
+from src.modules.documents.models import Document, DocumentCategory
 from src.modules.inventory import service as inventory
 from src.modules.inventory.models import StockSerial, TransactionType
 from src.modules.packing import service as packing_service
@@ -333,6 +335,26 @@ async def make_spec(
 # -----------------------------------------------------------------------------
 # Dispatch / returns builders
 # -----------------------------------------------------------------------------
+
+
+async def invoice_document(
+    session: AsyncSession, tenant: TenantContext, *, expired: bool = False
+) -> uuid.UUID:
+    """A filed invoice PDF of ``tenant``'s, already past its expiry when asked. Returns its id."""
+    document = Document(
+        company_id=tenant.company_id,
+        file_name="invoice.pdf",
+        storage_key=f"test/{uuid.uuid4()}.pdf",
+        mime_type="application/pdf",
+        size_bytes=1024,
+        checksum_sha256="0" * 64,
+        category=DocumentCategory.ATTACHMENT,
+        uploaded_by_id=tenant.user_id,
+        expires_at=utcnow() - timedelta(days=1) if expired else None,
+    )
+    session.add(document)
+    await session.flush()
+    return document.id
 
 
 async def free_stock_dispatch(
@@ -913,6 +935,43 @@ class TestUpdateDispatch:
         assert await column(session, Dispatch.courier_name, dispatch_id) == "BlueDart"
         (updated,) = await audit_rows(session, tenant.company_id, dispatch_id, AuditAction.UPDATE)
         assert updated.entity_type == "dispatch"
+
+    async def test_a_newly_named_invoice_document_must_be_live_and_this_companys(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        foreign: TenantContext,
+    ) -> None:
+        """The rule every stored document reference is held to (§REF-1).
+
+        An expired file and another company's are the same 404 as no file, and
+        nothing is written. A document the consignment already carries is not
+        re-checked, so an unrelated edit still works after that file expires.
+        """
+        bench = await free_stock_dispatch(session, tenant)
+        url = f"/dispatch/{bench.dispatch_id}"
+        live = await invoice_document(session, tenant)
+        expired = await invoice_document(session, tenant, expired=True)
+        theirs = await invoice_document(session, foreign)
+
+        for refused_id in (expired, theirs, uuid.uuid4()):
+            error = refused(
+                await api_client.patch(url, json={"invoice_document_id": str(refused_id)}),
+                404,
+                "NOT_FOUND",
+            )
+            assert error["message"] == NotFoundError("Document", refused_id).message
+        assert await column(session, Dispatch.invoice_document_id, bench.dispatch_id) is None
+
+        ok(await api_client.patch(url, json={"invoice_document_id": str(live)}))
+        await session.execute(
+            update(Document).where(Document.id == live).values(expires_at=utcnow())
+        )
+        ok(await api_client.patch(url, json={"notes": "Gate 2 after noon"}))
+
+        assert await column(session, Dispatch.invoice_document_id, bench.dispatch_id) == live
+        assert await column(session, Dispatch.notes, bench.dispatch_id) == "Gate 2 after noon"
 
     async def test_a_sent_consignment_cannot_be_edited(
         self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext

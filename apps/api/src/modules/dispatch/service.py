@@ -119,7 +119,6 @@ from src.modules.dispatch.repository import (
     DispatchLineRepository,
     DispatchRepository,
     DispatchTrackingEventRepository,
-    DocumentLookupRepository,
     ItemLookupRepository,
     LedgerLookupRepository,
     PackingOrderLookupRepository,
@@ -154,6 +153,7 @@ from src.modules.dispatch.schemas import (
     TrackingEventRead,
     duplicate_sales_order_line_ids,
 )
+from src.modules.documents.service import DocumentService
 from src.modules.inventory.models import SerialStatus, StockSerial, StockState, TransactionType
 from src.modules.inventory.service import MovementRequest, post_movements
 from src.modules.notifications.alerts import AlertCandidate
@@ -1302,7 +1302,11 @@ async def _validate_header(
     invoice_document_id: uuid.UUID | None,
     sales_order_id: uuid.UUID | None,
 ) -> None:
-    """Every master-data reference on the header, checked before anything is written."""
+    """Every master-data reference on the header, checked before anything is written.
+
+    ``invoice_document_id`` is the invoice document this write newly names, or
+    ``None``: a document the consignment already carries is not re-checked.
+    """
     if customer_id is not None:
         customer = await CustomerLookupRepository(session, tenant).get_facts(customer_id)
         if customer is None:
@@ -1355,10 +1359,12 @@ async def _validate_header(
                 details={"transporter_id": str(transporter_id)},
             )
 
-    if invoice_document_id is not None and not await DocumentLookupRepository(
-        session, tenant
-    ).exists_in_tenant(invoice_document_id):
-        raise NotFoundError("Document", invoice_document_id)
+    if invoice_document_id is not None:
+        # A bare document id the documents module expires and purges on its own
+        # schedule: live and this company's, or the same 404 as no document -
+        # the rule every stored document reference is held to
+        # (docs/assumptions.md §REF-1).
+        await DocumentService(session, tenant).require_live([invoice_document_id])
 
     if sales_order_id is not None:
         # Locked, not merely read: the lines are then checked against what
@@ -1675,6 +1681,7 @@ async def update_dispatch(
         # the new value and the comparison below could not tell a first claim
         # from a swap.
         held_packing_order = dispatch.packing_order_id
+        held_invoice_document = dispatch.invoice_document_id
         if (
             payload.packing_order_id is not None
             and held_packing_order is not None
@@ -1703,7 +1710,14 @@ async def update_dispatch(
             vendor_id=dispatch.vendor_id,
             warehouse_id=dispatch.warehouse_id,
             transporter_id=dispatch.transporter_id,
-            invoice_document_id=dispatch.invoice_document_id,
+            # Only a document this edit names: one the consignment already
+            # carries is not re-checked, so an unrelated edit keeps working after
+            # the file expires (docs/assumptions.md §REF-1).
+            invoice_document_id=(
+                dispatch.invoice_document_id
+                if dispatch.invoice_document_id != held_invoice_document
+                else None
+            ),
             sales_order_id=dispatch.sales_order_id,
         )
         if dispatch.sales_order_id is not None:

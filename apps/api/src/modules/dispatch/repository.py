@@ -66,7 +66,6 @@ from src.modules.dispatch.schemas import (
     DispatchFilters,
     TrackingBoardRow,
 )
-from src.modules.documents.models import Document
 from src.modules.inventory.models import (
     InventoryTransaction,
     SerialStatus,
@@ -267,16 +266,6 @@ class TransporterLookupRepository(BaseRepository[Transporter]):
         )
         row = (await self.session.execute(stmt)).first()
         return (row.code, row.name, row.is_active) if row is not None else None
-
-
-class DocumentLookupRepository(BaseRepository[Document]):
-    model = Document
-
-    async def exists_in_tenant(self, document_id: uuid.UUID) -> bool:
-        stmt = select(Document.id).where(
-            Document.company_id == self.tenant.company_id, Document.id == document_id
-        )
-        return (await self.session.execute(stmt.limit(1))).first() is not None
 
 
 class PackingOrderLookupRepository(BaseRepository[PackingOrder]):
@@ -1146,7 +1135,6 @@ __all__ = [
     "DispatchLineRepository",
     "DispatchRepository",
     "DispatchTrackingEventRepository",
-    "DocumentLookupRepository",
     "ItemLookupRepository",
     "LedgerLookupRepository",
     "PackingOrderLookupRepository",
