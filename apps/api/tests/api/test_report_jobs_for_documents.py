@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -34,7 +34,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -71,6 +71,7 @@ from src.workers import celery_app as celery_module
 from src.workers.tasks import reports as report_tasks
 from tests import seed_support
 from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.statement_support import counted
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -785,24 +786,17 @@ def _rendered_valuation(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return seen
 
 
-@contextmanager
-def _valuation_row_reads(engine: Any) -> Iterator[list[str]]:
-    """Every valuation row statement sent while the block runs.
+def _valuation_row_reads(statements: list[str]) -> list[str]:
+    """The valuation row statements among ``statements``.
 
     The totals read wraps the same aggregate with no ORDER BY; the row read is
     the one ordered by the grouping key.
     """
-    reads: list[str] = []
-
-    def record(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
-        if "inventory_cost_layers" in statement and "ORDER BY" in statement:
-            reads.append(statement)
-
-    event.listen(engine.sync_engine, "before_cursor_execute", record)
-    try:
-        yield reads
-    finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", record)
+    return [
+        statement
+        for statement in statements
+        if "inventory_cost_layers" in statement and "ORDER BY" in statement
+    ]
 
 
 async def _export_order(
@@ -837,13 +831,14 @@ async def test_the_valuation_export_reads_its_positions_in_one_statement(
     assert accepted.status_code == 202, accepted.text
     job_id = accepted.json()["data"]["job_id"]
 
-    with _valuation_row_reads(engine) as reads:
+    with counted(engine) as statements:
         outcome = await _run_worker(
             report_tasks.inventory_valuation,
             company_id=str(tenant.company_id),
             user_id=str(tenant.user_id),
             snapshot_id=job_id,
         )
+    reads = _valuation_row_reads(statements)
 
     assert outcome["status"] == "COMPLETED", outcome
     # An OFFSET walk re-ran the aggregate per chunk and once more to find the end.

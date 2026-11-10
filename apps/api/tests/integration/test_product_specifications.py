@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, event, func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.constants import MAX_SPECIFICATION_BATCH
@@ -52,6 +50,7 @@ from src.modules.products.specification_service import (
 )
 from src.modules.users.models import User
 from tests.seed_support import seed_category, seed_company, seed_item, seed_uom, seed_user
+from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
 
@@ -101,20 +100,6 @@ def templates(*entries: tuple[uuid.UUID, bool, int]) -> CategorySpecificationsRe
             for attribute_id, required, sort_order in entries
         ]
     )
-
-
-@contextmanager
-def statements(engine: Any) -> Iterator[list[str]]:
-    recorded: list[str] = []
-
-    def record(_connection, _cursor, statement, _parameters, _context, _executemany):
-        recorded.append(statement)
-
-    event.listen(engine.sync_engine, "before_cursor_execute", record)
-    try:
-        yield recorded
-    finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", record)
 
 
 async def test_master_crud_search_sort_pagination_and_audit(service, session, tenant):
@@ -628,14 +613,14 @@ async def test_bulk_helpers_stay_one_query_with_templates_values_and_foreign_ids
         await service.create_accessory(item_id, ItemAccessoryCreate(accessory_item_id=accessory_id))
     foreign_id = (await seed_item(session, company_id=other_company.id, code="D5-BULK-FOREIGN")).id
     await session.flush()
-    with statements(engine) as specification_statements:
+    with counted(engine) as specification_statements:
         result = await specifications_for_items(
             session, tenant, [*item_ids, item_ids[0], foreign_id, uuid.uuid4()]
         )
     assert len(specification_statements) == 1
     assert set(result) == set(item_ids)
     assert all(len(row.values) == 1 and not row.missing_required_count for row in result.values())
-    with statements(engine) as accessory_statements:
+    with counted(engine) as accessory_statements:
         accessories = await accessories_for_items(session, tenant, [*item_ids, foreign_id])
     assert len(accessory_statements) == 1
     assert set(accessories) == set(item_ids)
@@ -643,7 +628,7 @@ async def test_bulk_helpers_stay_one_query_with_templates_values_and_foreign_ids
         len(rows) == 1 and rows[0].accessory_item_id == accessory_id
         for rows in accessories.values()
     )
-    with statements(engine) as empty_statements:
+    with counted(engine) as empty_statements:
         assert await specifications_for_items(session, tenant, []) == {}
         assert await accessories_for_items(session, tenant, []) == {}
     assert empty_statements == []
@@ -651,7 +636,7 @@ async def test_bulk_helpers_stay_one_query_with_templates_values_and_foreign_ids
 
 async def test_batch_helpers_refuse_oversized_requests_before_querying(session, tenant, engine):
     item_ids = [uuid.uuid4() for _ in range(MAX_SPECIFICATION_BATCH + 1)]
-    with statements(engine) as attempted:
+    with counted(engine) as attempted:
         for helper in (specifications_for_items, accessories_for_items):
             with pytest.raises(ValidationError, match="At most"):
                 await helper(session, tenant, item_ids)

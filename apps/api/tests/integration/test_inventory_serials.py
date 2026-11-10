@@ -29,13 +29,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -58,6 +57,7 @@ from src.modules.inventory.schemas import StockSerialCreate
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from tests import seed_support
 from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
 
@@ -2220,21 +2220,6 @@ class TestSerialRegistration:
 # -----------------------------------------------------------------------------
 # Cost of a big document
 # -----------------------------------------------------------------------------
-
-
-@contextmanager
-def counted(engine: Any) -> Iterator[list[str]]:
-    """Record every statement the engine executes while the block runs."""
-    statements: list[str] = []
-
-    def record(conn, cursor, statement, parameters, context, executemany):
-        statements.append(statement)
-
-    event.listen(engine.sync_engine, "before_cursor_execute", record)
-    try:
-        yield statements
-    finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", record)
 
 
 class TestBatchCost:
