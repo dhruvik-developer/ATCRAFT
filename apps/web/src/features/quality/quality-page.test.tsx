@@ -30,6 +30,7 @@ import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { assemblyKeys } from '@/features/assembly/assembly-model'
+import { financeKeys } from '@/features/finance/finance-types'
 import { jobWorkKeys } from '@/features/job-work/job-work-model'
 import { queryKeys } from '@/lib/query-client'
 import { fail, ok, page, renderScreen, type RenderScreenOptions } from '@/test/harness'
@@ -724,6 +725,41 @@ describe('the inspection sheet', () => {
     await waitFor(() => fetch.requestFor('POST', `/quality/inspections/${INSPECTION_ID}/decide`))
     await waitFor(() => {
       for (const key of owners) {
+        expect(queryClient.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+      }
+    })
+  })
+
+  it('drops the credit a settled sales return issues, wherever it is read', async () => {
+    // The return's callback closes it with a credit note against the customer
+    // (`_issue_return_credit_note`). Only the return itself used to be dropped,
+    // so the credit notes, the customer's balance and the dealer's outstanding
+    // read as before the verdict until each expired.
+    const { user, fetch, queryClient } = await openInspection(
+      {
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+          detail({ parameters: [], reference_type: 'sales_return' }),
+        ),
+        [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok(decisionResponse()),
+      },
+      [P.QC_VIEW, P.QC_DECIDE],
+      { cachePolicy: 'production' },
+    )
+    const customer = '01a00000-0000-7000-8000-0000000000c1'
+    const credited = [
+      financeKeys.creditNotes({}),
+      queryKeys.customers.detail(customer),
+      queryKeys.dealerPortal.outstanding,
+    ]
+    for (const key of credited) queryClient.setQueryData(key, { id: customer })
+
+    await user.type(await screen.findByLabelText('Accepted'), '100')
+    await user.type(screen.getByLabelText(/reason for this decision/i), 'Returned sound')
+    await user.click(screen.getByRole('button', { name: /submit inspection/i }))
+
+    await waitFor(() => fetch.requestFor('POST', `/quality/inspections/${INSPECTION_ID}/decide`))
+    await waitFor(() => {
+      for (const key of credited) {
         expect(queryClient.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
       }
     })

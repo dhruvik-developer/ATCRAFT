@@ -85,6 +85,29 @@ describe('a new bill', () => {
       vi.unstubAllEnvs()
     }
   })
+
+  it('says what to choose in each required picker until something is chosen', async () => {
+    // Both pickers are required and offer no "none" item. Bound to the
+    // SELECT_NONE sentinel instead of the empty field, the trigger held a value
+    // no item matches, so it drew blank rather than its placeholder.
+    const { user } = renderDialog()
+    const dialog = await screen.findByRole('dialog')
+
+    expect(within(dialog).getByRole('combobox', { name: 'Base unit' })).toHaveTextContent(
+      'Select a unit',
+    )
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Produced item' }))
+    await user.click(await screen.findByRole('option', { name: /DOOR-CLOSER-A/ }))
+    await user.click(within(dialog).getByRole('combobox', { name: 'BOM type' }))
+    await user.click(await screen.findByRole('option', { name: 'Alternate' }))
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox', { name: 'Replaces' })).toHaveTextContent(
+        'Select the bill this one stands in for',
+      ),
+    )
+  })
 })
 
 describe('an alternate bill', () => {

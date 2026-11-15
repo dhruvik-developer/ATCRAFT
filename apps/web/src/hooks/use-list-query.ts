@@ -45,6 +45,15 @@ export interface UseListQueryOptions {
   refetchOnWindowFocus?: boolean
 }
 
+/**
+ * The rows before the first page arrives, and while a list is disabled: one
+ * array for every list and every render. A fresh `[]` each render is a new
+ * dependency for every `useMemo` and effect that reads `data`, so a screen
+ * recomputed its derived rows on every render until the first page landed.
+ * Frozen, because it is shared: a push into it would fill every empty list.
+ */
+const NO_ROWS = Object.freeze([]) as never[]
+
 /** A shared/bookmarked URL must not turn every list into an invalid API request. */
 function positiveInteger(
   value: string | null,
@@ -139,7 +148,7 @@ export function useListQuery<T>({
   const pageEnvelope = query.data && 'pagination' in query.data ? query.data : undefined
 
   return {
-    data: pageEnvelope?.data ?? [],
+    data: pageEnvelope?.data ?? NO_ROWS,
     pagination: pageEnvelope?.pagination,
     acceptedJob: query.data && !('pagination' in query.data) ? query.data.data : undefined,
     isLoading: query.isLoading,

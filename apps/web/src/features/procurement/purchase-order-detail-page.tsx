@@ -103,6 +103,7 @@ import {
   isUrgentPriority,
   pendingQuantity,
   poStageIndex,
+  purchaseOrderLineLabel,
   type PurchaseOrderDetail,
   type PurchaseOrderLine,
   type PurchaseOrderRow,
@@ -540,17 +541,25 @@ export default function PurchaseOrderDetailPage() {
         id: 'item',
         header: 'Item',
         enableSorting: false,
-        // The line carries `item_id` and the description recorded on the order.
-        // There is no bulk item lookup, and one request per line would be the
-        // N+1 the rules forbid, so the link carries the reader to the item.
+        // Named the way every other screen names an order line - the item's
+        // code and name, joined in by the API - with the description the order
+        // recorded beneath it when it says something the name does not.
         cell: ({ row }) => (
           <div className="max-w-[22rem]">
             <Link
               to={`/items/${row.original.item_id}`}
               className="block truncate font-medium hover:underline"
             >
-              {row.original.description ?? 'Open item'}
+              {purchaseOrderLineLabel(row.original)}
             </Link>
+            {row.original.item_code &&
+              row.original.item_name &&
+              row.original.description &&
+              row.original.description !== row.original.item_name && (
+                <span className="block truncate text-xs text-muted-foreground">
+                  {row.original.description}
+                </span>
+              )}
             <div className="mt-1 flex flex-wrap gap-1">
               {row.original.requires_qc && <Badge variant="warning">QC on receipt</Badge>}
             </div>

@@ -297,8 +297,10 @@ export function BomFormDialog({
                   name="parent_bom_id"
                   render={({ field }) => (
                     <Select
-                      value={field.value || SELECT_NONE}
-                      onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
+                      // Required, so no "none" item: an empty value is what lets
+                      // the trigger show its placeholder.
+                      value={field.value}
+                      onValueChange={field.onChange}
                       disabled={!itemId || alternatives.isLoading}
                     >
                       <SelectTrigger
@@ -376,8 +378,10 @@ export function BomFormDialog({
                   name="base_uom_id"
                   render={({ field }) => (
                     <Select
-                      value={field.value || SELECT_NONE}
-                      onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
+                      // Required, so no "none" item: an empty value is what lets
+                      // the trigger show its placeholder.
+                      value={field.value}
+                      onValueChange={field.onChange}
                     >
                       <SelectTrigger
                         id="bom-uom"

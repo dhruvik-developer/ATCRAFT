@@ -1,4 +1,5 @@
 import { screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -153,5 +154,33 @@ describe('independent list URL state', () => {
     expect(finalParams.get('q')).toBe('register')
     expect(finalParams.get('page')).toBe('3')
     expect(finalParams.get('lines_page')).toBe('3')
+  })
+})
+
+describe('the rows before the first page', () => {
+  it('are one array across renders, so nothing derived from them recomputes', async () => {
+    // `data ?? []` handed every render a new empty array, which is a new
+    // dependency for every memo and effect that reads it.
+    const seen: unknown[][] = []
+    function Waiting() {
+      const [renders, setRenders] = useState(0)
+      const list = useListQuery({
+        path: '/waiting',
+        queryKey: (p) => ['waiting', p],
+        enabled: false,
+      })
+      seen.push(list.data)
+      return <button onClick={() => setRenders(renders + 1)}>Render again {renders}</button>
+    }
+    const { user } = renderScreen(<Waiting />)
+
+    await user.click(await screen.findByRole('button', { name: 'Render again 0' }))
+    expect(await screen.findByRole('button', { name: 'Render again 1' })).toBeVisible()
+
+    expect(seen.length).toBeGreaterThan(1)
+    expect(seen[0]).toEqual([])
+    for (const rows of seen) expect(rows).toBe(seen[0])
+    // Shared by every list that has none, so it refuses to be filled.
+    expect(Object.isFrozen(seen[0])).toBe(true)
   })
 })

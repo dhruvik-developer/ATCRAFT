@@ -649,3 +649,34 @@ describe('duplicate confirmation and revision visibility', () => {
     expect(view.fetch.calls.some((call) => call.path.startsWith('/audit/'))).toBe(false)
   })
 })
+
+describe("the order's lines", () => {
+  it('names each line by its item, with what the order recorded beneath it', async () => {
+    // `PurchaseOrderLineRead` carries the item's code and name, joined in by
+    // the API. The table used to print the recorded description, or "Open
+    // item" when there was none - so a line keyed without a description was
+    // named by nothing at all.
+    renderScreen(<PurchaseOrderDetailPage />, {
+      route: BASE,
+      path: '/procurement/purchase-orders/:poId',
+      permissions: [P.PURCHASE_ORDER_VIEW],
+      routes: detailRoutes(
+        order({
+          lines: [
+            line({ description: null }),
+            line({
+              id: '019d0000-0000-7000-8000-000000000105',
+              line_number: 2,
+              description: 'Polished, 96 mm centres',
+            }),
+          ],
+        }),
+      ),
+    })
+
+    const named = await screen.findAllByRole('link', { name: 'BRASS-HANDLE - Brass handle' })
+    expect(named).toHaveLength(2)
+    expect(screen.queryByText('Open item')).not.toBeInTheDocument()
+    expect(screen.getByText('Polished, 96 mm centres')).toBeVisible()
+  })
+})

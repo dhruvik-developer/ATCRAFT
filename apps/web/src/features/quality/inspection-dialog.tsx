@@ -610,6 +610,14 @@ export function InspectionDialog({
       void queryClient.invalidateQueries({ queryKey: queryKeys.jobWork.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
+      // A sales return that settles here closes with a credit note against the
+      // customer's balance (`_issue_return_credit_note`): the credit notes,
+      // receivables and ledger under the finance root read it, and so do the
+      // customer's and the dealer's outstanding - the same roots the sales
+      // returns screen drops after a write that may credit.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.finance.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dealerPortal.all })
 
       const { decision, code } = outcome
       // What actually moved, which is not the same as what was typed: this is
