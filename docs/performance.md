@@ -50,13 +50,30 @@ needs its own account file with a disjoint set of identities sized for the
 users assigned to it; workers do not share or partition one account pool.
 
 Run only against a populated, isolated load environment, never the shared
-development database. For example, from PowerShell:
+development database. `make test-load` (`.\make.ps1 test-load` on Windows)
+refuses to start until `LOAD_ACCOUNTS_FILE` names the account file,
+`LOAD_BASE_URL` names that environment and `locust` is on the path
+(`pip install -r tests/load/requirements.txt`). It then runs the headless smoke
+profile - 50 users, spawned five a second, for two minutes - so the account file
+needs at least 50 accounts. From PowerShell:
 
 ```powershell
 $env:LOAD_ACCOUNTS_FILE = 'C:\secure\atcraft-load-accounts.json'
+$env:LOAD_BASE_URL = 'https://load-target.example'
 $env:LOAD_WRITE_ENABLED = 'false'
-locust -f tests/load/locustfile.py --headless -u 20 -r 2 -t 10m --host http://127.0.0.1:8000
+.\make.ps1 test-load
 ```
+
+For another mix or a longer run, call Locust with the same variables - here 20
+users for ten minutes, which need 20 accounts:
+
+```powershell
+locust -f tests/load/locustfile.py --headless -u 20 -r 2 -t 10m --host $env:LOAD_BASE_URL
+```
+
+The harness's own tests - the account-file and write-fixture checks in
+`tests/load` - need no target: `make test-unit`, CI and the pre-push hook run
+them.
 
 The optional `LOAD_WRITE_ENABLED=true` adds one write cycle per `WriteUser`
 account: post a prepared stock adjustment, create and release a reservation,

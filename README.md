@@ -182,7 +182,8 @@ apps/
     src/core/           config, database, security, permissions, errors,
                         responses, pagination, cache, logging, deps, middleware
     src/common/         base repository, document numbering, approvals, document
-                        access, hierarchy, tax ids, banking, warehouse scope
+                        access, hierarchy, master lifecycle, tax ids, banking,
+                        warehouse scope
     src/modules/<name>/ models · schemas · repository · service · router
     src/workers/        Celery app and tasks
     migrations/         Alembic
