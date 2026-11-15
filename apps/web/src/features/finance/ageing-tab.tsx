@@ -61,7 +61,7 @@ import {
 } from '@/components/ui/primitives'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
-import { useFilterWriter } from '@/hooks/use-filter-writer'
+import { useFilterWriter } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { formatDate, formatMoney, formatNumber, toDateInput, toDecimal } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'

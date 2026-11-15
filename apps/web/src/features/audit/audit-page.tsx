@@ -62,7 +62,7 @@ import {
   TableScroller,
 } from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
-import { useFilterWriter } from '@/hooks/use-filter-writer'
+import { useFilterWriter } from '@/hooks/use-list-query'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDateTime, humanise, toDateInput } from '@/lib/format'

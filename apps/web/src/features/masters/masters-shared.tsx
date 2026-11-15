@@ -5,7 +5,8 @@
  * as their own lazily loaded modules: a tab that imported these from the page
  * would tie its chunk back to the page's, and a second copy in each tab is how
  * two tabs come to filter the same URL keys two different ways. Their URL
- * writes go through `hooks/use-filter-writer.ts`, as every list screen's do.
+ * writes go through `useFilterWriter` in `hooks/use-list-query.ts`, as every
+ * list screen's do.
  */
 
 import { type ReactNode } from 'react'

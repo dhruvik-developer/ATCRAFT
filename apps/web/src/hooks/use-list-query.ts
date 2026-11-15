@@ -7,7 +7,9 @@
  * everything and filters client-side.
  *
  * State lives in the URL query string, so a filtered view can be bookmarked,
- * shared with a colleague, and survives the back button.
+ * shared with a colleague, and survives the back button - and every write to
+ * it goes through one updater here, `written`: a list's own `setParam` and
+ * `setParams`, and `useFilterWriter` for a screen's filter keys of its own.
  */
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
@@ -53,6 +55,45 @@ export interface UseListQueryOptions {
  * Frozen, because it is shared: a push into it would fill every empty list.
  */
 const NO_ROWS = Object.freeze([]) as never[]
+
+/**
+ * A URL parameter's next value: text or a number sets it, a list writes one
+ * entry per value (a multi-valued key such as the dealer catalogue's `spec`),
+ * and `undefined`, `''` or an empty list removes it.
+ */
+export type SearchParamValue = string | number | readonly string[] | undefined
+
+/**
+ * `current` with every key in `next` written - and `pageParam`, unless it is
+ * null, removed: the URL one navigation leaves.
+ *
+ * `setSearchParams` is not a React state setter: every call in one handler
+ * starts from the URL captured at render and navigates, so only the last
+ * navigation survives. That is how a "Clear" button came to clear one filter of
+ * six, and choosing a side came to drop the party chosen beside it. Every key a
+ * handler changes therefore goes through one updater, and this is that updater,
+ * once.
+ */
+function written(
+  current: URLSearchParams,
+  next: Readonly<Record<string, SearchParamValue>>,
+  pageParam: string | null,
+): URLSearchParams {
+  const updated = new URLSearchParams(current)
+  for (const [key, value] of Object.entries(next)) {
+    if (Array.isArray(value)) {
+      updated.delete(key)
+      for (const entry of value) updated.append(key, entry)
+    } else if (value === undefined || value === '') {
+      updated.delete(key)
+    } else {
+      updated.set(key, String(value))
+    }
+  }
+  // The page number belonged to the previous narrowing, not this one.
+  if (pageParam !== null) updated.delete(pageParam)
+  return updated
+}
 
 /** A shared/bookmarked URL must not turn every list into an invalid API request. */
 function positiveInteger(
@@ -130,17 +171,11 @@ export function useListQuery<T>({
 
   const update = useCallback(
     (next: Record<string, string | number | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const updated = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(next)) {
-            if (value === undefined || value === '') updated.delete(`${prefix}${key}`)
-            else updated.set(`${prefix}${key}`, String(value))
-          }
-          return updated
-        },
-        { replace: true },
+      // This list's own keys, under its namespace; its page is one of them.
+      const keyed = Object.fromEntries(
+        Object.entries(next).map(([key, value]) => [`${prefix}${key}`, value]),
       )
+      setSearchParams((current) => written(current, keyed, null), { replace: true })
     },
     [prefix, setSearchParams],
   )
@@ -192,4 +227,33 @@ export function useListQuery<T>({
     pageParam: `${prefix}page`,
     params,
   }
+}
+
+/**
+ * Write several URL parameters in ONE navigation - and, by default, send the
+ * list they narrow back to its first page.
+ *
+ * `pageParam` is the key the narrowed list keeps its page under: `page`, or a
+ * namespaced list's `<namespace>_page` - pass that list's `pageParam`. Resetting
+ * a different list's key instead leaves this one on a page the narrower result
+ * does not have, drawn as "No records". `null` keeps every page where it is,
+ * for a write that chooses what a panel shows rather than narrowing a list.
+ *
+ * Here rather than in a module of its own: every lazy chunk is also named in
+ * the app entry's preload map, so a separate one cost the first paint bytes
+ * it never runs.
+ */
+export function useFilterWriter(pageParam: string | null = 'page') {
+  const [, setSearchParams] = useSearchParams()
+
+  return useCallback(
+    (next: Readonly<Record<string, SearchParamValue>>) =>
+      setSearchParams((current) => written(current, next, pageParam), { replace: true }),
+    [pageParam, setSearchParams],
+  )
+}
+
+/** Every key in `keys` removed: what a "Clear filters" button writes. */
+export function cleared(keys: readonly string[]): Record<string, undefined> {
+  return Object.fromEntries(keys.map((key) => [key, undefined]))
 }

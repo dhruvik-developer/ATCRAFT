@@ -24,8 +24,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
-import { useFilterWriter } from '@/hooks/use-filter-writer'
-import { useListQuery } from '@/hooks/use-list-query'
+import { useFilterWriter, useListQuery } from '@/hooks/use-list-query'
 import { EMPTY_VALUE } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'

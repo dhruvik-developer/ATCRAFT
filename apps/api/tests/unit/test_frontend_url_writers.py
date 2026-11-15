@@ -11,13 +11,13 @@ which key its list keeps its page under, and one that reset ``page`` for a
 list that keeps it under ``followups_page`` left that list on a page the
 narrower result did not have, drawn as "No records".
 
-``hooks/use-filter-writer.ts`` is that updater once: ``useFilterWriter()``
-writes several keys in one navigation and resets the page key it is given (a
-namespaced list's ``pageParam``, or ``null`` for a write that narrows nothing),
-and ``cleared(keys)`` is what a Clear button writes. ``useListQuery`` keeps its
-own ``setParam``/``setParams``, which already write through one updater.
+``hooks/use-list-query.ts`` holds that updater once, and writes every URL
+change through it: a list's own ``setParam``/``setParams``, and
+``useFilterWriter()``, which writes several keys in one navigation and resets
+the page key it is given (a namespaced list's ``pageParam``, or ``null`` for a
+write that narrows nothing); ``cleared(keys)`` is what a Clear button writes.
 
-So outside those two hooks this guard refuses, on comment-blanked source:
+So outside that module this guard refuses, on comment-blanked source:
 
 * a ``.delete(...)`` or ``.set(...)`` of a page key - ``'page'``, a template
   ending in ``page``, or a ``pageParam``/``pageKey`` variable;
@@ -42,10 +42,10 @@ from tests.frontend_scan_support import GENERATED, WEB_SRC, _line, blank_comment
 
 pytestmark = pytest.mark.unit
 
-WRITER = WEB_SRC / "hooks" / "use-filter-writer.ts"
+WRITER = WEB_SRC / "hooks" / "use-list-query.ts"
 
-#: Where the one-navigation updaters live.
-OWNERS = frozenset({"hooks/use-filter-writer.ts", "hooks/use-list-query.ts"})
+#: Where the one-navigation updater lives.
+OWNERS = frozenset({"hooks/use-list-query.ts"})
 
 #: A URL page key: the literal, a template ending in it, or a variable holding one.
 _PAGE_KEY = (
@@ -118,7 +118,7 @@ def test_no_screen_writes_its_url_filters_by_hand() -> None:
     }
     assert not found, (
         "These write URL filters through a hand-built updater:\n"
-        f"{found}\n\nUse useFilterWriter() from hooks/use-filter-writer.ts - pass a "
+        f"{found}\n\nUse useFilterWriter() from hooks/use-list-query.ts - pass a "
         "namespaced list's pageParam, or null for a write that narrows nothing - and "
         "cleared(keys) for a Clear button; or a list's own setParam/setParams."
     )

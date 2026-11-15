@@ -70,8 +70,7 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
-import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
-import { useListQuery } from '@/hooks/use-list-query'
+import { cleared, useFilterWriter, useListQuery } from '@/hooks/use-list-query'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'

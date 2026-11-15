@@ -47,7 +47,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { WarehouseSelect } from '@/features/inventory/pickers'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
-import { useFilterWriter } from '@/hooks/use-filter-writer'
+import { useFilterWriter } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import {
