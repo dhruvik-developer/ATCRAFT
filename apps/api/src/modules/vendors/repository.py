@@ -50,11 +50,11 @@ from src.modules.vendors.schemas import (
     VendorFilters,
 )
 
-#: Purchase-order statuses that still need the vendor. Anything past CLOSED or
-#: CANCELLED is history and does not block retiring the vendor record.
-#: Vocabulary from the purchase-order state machine in the database contract §7.
-#: VENDOR_DECLINED is open: the buyer still has to cancel the order or send it
-#: back to this vendor (docs/assumptions.md §C1-10).
+#: Purchase-order statuses that still need the vendor, so they block retiring
+#: the vendor record. Vocabulary from the purchase-order state machine in the
+#: database contract §7, spelled out here because master data may not import
+#: procurement. VENDOR_DECLINED is open: the buyer still has to cancel the order
+#: or send it back to this vendor (docs/assumptions.md §C1-10).
 OPEN_PURCHASE_ORDER_STATUSES = (
     "DRAFT",
     "PENDING_APPROVAL",
@@ -68,6 +68,27 @@ OPEN_PURCHASE_ORDER_STATUSES = (
     "QC_COMPLETED",
     "GRN_COMPLETED",
     "INVOICED",
+)
+#: The rest of that vocabulary: history, which never blocks a retirement. A
+#: PAID order is settled both ways and waits only to be closed; a REJECTED one
+#: never committed anything. Every status is in exactly one of the two lists -
+#: ``tests/unit/test_vendor_retirement_statuses.py`` fails on one added to
+#: ``PurchaseOrderStatus`` without being placed.
+CLOSED_PURCHASE_ORDER_STATUSES = ("REJECTED", "PAID", "CLOSED", "CANCELLED")
+
+#: Consignment statuses in which the goods are still with the carrier, so they
+#: block retiring the transporter: everything before DELIVERED. Spelled out for
+#: the same reason - dispatch sits above master data.
+OPEN_DISPATCH_STATUSES = ("NOT_DISPATCHED", "READY_FOR_DISPATCH", "DISPATCHED", "IN_TRANSIT")
+#: DELIVERED onwards the carrier's part is done, and a CANCELLED consignment
+#: never left. Placed against ``DispatchStatus`` by the same test.
+CLOSED_DISPATCH_STATUSES = (
+    "DELIVERED",
+    "QC_PENDING",
+    "RECEIVED",
+    "QC_COMPLETED",
+    "GRN_COMPLETED",
+    "CANCELLED",
 )
 
 
@@ -599,14 +620,7 @@ class TransporterRepository(BaseRepository[Transporter]):
             {
                 "company_id": self.tenant.company_id,
                 "transporter_id": transporter_id,
-                # Everything before DELIVERED: the goods are still with the
-                # carrier, so the master row is still needed operationally.
-                "statuses": [
-                    "NOT_DISPATCHED",
-                    "READY_FOR_DISPATCH",
-                    "DISPATCHED",
-                    "IN_TRANSIT",
-                ],
+                "statuses": list(OPEN_DISPATCH_STATUSES),
             },
         )
         return found.first() is not None
@@ -626,6 +640,9 @@ def vendor_type_predicate(*vendor_types: str) -> Any:
 
 
 __all__ = [
+    "CLOSED_DISPATCH_STATUSES",
+    "CLOSED_PURCHASE_ORDER_STATUSES",
+    "OPEN_DISPATCH_STATUSES",
     "OPEN_PURCHASE_ORDER_STATUSES",
     "TransporterRepository",
     "VendorCategoryRepository",
