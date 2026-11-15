@@ -79,23 +79,25 @@ log = get_logger(__name__)
 
 # --- the time-window guard ----------------------------------------------------
 #
-# ASSUMPTION: a log query with no dates means "the last 30 days", and no query
-# may span more than 366 days. Neither number is stated in the master rules; 30
-# days is what an operational investigation actually looks at, and 366 covers a
-# full financial year plus a leap day, which is the widest range a statutory
-# audit legitimately needs in one request. Anything longer is an export, and an
-# export is a background job (section 35), not a synchronous page. Change the two
-# constants here and nowhere else.
+# ASSUMPTION (docs/assumptions.md §AUDIT-1): a log query with no dates means
+# "the last 30 days", and no query may span more than 366 days. Neither number is
+# stated in the master rules; 30 days is what an operational investigation
+# actually looks at, and 366 covers a full financial year plus a leap day, which
+# is the widest range a statutory audit legitimately needs in one request.
+# Anything longer is an export, and an export is a background job (master rules
+# section 35), not a synchronous page. Change the two constants here and nowhere
+# else.
 DEFAULT_WINDOW_DAYS = 30
 MAX_WINDOW_DAYS = 366
 
 _DEFAULT_WINDOW = timedelta(days=DEFAULT_WINDOW_DAYS)
 _MAX_WINDOW = timedelta(days=MAX_WINDOW_DAYS)
 
-# ASSUMPTION: a rejection must carry a note and an approval need not. A rejection
-# is an instruction to someone else to change something, and "rejected, no reason
-# given" is not evidence of a judgement - it is the start of a phone call. This
-# is the conservative reading of section 42.
+# ASSUMPTION (docs/assumptions.md §AUDIT-2): a rejection must carry a note and an
+# approval need not. A rejection is an instruction to someone else to change
+# something, and "rejected, no reason given" is not evidence of a judgement - it
+# is the start of a phone call. This is the conservative reading of master rules
+# section 42.
 MIN_REJECTION_NOTE_LENGTH = 3
 
 #: The inbox shows it beside a request its own raiser cannot decide, and
@@ -116,10 +118,11 @@ ALREADY_DECIDED = "This request has already been decided and cannot be decided a
 def _as_utc(value: datetime) -> datetime:
     """Interpret a client-supplied timestamp as UTC.
 
-    ASSUMPTION: a naive datetime on the query string means UTC rather than the
-    caller's local time. The API stores and returns UTC everywhere (section 28),
-    so reading a bare ``2026-01-01T00:00:00`` as anything else would silently
-    shift the window - and there is no timezone on the request to shift it by.
+    ASSUMPTION (docs/assumptions.md §AUDIT-1): a naive datetime on the query
+    string means UTC rather than the caller's local time. The API stores and
+    returns UTC everywhere (master rules section 28), so reading a bare
+    ``2026-01-01T00:00:00`` as anything else would silently shift the window -
+    and there is no timezone on the request to shift it by.
     """
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
@@ -194,13 +197,14 @@ _PERMISSION_BY_VALUE: dict[str, Permission] = {p.value: p for p in Permission}
 def permission_for_action(requested_action: str) -> Permission | None:
     """The permission an approval request needs, or ``None`` if unrecognised.
 
-    ASSUMPTION: ``approval_requests.requested_action`` holds the permission
-    string of the action awaiting approval, e.g. ``"purchase_order.approve"``.
-    Nothing in the schema documentation fixes the vocabulary, and this is the
-    conservative choice: it means the approver's authority is checked against the
-    same registry the underlying action will be checked against, instead of
-    against a second mapping table that could drift out of step with it. An
-    action outside the registry is not guessed at - it becomes superuser-only.
+    ASSUMPTION (docs/assumptions.md §AUDIT-2):
+    ``approval_requests.requested_action`` holds the permission string of the
+    action awaiting approval, e.g. ``"purchase_order.approve"``. Nothing in the
+    schema documentation fixes the vocabulary, and this is the conservative
+    choice: it means the approver's authority is checked against the same
+    registry the underlying action will be checked against, instead of against a
+    second mapping table that could drift out of step with it. An action outside
+    the registry is not guessed at - it becomes superuser-only.
     """
     return _PERMISSION_BY_VALUE.get(requested_action.strip().lower())
 

@@ -267,10 +267,10 @@ DEFAULT_CAPACITY_DAYS = 28
 SECONDS_PER_MINUTE = Decimal(60)
 
 
-# ASSUMPTION: an exploded structure with more components than this is not a
-# manufacturing order, it is a data problem. The bound matters because release
-# writes one row and takes one reservation per component inside a single
-# transaction.
+# ASSUMPTION (docs/assumptions.md §PROD-1): an exploded structure with more
+# components than this is not a manufacturing order, it is a data problem. The
+# bound matters because release writes one row and takes one reservation per
+# component inside a single transaction.
 MAX_COMPONENTS_PER_ORDER = 500
 
 # =============================================================================

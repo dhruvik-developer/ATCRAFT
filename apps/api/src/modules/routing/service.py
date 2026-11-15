@@ -19,12 +19,13 @@ The rules that matter, and why each one lives here rather than in a caller:
 5. **Every write is one transaction with its audit row**, and every status
    change goes through a :class:`~src.core.state_machine.StateMachine`.
 
-ASSUMPTION: there is no ``routing.approve`` permission in the registry - the
-catalogue defines only ``routing.view`` and ``routing.manage`` - so approval,
-rejection to draft and obsoleting are all gated on ``ROUTING_MANAGE``, with the
-author/approver separation in :func:`can_approve` carrying the segregation of
-duties instead. If routings later need their own approver role, add the
-permission to the catalogue and change the two transitions below.
+ASSUMPTION (docs/assumptions.md §ROUTING-1): there is no ``routing.approve``
+permission in the registry - the catalogue defines only ``routing.view`` and
+``routing.manage`` - so approval, rejection to draft and obsoleting are all
+gated on ``ROUTING_MANAGE``, with the author/approver separation in
+:func:`can_approve` carrying the segregation of duties instead. If routings
+later need their own approver role, add the permission to the catalogue and
+change the two transitions below.
 """
 
 from __future__ import annotations
@@ -427,12 +428,12 @@ def calculate_operation_time(operation: OperationTimings, quantity: Decimal) -> 
 def chargeable_operation_time(operation: OperationTimings, quantity: Decimal) -> Decimal:
     """The part of the elapsed time the work centre is actually paid for.
 
-    ASSUMPTION: queue and move time are elapsed but not charged. Nobody is
-    working on the part while it waits in front of a machine or travels between
-    cells, so charging the work-centre rate for that time would inflate the
-    standard cost of every part that crosses more than one centre. The elapsed
-    figure is still returned beside this one, so the difference is visible rather
-    than hidden inside a single number.
+    ASSUMPTION (docs/assumptions.md §ROUTING-1): queue and move time are elapsed
+    but not charged. Nobody is working on the part while it waits in front of a
+    machine or travels between cells, so charging the work-centre rate for that
+    time would inflate the standard cost of every part that crosses more than one
+    centre. The elapsed figure is still returned beside this one, so the
+    difference is visible rather than hidden inside a single number.
     """
     if quantity < 0:
         raise ValueError("Quantity cannot be negative.")

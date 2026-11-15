@@ -123,12 +123,12 @@ DEALER_CHANNELS: frozenset[CustomerType] = frozenset(
     {CustomerType.DEALER, CustomerType.DISTRIBUTOR}
 )
 
-# ASSUMPTION: when both a GSTIN and a state code are present on the same
-# address, the first two characters of the GSTIN (which *are* the state code by
-# construction of the number) must agree with it. A mismatch is always a
-# data-entry error and it produces an invoice that the GST portal rejects, so it
-# is refused on save. Set to False only if a jurisdiction stops encoding the
-# state in the GSTIN.
+# ASSUMPTION (docs/assumptions.md §CUST-1): when both a GSTIN and a state code
+# are present on the same address, the first two characters of the GSTIN (which
+# *are* the state code by construction of the number) must agree with it. A
+# mismatch is always a data-entry error and it produces an invoice that the GST
+# portal rejects, so it is refused on save. Set to False only if a jurisdiction
+# stops encoding the state in the GSTIN.
 ENFORCE_GSTIN_STATE_CODE_MATCH = True
 
 # ASSUMPTION: a customer with a non-zero outstanding balance may not be retired.

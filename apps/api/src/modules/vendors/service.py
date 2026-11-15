@@ -143,15 +143,17 @@ REQUIRE_SEPARATE_APPROVER = True
 # ``MAX_VENDOR_RATING``, where the request schema and the router read them too;
 # the service re-exports the default for the callers that import it from here.
 
-# ASSUMPTION: fewer than this many datable receipts in the window is not enough
-# evidence to publish a score. A vendor rated 1.0 because their single delivery
-# was a day late would be excluded from sourcing on noise.
+# ASSUMPTION (docs/assumptions.md §VEND-1): fewer than this many datable receipts
+# in the window is not enough evidence to publish a score. A vendor rated 1.0
+# because their single delivery was a day late would be excluded from sourcing on
+# noise.
 MIN_RECEIPTS_FOR_RATING = 5
 
-# ASSUMPTION: on-time delivery is weighted 60% and quality 40%. Both matter, and
-# late-but-perfect is a schedule problem the plant can absorb, while
-# on-time-but-rejected stops a line. Named constants so the balance can be
-# retuned in one place once real data exists to justify a different split.
+# ASSUMPTION (docs/assumptions.md §VEND-1): on-time delivery is weighted 60% and
+# quality 40%. Both matter, and late-but-perfect is a schedule problem the plant
+# can absorb, while on-time-but-rejected stops a line. Named constants so the
+# balance can be retuned in one place once real data exists to justify a
+# different split.
 DELIVERY_WEIGHT = Decimal("0.60")
 QUALITY_WEIGHT = Decimal("0.40")
 
@@ -484,13 +486,14 @@ def compute_vendor_rating(window: VendorPerformanceWindow) -> VendorRatingResult
     so the weighted sum is a percentage too and the scale conversion is a single
     multiplication - no magic normalising constants.
 
-    ASSUMPTION: when the window contains no inspected quantity at all, the
-    quality term is dropped and delivery takes the full weight, rather than the
-    vendor being credited with a perfect quality score they have not earned.
-    Many purchased items are never QC-inspected, so requiring quality evidence
-    would leave most vendors permanently unrated. ``has_quality_evidence`` on the
-    result says which of the two formulas was used, so a report can distinguish
-    "3.9 on delivery and quality" from "3.9 on delivery alone".
+    ASSUMPTION (docs/assumptions.md §VEND-1): when the window contains no
+    inspected quantity at all, the quality term is dropped and delivery takes the
+    full weight, rather than the vendor being credited with a perfect quality
+    score they have not earned. Many purchased items are never QC-inspected, so
+    requiring quality evidence would leave most vendors permanently unrated.
+    ``has_quality_evidence`` on the result says which of the two formulas was
+    used, so a report can distinguish "3.9 on delivery and quality" from "3.9 on
+    delivery alone".
 
     All arithmetic is :class:`~decimal.Decimal`; a float here would make two
     identical windows occasionally produce different stored ratings (§84).

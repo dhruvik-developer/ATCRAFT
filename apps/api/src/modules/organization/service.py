@@ -139,17 +139,19 @@ MAX_DEPARTMENT_DEPTH = 6
 # the deepest descendant's, so a subtree cannot be reparented past the limit.
 MAX_COST_CENTRE_DEPTH = MAX_DEPARTMENT_DEPTH
 
-# ASSUMPTION: a financial year longer than 550 days (roughly 18 months) is a
-# typo. The Companies Act allows a first financial period of up to 15 months,
-# extendable to 18 with registrar approval, so 550 days accommodates the longest
-# legitimate case while still catching a mistyped century.
+# ASSUMPTION (docs/assumptions.md §ORG-1): a financial year longer than 550 days
+# (roughly 18 months) is a typo. The Companies Act allows a first financial
+# period of up to 15 months, extendable to 18 with registrar approval, so 550
+# days accommodates the longest legitimate case while still catching a mistyped
+# century.
 MAX_FINANCIAL_YEAR_DAYS = 550
 
-# ASSUMPTION: reopening a closed financial year is restricted to a platform
-# administrator (``Principal.is_superuser``) rather than to a permission string.
-# There is no ``financial_year.reopen`` member in the Permission enum, and
-# minting one here would let it be granted through the ordinary role editor -
-# which is precisely what "irreversible without SUPER_ADMIN" rules out.
+# ASSUMPTION (docs/assumptions.md §ORG-1): reopening a closed financial year is
+# restricted to a platform administrator (``Principal.is_superuser``) rather than
+# to a permission string. There is no ``financial_year.reopen`` member in the
+# Permission enum, and minting one here would let it be granted through the
+# ordinary role editor - which is precisely what "irreversible without
+# SUPER_ADMIN" rules out.
 
 #: Fields captured before and after an edit so the audit entry records exactly
 #: what changed. Explicit rather than "every column": ``created_at`` and the

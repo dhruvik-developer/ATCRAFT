@@ -184,16 +184,17 @@ SUPER_ADMIN_PASSWORD_PROTECTED = (
     "Only a super administrator may set a super administrator's password."  # noqa: S105
 )
 
-# ASSUMPTION: a role that somebody still holds cannot be retired. Soft-deleting
-# it would silently strip authority from every holder with no audit entry naming
-# them. Reassign the holders first; the refusal says how many there are.
+# ASSUMPTION (docs/assumptions.md §USER-1): a role that somebody still holds
+# cannot be retired. Soft-deleting it would silently strip authority from every
+# holder with no audit entry naming them. Reassign the holders first; the refusal
+# says how many there are.
 BLOCK_ROLE_DELETION_WHILE_HELD = True
 
-# ASSUMPTION: an administrator cannot retire or deactivate their own account.
-# Not a security rule - a correctness one: the request that removes your own
-# authority is authenticated with it, and the half-applied result ("deactivated,
-# but the sessions were not revoked because the caller lost permission mid-way")
-# is not worth supporting. Ask a colleague.
+# ASSUMPTION (docs/assumptions.md §USER-1): an administrator cannot retire or
+# deactivate their own account. Not a security rule - a correctness one: the
+# request that removes your own authority is authenticated with it, and the
+# half-applied result ("deactivated, but the sessions were not revoked because
+# the caller lost permission mid-way") is not worth supporting. Ask a colleague.
 BLOCK_SELF_LIFECYCLE_CHANGE = True
 
 # The generated temporary password is rejected and regenerated if it happens to
