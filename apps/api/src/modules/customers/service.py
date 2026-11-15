@@ -99,13 +99,13 @@ AUDIT_CONTACT = "customer_contact"
 # Decisions this module makes explicitly
 # -----------------------------------------------------------------------------
 
-# ASSUMPTION (the one the brief asks to be explicit about): a NULL credit_limit
-# means *unlimited* credit - no limit has been agreed with this account - while a
-# credit_limit of 0 means *strictly no credit*: every order of non-zero value is
-# refused and the customer pays before dispatch. The alternative convention,
-# "0 means unlimited", is rejected because it makes the safest-looking value the
-# most permissive one, so a mistyped or defaulted limit silently grants infinite
-# credit. With this convention a mistake fails closed.
+# ASSUMPTION (docs/assumptions.md §1, the one the brief asks to be explicit
+# about): a NULL credit_limit means *unlimited* credit - no limit has been agreed
+# with this account - while a credit_limit of 0 means *strictly no credit*: every
+# order of non-zero value is refused and the customer pays before dispatch. The
+# alternative convention, "0 means unlimited", is rejected because it makes the
+# safest-looking value the most permissive one, so a mistyped or defaulted limit
+# silently grants infinite credit. With this convention a mistake fails closed.
 CREDIT_LIMIT_NULL_MEANS_UNLIMITED = True
 
 # ASSUMPTION: an inactive customer may not take on new exposure. The credit

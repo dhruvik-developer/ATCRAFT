@@ -169,15 +169,15 @@ EVERY_WAREHOUSE_REVOKE_DENIED = (
     "you cannot limit it; ask an administrator who is not limited to some warehouses."
 )
 
-# ASSUMPTION: only a super-administrator may set a super-administrator's
-# password, by either route a password can be set (``reset_password`` and
-# ``update_user(password=...)``). ``user.reset_password`` is an ordinary
-# administrative permission; without this rule a holder of it could reset a
-# SUPER_ADMIN's password, read the temporary password out of the response and
-# sign in as them - locking out the people who could stop them *and* taking
-# over their authority. REQUIRE_AUTHORITY_TO_REVOKE above refuses far weaker
-# tampering for the same reason. A caller who holds super-admin by either
-# route (the flag or the role) is let through.
+# ASSUMPTION (docs/assumptions.md §37): only a super-administrator may set a
+# super-administrator's password, by either route a password can be set
+# (``reset_password`` and ``update_user(password=...)``).
+# ``user.reset_password`` is an ordinary administrative permission; without this
+# rule a holder of it could reset a SUPER_ADMIN's password, read the temporary
+# password out of the response and sign in as them - locking out the people who
+# could stop them *and* taking over their authority. REQUIRE_AUTHORITY_TO_REVOKE
+# above refuses far weaker tampering for the same reason. A caller who holds
+# super-admin by either route (the flag or the role) is let through.
 PROTECT_SUPER_ADMIN_PASSWORDS = True
 
 SUPER_ADMIN_PASSWORD_PROTECTED = (
@@ -996,9 +996,10 @@ class UserService:
             new_email = changes.get("email")
             email_changed = new_email is not None and new_email != user.email
             if email_changed:
-                # ASSUMPTION: an administered recovery-address change exercises
-                # the same credential authority as a password reset. Existing
-                # SUPER_ADMIN target protections therefore apply to both.
+                # ASSUMPTION (docs/assumptions.md §ADDITIONAL11-1): an
+                # administered recovery-address change exercises the same
+                # credential authority as a password reset. Existing SUPER_ADMIN
+                # target protections therefore apply to both.
                 principal.require(Permission.USER_RESET_PASSWORD)
                 self._assert_may_set_password_for(principal, user)
             if (

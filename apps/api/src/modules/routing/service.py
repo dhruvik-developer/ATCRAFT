@@ -470,11 +470,11 @@ def calculate_routing_cost(routing: CostedRouting, quantity: Decimal) -> Decimal
 def total_routing_minutes(routing: CostedRouting, quantity: Decimal) -> Decimal:
     """Elapsed minutes for the whole routing.
 
-    ASSUMPTION: operations run strictly one after another, with no overlap
-    between them. Real shops do overlap a long run with the next setup, but
-    modelling that needs a transfer-batch size the routing does not carry, and
-    the sequential figure is the conservative one - it never promises a date the
-    plant cannot hit.
+    ASSUMPTION (docs/assumptions.md §E7-5): operations run strictly one after
+    another, with no overlap between them. Real shops do overlap a long run with
+    the next setup, but modelling that needs a transfer-batch size the routing
+    does not carry, and the sequential figure is the conservative one - it never
+    promises a date the plant cannot hit.
     """
     return to_quantity(
         sum(

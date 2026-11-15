@@ -915,28 +915,29 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
         total_credits))``. Doing that in Python would mean fetching every
         posting for every customer.
 
-        ASSUMPTION: **the netting grain is (party, currency), never the party
-        alone.** A customer's USD receipt does not settle their INR charge, and
-        there is no exchange-rate table in this schema to say what it would
-        settle if it did - see ``docs/assumptions.md``, open question 3.
-        Partitioning and grouping by ``currency`` keeps a foreign-currency
-        receipt from silently ageing away a rupee debt.
+        ASSUMPTION (docs/assumptions.md §27): **the netting grain is (party,
+        currency), never the party alone.** A customer's USD receipt does not
+        settle their INR charge, and there is no exchange-rate table in this
+        schema to say what it would settle if it did - see
+        ``docs/assumptions.md``, open question 3. Partitioning and grouping by
+        ``currency`` keeps a foreign-currency receipt from silently ageing away
+        a rupee debt.
 
         ``currencies`` narrows the *scan* when the caller already knows which
         denominations it is going to render rows for. It is not what makes the
         arithmetic safe - the partition is - so passing ``None`` returns every
         denomination, each netted against itself, and is the ordinary case.
 
-        ASSUMPTION: **a company with no receivable control account has no
-        receivables.** ``account_ids`` is a restriction, never an optional
-        filter, so an empty set means an empty report - and the guard is spelled
-        out below because the natural ``if account_ids:`` spelling means the
-        opposite. A tenant whose chart has not been provisioned with an
-        ``ACCOUNTS_RECEIVABLE`` account would then get a statement with *no*
-        account predicate at all: every ledger debit in the company - salaries,
-        stock, tax, capital - aged and presented as customer debt. Reporting
-        nothing is recoverable by provisioning the account; reporting the whole
-        general ledger as receivable is not.
+        ASSUMPTION (docs/assumptions.md §28): **a company with no receivable
+        control account has no receivables.** ``account_ids`` is a restriction,
+        never an optional filter, so an empty set means an empty report - and
+        the guard is spelled out below because the natural ``if account_ids:``
+        spelling means the opposite. A tenant whose chart has not been
+        provisioned with an ``ACCOUNTS_RECEIVABLE`` account would then get a
+        statement with *no* account predicate at all: every ledger debit in the
+        company - salaries, stock, tax, capital - aged and presented as customer
+        debt. Reporting nothing is recoverable by provisioning the account;
+        reporting the whole general ledger as receivable is not.
         """
         scope = [
             LedgerEntry.company_id == self.tenant.company_id,

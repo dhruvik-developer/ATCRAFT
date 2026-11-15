@@ -1529,12 +1529,13 @@ def validate_movement(
     # movement posted without its batch cannot be attributed to a lot later, and
     # a recall then has to quarantine everything.
     #
-    # ASSUMPTION: and it is a rule about what you may **put into** a position,
-    # not about what may leave one. A batch or a serial is assigned when goods
-    # arrive; stock already sitting at a batch-NULL grain is a historical fact,
-    # and refusing to let it out does not make it batch tracked - it makes it
-    # unreachable. ``gates_policy`` is therefore the gate here too, exactly as
-    # it is for the three active flags above, and for the same reason.
+    # ASSUMPTION (docs/assumptions.md §23): and it is a rule about what you may
+    # **put into** a position, not about what may leave one. A batch or a serial
+    # is assigned when goods arrive; stock already sitting at a batch-NULL grain
+    # is a historical fact, and refusing to let it out does not make it batch
+    # tracked - it makes it unreachable. ``gates_policy`` is therefore the gate
+    # here too, exactly as it is for the three active flags above, and for the
+    # same reason.
     #
     # Ungated, this rule was direction-blind and closed both routes out of such
     # a position at once: a movement naming no batch was refused by the rule,
@@ -2170,17 +2171,17 @@ def assert_unit_is_where_the_movement_is(
     So the rule is symmetrical with the position one: a movement that does not
     move the unit has to name the position it is already at.
 
-    ASSUMPTION: **both halves of the position are compared, but only where the
-    movement states one.** A non-relocating movement is routinely raised at
-    warehouse level while the unit's bin records the shelf it was last put on -
-    assembly consumption, dispatch and QC decisions all post without a
-    ``location_id`` - so a movement that names no bin is held to the warehouse
-    alone, exactly as before. But a movement that *does* name one has stated
-    where it thinks the unit is, and a bin that disagrees is the identical
-    mis-key the warehouse rule exists for: the quantity moves at bin A while the
-    unit sits on bin B, and the unit's status is decided by something that
-    happened one aisle over. Only the unstated case is waived, never a stated
-    one that is wrong.
+    ASSUMPTION (docs/assumptions.md §30): **both halves of the position are
+    compared, but only where the movement states one.** A non-relocating
+    movement is routinely raised at warehouse level while the unit's bin records
+    the shelf it was last put on - assembly consumption, dispatch and QC
+    decisions all post without a ``location_id`` - so a movement that names no
+    bin is held to the warehouse alone, exactly as before. But a movement that
+    *does* name one has stated where it thinks the unit is, and a bin that
+    disagrees is the identical mis-key the warehouse rule exists for: the
+    quantity moves at bin A while the unit sits on bin B, and the unit's status
+    is decided by something that happened one aisle over. Only the unstated case
+    is waived, never a stated one that is wrong.
 
     ASSUMPTION: a unit with no recorded warehouse, or no recorded bin, is
     accepted. NULL means the unit has been registered from a packing list and
@@ -2277,24 +2278,26 @@ def serial_transition(
     ):
         raise BusinessRuleError("An issued serial can be scrapped only from its job-work pool.")
 
-    # ASSUMPTION: passing inspection is what puts a customer return back into
-    # normal stock. Every movement type that targets IN_STOCK also *adds* a unit
-    # to on-hand, and a customer return has already added this one, so there was
-    # no quantity-neutral way out of RETURNED at all - the graph declared the
-    # edge and nothing could drive it, which made a returned unit unsellable
-    # forever. A QC release is the movement that resolves an inspection and is
-    # neutral on on-hand (it moves the quantity from the hold pool to the
-    # available one), so it is the movement that resolves the unit's status too.
-    # Writing a returned unit off, or sending it out again after refurbishment,
-    # already had paths (SCRAP, DISPATCH) and keep them.
+    # ASSUMPTION (docs/assumptions.md §30): passing inspection is what puts a
+    # customer return back into normal stock. Every movement type that targets
+    # IN_STOCK also *adds* a unit to on-hand, and a customer return has already
+    # added this one, so there was no quantity-neutral way out of RETURNED at
+    # all - the graph declared the edge and nothing could drive it, which made a
+    # returned unit unsellable forever. A QC release is the movement that
+    # resolves an inspection and is neutral on on-hand (it moves the quantity
+    # from the hold pool to the available one), so it is the movement that
+    # resolves the unit's status too. Writing a returned unit off, or sending it
+    # out again after refurbishment, already had paths (SCRAP, DISPATCH) and
+    # keep them.
     #
-    # ASSUMPTION: and only when the release actually lands the quantity in the
-    # available pool. Keyed on the transaction type alone this fired for every
-    # release, including one that puts the quantity back in the RETURN pool -
-    # ``change_stock_state(QC_HOLD -> RETURN)``, which is also a ``QC_RELEASE``.
-    # The unit was then IN_STOCK while its quantity was still classified as
-    # customer-return stock, and the two halves of the same fact disagreed. The
-    # pool is the statement about what the goods now are; the status follows it.
+    # ASSUMPTION (docs/assumptions.md §30): and only when the release actually
+    # lands the quantity in the available pool. Keyed on the transaction type
+    # alone this fired for every release, including one that puts the quantity
+    # back in the RETURN pool - ``change_stock_state(QC_HOLD -> RETURN)``, which
+    # is also a ``QC_RELEASE``. The unit was then IN_STOCK while its quantity
+    # was still classified as customer-return stock, and the two halves of the
+    # same fact disagreed. The pool is the statement about what the goods now
+    # are; the status follows it.
     if (
         target is None
         and transaction_type is TransactionType.QC_RELEASE
@@ -3763,10 +3766,11 @@ class MovementEngine:
         if target is not None:
             serial.status = target
 
-        # ASSUMPTION: ``warehouse_id`` and ``location_id`` record where the unit
-        # was last put, and only a movement that *puts it somewhere* rewrites
-        # them. ``status`` is what says whether it is still there. Splitting the
-        # two that way is what makes both columns usable:
+        # ASSUMPTION (docs/assumptions.md §30): ``warehouse_id`` and
+        # ``location_id`` record where the unit was last put, and only a
+        # movement that *puts it somewhere* rewrites them. ``status`` is what
+        # says whether it is still there. Splitting the two that way is what
+        # makes both columns usable:
         #
         # * A movement that does not relocate the unit leaves the position
         #   alone. Assigning the movement's own warehouse and bin unconditionally

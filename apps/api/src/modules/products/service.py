@@ -1459,9 +1459,10 @@ async def _assert_tracking_change_is_safe(
 ) -> None:
     """Refuse a change to batch or serial tracking while the item holds stock.
 
-    ASSUMPTION: ``is_batch_tracked`` and ``is_serial_tracked`` may only change
-    while the item holds nothing anywhere - no on-hand, nothing reserved, in
-    transit, out at a job-work vendor, on QC hold, damaged or scrapped.
+    ASSUMPTION (docs/assumptions.md §24, §E10-2): ``is_batch_tracked`` and
+    ``is_serial_tracked`` may only change while the item holds nothing
+    anywhere: no on-hand, nothing reserved, in transit, out at a job-work
+    vendor, on QC hold, damaged or scrapped.
 
     "We are starting to lot-track this part" is a legitimate business decision,
     so the flip is not refused outright; it is refused while there is stock for
@@ -2770,9 +2771,10 @@ async def link_vendor(
             link = ItemVendorLink(item_id=item.id, **values)
             repo.add(link)
         else:
-            # ASSUMPTION: a pair has one identity for its lifetime. Relinking
-            # restores that row with the newly entered terms; omitted purchase
-            # history and currency keep their recorded values (assumptions E10-4).
+            # ASSUMPTION (docs/assumptions.md §E10-4): a pair has one identity for
+            # its lifetime. Relinking restores that row with the newly entered
+            # terms; omitted purchase history and currency keep their recorded
+            # values.
             for field in ("last_purchase_price", "last_purchase_date", "currency"):
                 if field not in payload.model_fields_set:
                     values.pop(field)

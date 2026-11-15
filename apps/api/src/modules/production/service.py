@@ -722,12 +722,13 @@ def plan_work_orders(
 ) -> list[WorkOrderPlan]:
     """Turn a routing into a schedule for one job.
 
-    ASSUMPTION: operations are scheduled strictly back to back, each starting
-    when the previous one finishes. Real shops overlap a long run with the next
-    setup, but modelling that needs a transfer-batch size the routing does not
-    carry, and the sequential schedule is the conservative one - it never
-    promises a date the plant cannot hit. The same assumption the routing
-    module's lead-time calculation already makes, so the two agree.
+    ASSUMPTION (docs/assumptions.md §E7-5): operations are scheduled strictly
+    back to back, each starting when the previous one finishes. Real shops
+    overlap a long run with the next setup, but modelling that needs a
+    transfer-batch size the routing does not carry, and the sequential schedule
+    is the conservative one - it never promises a date the plant cannot hit. The
+    same assumption the routing module's lead-time calculation already makes, so
+    the two agree.
 
     With ``windows_by_work_center``, each operation additionally starts inside
     its work centre's rostered windows (see :data:`PLAN_WITHIN_SHIFTS`). A

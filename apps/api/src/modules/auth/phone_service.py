@@ -37,9 +37,10 @@ from src.modules.notifications.models import NotificationChannel
 from src.modules.users.models import UserPhoneVerificationChallenge
 
 PHONE_CODE_DIGITS = 6
-# ASSUMPTION: a code lives for ten minutes, can be sent three times per hour
-# with a sixty-second resend delay, and allows five guesses. These bounds are
-# conservative defaults for SMS cost and account protection.
+# ASSUMPTION (docs/assumptions.md §D2-n): a code lives for ten minutes, can be
+# sent three times per hour with a sixty-second resend delay, and allows five
+# guesses. These bounds are conservative defaults for SMS cost and account
+# protection.
 PHONE_CODE_LIFETIME = timedelta(minutes=10)
 PHONE_CODE_RESEND_DELAY = timedelta(seconds=60)
 PHONE_CODE_SEND_WINDOW = timedelta(hours=1)

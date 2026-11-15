@@ -15,9 +15,10 @@ def canonical_demand_refs(
 ) -> list[SourceDemandRef]:
     """Require complete roots, deduplicate triples and preserve the PR schema.
 
-    ASSUMPTION: a planning aggregate with more than fifty distinct roots must
-    be replanned in a narrower scope. Silently retaining its first fifty would
-    make duplicate prevention claim an incomplete history was complete.
+    ASSUMPTION (docs/assumptions.md §D1-3): a planning aggregate with more than
+    fifty distinct roots must be replanned in a narrower scope. Silently
+    retaining its first fifty would make duplicate prevention claim an
+    incomplete history was complete.
     """
     try:
         provenance = canonical_demand_provenance(source_demands)

@@ -87,8 +87,9 @@ class AlertReconcilePlan:
 # docs/assumptions.md §B4-2.
 MAX_ALERT_WINDOW_MINUTES = 3650 * 24 * 60
 
-# ASSUMPTION: alert times are UTC and the defaults below are conservative
-# operational starting points; each company's sparse rule row can override them.
+# ASSUMPTION (docs/assumptions.md §B4-1): alert times are UTC and the defaults
+# below are conservative operational starting points; each company's sparse rule
+# row can override them.
 ALERT_RULES: Mapping[AlertRuleKey, AlertRule] = {
     AlertRuleKey.PO_NOT_ACKNOWLEDGED: AlertRule(
         AlertRuleKey.PO_NOT_ACKNOWLEDGED,

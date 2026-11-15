@@ -332,11 +332,12 @@ TOP_UP_STATUSES: tuple[SalesOrderStatus, ...] = (
 def resolve_tax_treatment(seller_state_code: str | None, place_of_supply: str | None) -> bool:
     """True when IGST applies, i.e. the supply crosses a state boundary.
 
-    ASSUMPTION: the supply is treated as intra-state only when both state codes
-    are known and equal. An export or an address with no state code has no
-    Indian place of supply, and IGST is the treatment for a supply whose place
-    of supply is outside the seller's state - including outside India. Guessing
-    "same state" from a missing value would understate the tax on every export.
+    ASSUMPTION (docs/assumptions.md §9): the supply is treated as intra-state
+    only when both state codes are known and equal. An export or an address with
+    no state code has no Indian place of supply, and IGST is the treatment for a
+    supply whose place of supply is outside the seller's state - including
+    outside India. Guessing "same state" from a missing value would understate
+    the tax on every export.
     """
     if seller_state_code is None or place_of_supply is None:
         return True

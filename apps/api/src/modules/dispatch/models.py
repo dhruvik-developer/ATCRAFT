@@ -121,11 +121,12 @@ class DispatchStatus(StrEnum):
     RECEIVED = "RECEIVED"
     QC_COMPLETED = "QC_COMPLETED"
     GRN_COMPLETED = "GRN_COMPLETED"
-    #: ASSUMPTION: database.md section 7 lists no cancelled state for a dispatch.
-    #: A consignment planned and then called off before it leaves still needs a
-    #: way out, and deleting the row would lose the document number and the trail
-    #: of why it was planned. Cancellation is therefore permitted only from the
-    #: two statuses in which nothing has moved - see ``service.DISPATCH_LIFECYCLE``.
+    #: ASSUMPTION (docs/assumptions.md §G1-3): database.md section 7 lists no
+    #: cancelled state for a dispatch. A consignment planned and then called off
+    #: before it leaves still needs a way out, and deleting the row would lose the
+    #: document number and the trail of why it was planned. Cancellation is
+    #: therefore permitted only from the two statuses in which nothing has moved -
+    #: see ``service.DISPATCH_LIFECYCLE``.
     CANCELLED = "CANCELLED"
 
 

@@ -634,12 +634,13 @@ def split_supply(
 
     Returns ``(in_time, late)``.
 
-    ASSUMPTION: supply promised *on* ``needed_by`` counts. Section 14 says "net
-    against confirmed incoming POs (by expected date)" without fixing the
-    boundary, and a delivery due the day the line ships is supply for it -
-    excluding it would raise a duplicate order for stock already arriving, and
-    the two documents would sit side by side for the same shortage. One day
-    later does not count, however close: a plan cannot ship what has not landed.
+    ASSUMPTION (docs/assumptions.md §21): supply promised *on* ``needed_by``
+    counts. Master rules section 14 says "net against confirmed incoming POs (by
+    expected date)" without fixing the boundary, and a delivery due the day the
+    line ships is supply for it - excluding it would raise a duplicate order for
+    stock already arriving, and the two documents would sit side by side for the
+    same shortage. One day later does not count, however close: a plan cannot
+    ship what has not landed.
 
     This is the whole of the time dimension, and it is a pure function so the
     boundary is a unit test rather than a claim. Netting a requirement against
@@ -2115,9 +2116,10 @@ async def plan(
                     )
                     child.note_date(component_date)
                     child.note_level(level + 1)
-                    # ASSUMPTION: aggregate netting does not choose which root
-                    # stock covered. Keep every causal root rather than
-                    # assigning component quantities to sales lines.
+                    # ASSUMPTION (docs/assumptions.md §D1-3): aggregate netting
+                    # does not choose which root stock covered. Keep every
+                    # causal root rather than assigning component quantities to
+                    # sales lines.
                     child.inherit_root_refs(entry.bucket)
                     child.add_source(
                         {

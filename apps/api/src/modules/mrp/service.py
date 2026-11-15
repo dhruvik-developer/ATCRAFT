@@ -658,10 +658,11 @@ async def start_run(
     # planners deliberately share one budget - what is being rationed is the cost
     # of planning the company's order book, which is the same cost whoever asks.
     #
-    # ASSUMPTION: an attempt that is refused further down - a run already in
-    # progress (409), demand over MAX_DEMAND_LINES - still spends a token. That
-    # is the same rule login follows, and it is what makes the limit bite on a
-    # client retrying in a tight loop, which is the behaviour being bounded.
+    # ASSUMPTION (docs/assumptions.md §29): an attempt that is refused further
+    # down - a run already in progress (409), demand over MAX_DEMAND_LINES -
+    # still spends a token. That is the same rule login follows, and it is what
+    # makes the limit bite on a client retrying in a tight loop, which is the
+    # behaviour being bounded.
     await enforce_policy(RateLimitPolicy.MRP_RUN, str(tenant.company_id))
 
     as_of = today()

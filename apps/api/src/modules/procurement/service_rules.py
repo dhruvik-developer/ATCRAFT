@@ -192,12 +192,12 @@ QUOTATION_LIFECYCLE: StateMachine[QuotationStatus] = StateMachine(
             permission=Permission.QUOTATION_MANAGE,
             label="Lapse",
         ),
-        # ASSUMPTION: rejecting or lapsing an offer is not final while the RFQ
-        # is still open. The comparison tells the buyer to "ask the vendors to
-        # requote", and the one row per (RFQ, vendor) the unique constraint
-        # allows is reopened for the revised offer rather than a second row
-        # being inserted. Only a SELECTED offer - the one a purchase order is
-        # raised against - stays final. Recorded in docs/assumptions.md.
+        # ASSUMPTION (docs/assumptions.md §34): rejecting or lapsing an offer is
+        # not final while the RFQ is still open. The comparison tells the buyer
+        # to "ask the vendors to requote", and the one row per (RFQ, vendor) the
+        # unique constraint allows is reopened for the revised offer rather than
+        # a second row being inserted. Only a SELECTED offer - the one a
+        # purchase order is raised against - stays final.
         Transition(
             QuotationStatus.REJECTED,
             QuotationStatus.RECEIVED,
@@ -774,11 +774,11 @@ def receipt_unit_cost(
     The net price after discount and *before* tax: GST on a purchase is an input
     credit, not part of what the material cost the company.
 
-    ASSUMPTION: header freight is not apportioned into the item cost at receipt.
-    Apportioning it needs a basis (value, weight, volume) that nobody has agreed
-    yet, and a wrong basis silently misstates the cost of every item on the
-    order. Freight stays a header cost for finance to treat as landed cost when
-    the basis is decided.
+    ASSUMPTION (docs/assumptions.md §18): header freight is not apportioned into
+    the item cost at receipt. Apportioning it needs a basis (value, weight,
+    volume) that nobody has agreed yet, and a wrong basis silently misstates the
+    cost of every item on the order. Freight stays a header cost for finance to
+    treat as landed cost when the basis is decided.
 
     Rounded half-up through ``to_unit_price`` like every other unit cost: this
     figure becomes the receipt's FIFO layer cost, and a half-even tie here
@@ -886,10 +886,10 @@ def dates_overlap(
 ) -> bool:
     """Whether two required dates fall inside the same demand window.
 
-    ASSUMPTION: an unknown date on either side counts as overlapping. A missing
-    date is no evidence that the two orders are for different needs, and the
-    expensive mistake here is the false negative - the duplicate that is never
-    shown to anyone.
+    ASSUMPTION (docs/assumptions.md §16): an unknown date on either side counts
+    as overlapping. A missing date is no evidence that the two orders are for
+    different needs, and the expensive mistake here is the false negative - the
+    duplicate that is never shown to anyone.
     """
     if candidate is None or proposed is None:
         return True
@@ -1088,9 +1088,9 @@ def classify_candidate(
     if requisition_line_id is not None:
         proposed_requisitions.add(requisition_line_id)
     is_same_requisition_line = same_item and bool(candidate_requisitions & proposed_requisitions)
-    # ASSUMPTION: a common sales/BOM root can require several different
-    # components. Root overlap is EXACT only for the same SKU, while the
-    # separate category signal still warns about related purchases.
+    # ASSUMPTION (docs/assumptions.md §16): a common sales/BOM root can require
+    # several different components. Root overlap is EXACT only for the same SKU,
+    # while the separate category signal still warns about related purchases.
     is_same_root = same_item and bool(
         demand_ref_keys(candidate.source_demand_refs) & demand_ref_keys(source_demand_refs)
     )
@@ -1278,20 +1278,21 @@ class ScoreWeights:
         return self.price + self.lead_time + self.rating
 
 
-# ASSUMPTION: price carries 60% of the recommendation, lead time and vendor
-# rating 20% each. Price is what the business is buying on, but a part that
-# arrives four weeks late stops a production line, and a vendor with a poor
-# quality record costs more than the discount they offered. The weights are one
-# constant to change - and the response always states the reason, so a buyer can
-# see when the recommendation disagrees with the cheapest price and why.
+# ASSUMPTION (docs/assumptions.md §17): price carries 60% of the recommendation,
+# lead time and vendor rating 20% each. Price is what the business is buying on,
+# but a part that arrives four weeks late stops a production line, and a vendor
+# with a poor quality record costs more than the discount they offered. The
+# weights are one constant to change - and the response always states the
+# reason, so a buyer can see when the recommendation disagrees with the cheapest
+# price and why.
 DEFAULT_SCORE_WEIGHTS = ScoreWeights(
     price=Decimal("0.60"), lead_time=Decimal("0.20"), rating=Decimal("0.20")
 )
 
-# ASSUMPTION: an unrated vendor scores neutrally rather than badly. A vendor with
-# no delivery history is unknown, not poor (the vendors module makes the same
-# distinction by leaving ``rating`` NULL), and scoring them zero would make it
-# impossible for a new vendor ever to win their first order.
+# ASSUMPTION (docs/assumptions.md §17): an unrated vendor scores neutrally rather
+# than badly. A vendor with no delivery history is unknown, not poor (the vendors
+# module makes the same distinction by leaving ``rating`` NULL), and scoring them
+# zero would make it impossible for a new vendor ever to win their first order.
 UNRATED_VENDOR_SCORE = Decimal("0.5")
 
 _SCORE_QUANTUM = Decimal("0.0001")
@@ -1919,12 +1920,13 @@ def resolve_return_pool(
     A named pool is honoured and bounded by what that pool still holds for the
     line. When none is named the pool is resolved from the inspection:
 
-    ASSUMPTION: rejected stock is returned first. The canonical reason for a
-    purchase return is goods that failed incoming inspection, so a line whose
-    damaged balance covers the whole quantity leaves DAMAGED; otherwise it
-    leaves AVAILABLE if that covers it; a quantity that would need both pools is
-    refused and the caller asked to split the line and name the pool on each,
-    rather than the service guessing a split it would then have to defend.
+    ASSUMPTION (docs/assumptions.md §35): rejected stock is returned first. The
+    canonical reason for a purchase return is goods that failed incoming
+    inspection, so a line whose damaged balance covers the whole quantity leaves
+    DAMAGED; otherwise it leaves AVAILABLE if that covers it; a quantity that
+    would need both pools is refused and the caller asked to split the line and
+    name the pool on each, rather than the service guessing a split it would
+    then have to defend.
     """
     if facts.held_for_qc and (facts.inspection is None or not facts.inspection.decided):
         raise BusinessRuleError(

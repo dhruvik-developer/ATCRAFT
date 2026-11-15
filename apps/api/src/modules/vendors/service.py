@@ -129,12 +129,13 @@ register_document_entity_resolver(
 )
 VENDOR_APPROVAL_URL = "/vendors"
 
-# ASSUMPTION: a vendor may not be approved by the person who created the record.
-# Vendor approval is what unlocks purchase orders and payments to a bank account
-# the same person entered, so maker-checker is the conservative default. It is a
-# constant rather than a hard-coded condition because a very small company may
-# legitimately have one buyer, and turning it off must be a deliberate,
-# reviewable edit rather than a code change scattered through the service.
+# ASSUMPTION (docs/assumptions.md §2): a vendor may not be approved by the
+# person who created the record. Vendor approval is what unlocks purchase orders
+# and payments to a bank account the same person entered, so maker-checker is
+# the conservative default. It is a constant rather than a hard-coded condition
+# because a very small company may legitimately have one buyer, and turning it
+# off must be a deliberate, reviewable edit rather than a code change scattered
+# through the service.
 REQUIRE_SEPARATE_APPROVER = True
 
 # --- rating engine tuning ----------------------------------------------------

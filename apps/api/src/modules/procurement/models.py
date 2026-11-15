@@ -96,11 +96,12 @@ OVER_RECEIPT_TOLERANCE = Decimal("0.05")
 #: CHECK constraint below so the two cannot drift apart.
 OVER_RECEIPT_MULTIPLIER = Decimal("1") + OVER_RECEIPT_TOLERANCE
 
-# ASSUMPTION: two purchase orders count as competing for the same demand when
-# their required dates fall within seven days of each other. A same-day-only
-# rule would miss the ordinary case - the same shortage ordered twice, three
-# days apart - which is precisely what section 16 exists to catch. A month-wide
-# window would flag every routine repeat order for a consumable.
+# ASSUMPTION (docs/assumptions.md §16): two purchase orders count as competing
+# for the same demand when their required dates fall within seven days of each
+# other. A same-day-only rule would miss the ordinary case - the same shortage
+# ordered twice, three days apart - which is precisely what
+# master rules section 16 exists to catch. A month-wide window would flag every
+# routine repeat order for a consumable.
 DUPLICATE_REQUIRED_DATE_WINDOW_DAYS = 7
 
 #: Planning priority, shared by requisitions and purchase orders. Lower is more
@@ -979,12 +980,13 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
     )
 
     # --- inbound shipment (master rules section 23) -------------------------
-    # ASSUMPTION: the inbound leg of a purchase order carries its courier
-    # details here. The ``dispatch`` module owns ``dispatches`` and
-    # ``dispatch_tracking_events``, but those describe consignments this company
-    # sends; nothing in the contract gives the vendor's shipment *to* us a home,
-    # and the tracking board in section 23 cannot be built without one. Recorded
-    # by the vendor's dispatch manager through the portal.
+    # ASSUMPTION (docs/assumptions.md §19): the inbound leg of a purchase order
+    # carries its courier details here. The ``dispatch`` module owns
+    # ``dispatches`` and ``dispatch_tracking_events``, but those describe
+    # consignments this company sends; nothing in the contract gives the
+    # vendor's shipment *to* us a home, and the tracking board in
+    # master rules section 23 cannot be built without one. Recorded by the
+    # vendor's dispatch manager through the portal.
     courier_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tracking_reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

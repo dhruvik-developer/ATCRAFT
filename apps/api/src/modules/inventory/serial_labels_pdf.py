@@ -16,7 +16,8 @@ from reportlab.platypus import Paragraph
 
 from src.modules.inventory.schemas import StockSerialRead
 
-# ASSUMPTION: Initial stock uses an A4 sheet with a 3-column by 8-row label grid.
+# ASSUMPTION (docs/assumptions.md §E8b-5): Initial stock uses an A4 sheet with a
+# 3-column by 8-row label grid.
 _COLUMNS = 3
 _ROWS = 8
 _MARGIN = 8 * mm

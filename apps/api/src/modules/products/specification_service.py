@@ -296,7 +296,8 @@ class SpecificationService:
             except ValueError as error:
                 raise ValidationError(str(error)) from error
             if value_type != record.value_type and (await self.attributes.usage(attribute_id))[0]:
-                # ASSUMPTION D5-4: never reinterpret an existing typed value.
+                # ASSUMPTION (docs/assumptions.md §D5-4): never reinterpret an
+                # existing typed value.
                 raise referenced_in_use(
                     "A specification's type cannot change while item values reference it."
                 )

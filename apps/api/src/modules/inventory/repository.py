@@ -1874,13 +1874,13 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         elif unbinned_only:
             stmt = stmt.where(StockSerial.location_id.is_(None))
         if warehouse_id is not None:
-            # ASSUMPTION: "the units at this warehouse" means the ones that are
-            # still there. ``warehouse_id`` on a serial records the last position
-            # the unit was put in and is kept after it leaves - that is what lets
-            # a warranty claim ask which warehouse shipped a unit - so the status
-            # has to carry the other half of the question. Without this clause a
-            # warehouse's serial list would slowly fill with every unit it ever
-            # dispatched.
+            # ASSUMPTION (docs/assumptions.md §30): "the units at this warehouse"
+            # means the ones that are still there. ``warehouse_id`` on a serial
+            # records the last position the unit was put in and is kept after it
+            # leaves - that is what lets a warranty claim ask which warehouse
+            # shipped a unit - so the status has to carry the other half of the
+            # question. Without this clause a warehouse's serial list would
+            # slowly fill with every unit it ever dispatched.
             stmt = stmt.where(
                 StockSerial.warehouse_id == warehouse_id,
                 StockSerial.status.in_(

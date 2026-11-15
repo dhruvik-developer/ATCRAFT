@@ -586,11 +586,12 @@ async def notify(
     rows rather than new ones when ``group_key`` collapsed the alert onto an
     unacknowledged copy.
 
-    ASSUMPTION: a group collapses only while the alert is still unread, and the
-    newest wording replaces the old. Once the recipient has acknowledged it, the
-    next occurrence is a new notification - the conservative reading, because
-    re-opening an acknowledged row would let an alert change under someone who
-    has already dealt with it, and could hide a genuinely new occurrence.
+    ASSUMPTION (docs/assumptions.md §C1-14): a group collapses only while the
+    alert is still unread, and the newest wording replaces the old. Once the
+    recipient has acknowledged it, the next occurrence is a new notification -
+    the conservative reading, because re-opening an acknowledged row would let
+    an alert change under someone who has already dealt with it, and could hide
+    a genuinely new occurrence.
 
     ``group_key`` is the flood control: passing a key like
     ``f"po-delay:{purchase_order_id}"`` means an hourly delay sweep updates one

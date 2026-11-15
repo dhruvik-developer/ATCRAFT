@@ -326,10 +326,11 @@ DISPATCH_LIFECYCLE: StateMachine[DispatchStatus] = StateMachine(
             permission=Permission.DISPATCH_UPDATE,
             label="Booked in",
         ),
-        # ASSUMPTION: section 7 lists no cancelled state. Cancellation is
-        # permitted only from the two statuses in which nothing has moved - past
-        # DISPATCHED the ledger records goods that left, and a document claiming
-        # never to have existed would contradict it.
+        # ASSUMPTION (docs/assumptions.md §G1-3): database.md section 7 lists no
+        # cancelled state. Cancellation is permitted only from the two statuses
+        # in which nothing has moved - past DISPATCHED the ledger records goods
+        # that left, and a document claiming never to have existed would
+        # contradict it.
         Transition(
             DispatchStatus.NOT_DISPATCHED,
             DispatchStatus.CANCELLED,

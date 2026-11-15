@@ -1661,8 +1661,9 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         if filters.in_transit_only:
             stmt = stmt.where(PurchaseOrderShipment.delivered_at.is_(None))
         if filters.expected_today:
-            # ASSUMPTION: "Today" in a replayable report means the selected
-            # period's inclusive end, not the machine's current date.
+            # ASSUMPTION (docs/assumptions.md §B5-1): "Today" in a replayable
+            # report means the selected period's inclusive end, not the
+            # machine's current date.
             stmt = stmt.where(PurchaseOrderShipment.expected_delivery_date == period.date_to)
         if filters.late_only:
             stmt = stmt.where(
@@ -1687,8 +1688,9 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
     def inbound_freight(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
         start = datetime.combine(period.date_from, datetime.min.time(), UTC)
         end = datetime.combine(period.date_to + timedelta(days=1), datetime.min.time(), UTC)
-        # ASSUMPTION: Freight months follow UTC, independent of the operator's
-        # browser timezone, so repeated exports group the same shipment alike.
+        # ASSUMPTION (docs/assumptions.md §B5-1): Freight months follow UTC,
+        # independent of the operator's browser timezone, so repeated exports
+        # group the same shipment alike.
         month = cast(
             func.date_trunc("month", func.timezone("UTC", PurchaseOrderShipment.shipped_at)),
             Date,
@@ -2840,11 +2842,11 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
     def production_cost(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
         """Closed production cost snapshots over the period.
 
-        ASSUMPTION: ``updated_at`` is the close-time boundary. The CLOSED
-        transition sets it in Python and closed orders cannot be edited, avoiding
-        a second timestamp that could disagree with the audit trail.
-        Work-centre filtering uses EXISTS so an order with several operations
-        remains one report row.
+        ASSUMPTION (docs/assumptions.md §E7-2): ``updated_at`` is the close-time
+        boundary. The CLOSED transition sets it in Python and closed orders
+        cannot be edited, avoiding a second timestamp that could disagree with
+        the audit trail. Work-centre filtering uses EXISTS so an order with
+        several operations remains one report row.
         """
         start, end = period_bounds(period)
         stmt = (
