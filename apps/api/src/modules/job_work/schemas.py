@@ -520,6 +520,8 @@ class ChallanRead(BaseModel):
     id: uuid.UUID
     code: str
     job_work_order_id: uuid.UUID
+    #: The order's document number, so the register names the order it travelled under.
+    job_work_order_code: str | None = None
     vendor_id: uuid.UUID
     challan_date: date
     expected_return_date: date
@@ -628,6 +630,9 @@ class PendingAtVendorRow(BaseModel):
 
     vendor_id: uuid.UUID
     item_id: uuid.UUID
+    #: The item's code and name, read for the whole page in one statement.
+    item_code: str | None = None
+    item_name: str | None = None
     warehouse_id: uuid.UUID
     outstanding_quantity: Decimal
     order_count: int

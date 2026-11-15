@@ -1007,8 +1007,15 @@ async def order_detail(
     return detail
 
 
-def challan_detail(challan: JobWorkChallan, lines: Sequence[JobWorkChallanLine]) -> ChallanRead:
+def challan_detail(
+    challan: JobWorkChallan, lines: Sequence[JobWorkChallanLine], *, order_code: str
+) -> ChallanRead:
+    """One challan with its lines, naming the order it travelled under.
+
+    Every caller already holds that order, so naming it costs no statement.
+    """
     detail = ChallanRead.model_validate(challan)
+    detail.job_work_order_code = order_code
     detail.lines = [ChallanLineRead.model_validate(row) for row in lines]
     return detail
 
@@ -1516,7 +1523,7 @@ async def list_challans(
     The header is fetched first so a missing order 404s rather than returning an
     empty list that looks like an order nothing was ever sent against.
     """
-    await JobWorkOrderRepository(session, tenant).get_or_404(order_id)
+    order = await JobWorkOrderRepository(session, tenant).get_or_404(order_id)
     challans = await JobWorkChallanRepository(session, tenant).list_for_order(order_id)
     if not challans:
         return []
@@ -1524,7 +1531,10 @@ async def list_challans(
     grouped = await JobWorkChallanLineRepository(session, tenant).list_for_challans(
         [challan.id for challan in challans]
     )
-    return [challan_detail(challan, grouped.get(challan.id, [])) for challan in challans]
+    return [
+        challan_detail(challan, grouped.get(challan.id, []), order_code=order.code)
+        for challan in challans
+    ]
 
 
 async def list_challan_register(
@@ -1540,12 +1550,22 @@ async def list_challan_register(
     this answers "what left the factory, for whom, and when" - the register the
     GST delivery challan is filed from and the ITC-04 return would be built on.
     Lines are omitted: a register row names the consignment, and the full
-    document is one ``list_challans`` call away.
+    document is one ``list_challans`` call away. The orders a page travelled
+    under are named in one statement for the page.
     """
     rows, pagination = await JobWorkChallanRepository(session, tenant).list_page_filtered(
         filters, params, sort
     )
-    return [ChallanRead.model_validate(row) for row in rows], pagination
+    orders = await labels_by_id(
+        session, tenant, (row.job_work_order_id for row in rows), JobWorkOrder.code
+    )
+    reads: list[ChallanRead] = []
+    for row in rows:
+        read = ChallanRead.model_validate(row)
+        order = orders.get(row.job_work_order_id)
+        read.job_work_order_code = order.code if order else None
+        reads.append(read)
+    return reads, pagination
 
 
 async def vendor_ledger(
@@ -2703,7 +2723,7 @@ async def issue_order(
 
     return IssueResult(
         order=await order_detail(session, tenant, order, lines),
-        challan=challan_detail(challan, challan_lines),
+        challan=challan_detail(challan, challan_lines, order_code=order.code),
         movement_count=len(posted),
         quantity_at_vendor=to_quantity(
             sum(

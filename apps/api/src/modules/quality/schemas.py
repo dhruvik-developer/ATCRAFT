@@ -597,14 +597,25 @@ class DecisionHistoryRead(BaseModel):
 
 
 class InspectionSummary(BaseModel):
+    """One inspection, naming what it holds as well as pointing at it.
+
+    ``item_code``/``item_name``, ``warehouse_code`` and ``batch_number`` are what
+    a person reads beside the three ids. Each is null only when its id names no
+    record of this company; ``batch_number`` is null for stock tracked by no lot.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     code: str
     qc_stage: QcStage
     item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
     warehouse_id: uuid.UUID
+    warehouse_code: str | None = None
     batch_id: uuid.UUID | None
+    batch_number: str | None = None
     serial_ids: list[uuid.UUID] = Field(default_factory=list)
     serial_dispositions: dict[str, str] = Field(default_factory=dict)
     vendor_id: uuid.UUID | None
@@ -792,6 +803,8 @@ class VendorQualityItemRow(BaseModel):
     """One item's contribution to a vendor's rejection rate."""
 
     item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
     inspection_count: int
     inspected_quantity: Decimal
     rejected_quantity: Decimal

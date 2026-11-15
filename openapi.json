@@ -14146,6 +14146,17 @@
             "title": "Id",
             "type": "string"
           },
+          "job_work_order_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Code"
+          },
           "job_work_order_id": {
             "format": "uuid",
             "title": "Job Work Order Id",
@@ -30831,6 +30842,17 @@
             ],
             "title": "Batch Id"
           },
+          "batch_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Number"
+          },
           "closed_at": {
             "anyOf": [
               {
@@ -30898,10 +30920,32 @@
             ],
             "title": "Inspector User Id"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "parameters": {
             "items": {
@@ -31066,6 +31110,17 @@
             ],
             "title": "Vendor Id"
           },
+          "warehouse_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Code"
+          },
           "warehouse_id": {
             "format": "uuid",
             "title": "Warehouse Id",
@@ -31225,6 +31280,7 @@
         "type": "string"
       },
       "InspectionSummary": {
+        "description": "One inspection, naming what it holds as well as pointing at it.\n\n``item_code``/``item_name``, ``warehouse_code`` and ``batch_number`` are what\na person reads beside the three ids. Each is null only when its id names no\nrecord of this company; ``batch_number`` is null for stock tracked by no lot.",
         "properties": {
           "accepted_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -31242,6 +31298,17 @@
               }
             ],
             "title": "Batch Id"
+          },
+          "batch_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Number"
           },
           "code": {
             "title": "Code",
@@ -31291,10 +31358,32 @@
             ],
             "title": "Inspector User Id"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "qc_stage": {
             "$ref": "#/components/schemas/QcStage"
@@ -31405,6 +31494,17 @@
               }
             ],
             "title": "Vendor Id"
+          },
+          "warehouse_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Code"
           },
           "warehouse_id": {
             "format": "uuid",
@@ -48406,10 +48506,32 @@
             "title": "Is Overdue",
             "type": "boolean"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "oldest_issued_at": {
             "anyOf": [
@@ -81273,10 +81395,32 @@
             "title": "Inspection Count",
             "type": "integer"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "rejected_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",

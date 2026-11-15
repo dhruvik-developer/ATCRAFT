@@ -8,7 +8,8 @@ four handlers no test had executed through HTTP - amending a template, forking a
 new version, recording measurements and closing an inspection - with real rows:
 the status and envelope, the persisted effect, the audit entry, the 422 a
 payload or the document's state earns, and the 404 another company's record
-answers with.
+answers with. It also pins that every inspection read names the item, store and
+lot it points at, for a page in a fixed number of statements.
 
 The lab: a finished good with 100 pieces on hand and an item-scoped IN_PROCESS
 check sheet (a critical NUMERIC bore of 9.9-10.1 mm and a BOOLEAN finish check),
@@ -44,6 +45,8 @@ from src.modules.documents.schemas import DocumentUploadRequest
 from src.modules.documents.service import DocumentService
 from src.modules.inventory import service as inventory
 from src.modules.inventory.models import TransactionType
+from src.modules.inventory.schemas import StockBatchCreate
+from src.modules.inventory.service import TraceabilityService
 from src.modules.products.models import ItemGroup, ProductionType
 from src.modules.quality import service as quality
 from src.modules.quality.models import (
@@ -60,7 +63,9 @@ from src.modules.quality.schemas import (
     TemplateCreate,
     TemplateParameterIn,
 )
+from src.modules.warehouses.models import Warehouse
 from tests import seed_support
+from tests.statement_support import counted, selects
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -870,6 +875,140 @@ async def test_an_undecided_inspection_cannot_be_closed(api_client, session, ten
         422,
         "INVALID_STATE_TRANSITION",
     )
+
+
+# -----------------------------------------------------------------------------
+# Every read names what it points at
+# -----------------------------------------------------------------------------
+
+
+async def lot_inspection(
+    session: AsyncSession, tenant: TenantContext, store_id: uuid.UUID, unique_code
+) -> SimpleNamespace:
+    """A PENDING inspection of a vendor's batch-tracked lot, and the four names it shows.
+
+    Plain values only: an expected failure would expire an ORM row held here.
+    """
+    uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
+    item = await seed_support.seed_item(
+        session,
+        company_id=tenant.company_id,
+        code=unique_code("PIN"),
+        name="Brass hinge pin",
+        base_uom_id=uom.id,
+        item_group=ItemGroup.FINISHED_GOOD,
+        production_type=ProductionType.BUY,
+        can_sell=True,
+        can_scrap=True,
+        is_batch_tracked=True,
+        standard_cost=Decimal("12"),
+    )
+    vendor = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+    batch = await TraceabilityService(session, tenant).create_batch(
+        StockBatchCreate(item_id=item.id, batch_number=unique_code("LOT"))
+    )
+    async with transaction(session):
+        await inventory.post_movement(
+            session,
+            tenant,
+            item_id=item.id,
+            warehouse_id=store_id,
+            batch_id=batch.id,
+            quantity=Decimal("20"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="opening",
+            reference_id=None,
+            reference_code="OPENING",
+            reason="Labelled lot fixture stock",
+            unit_cost=Decimal("12"),
+        )
+    inspection = await quality.create_inspection(
+        session,
+        tenant,
+        InspectionCreate(
+            item_id=item.id,
+            warehouse_id=store_id,
+            qc_stage=QcStage.INCOMING,
+            inspected_quantity=Decimal("20"),
+            batch_id=batch.id,
+            vendor_id=vendor.id,
+            hold_stock=True,
+            reason="Lot pulled for a check",
+        ),
+    )
+    store_code = await session.scalar(select(Warehouse.code).where(Warehouse.id == store_id))
+    return SimpleNamespace(
+        id=str(inspection.id),
+        vendor_id=str(vendor.id),
+        item_id=str(item.id),
+        names=(item.code, "Brass hinge pin", store_code, batch.batch_number),
+    )
+
+
+def names_of(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (row["item_code"], row["item_name"], row["warehouse_code"], row["batch_number"])
+
+
+async def test_every_inspection_read_names_its_item_store_and_lot(
+    api_client, session, tenant, lab, unique_code
+):
+    """The quality screens printed ``item_id.slice(0, 8)`` for want of these four names."""
+    lot = await lot_inspection(session, tenant, lab.store_id, unique_code)
+
+    (listed,) = [
+        row for row in ok(await api_client.get("/quality/inspections")) if row["id"] == lot.id
+    ]
+    assert names_of(listed) == lot.names
+    (queued,) = [row for row in ok(await api_client.get("/quality/pending")) if row["id"] == lot.id]
+    assert names_of(queued) == lot.names
+    url = f"/quality/inspections/{lot.id}"
+    assert names_of(ok(await api_client.get(url))) == lot.names
+
+    decided = ok(
+        await api_client.post(
+            f"{url}/decide", json={"accepted_quantity": "20", "reason": "Lot verdict"}
+        )
+    )
+    assert names_of(decided["inspection"]) == lot.names
+    closed = ok(await api_client.post(f"{url}/close", json={"reason": REASON}))
+    assert names_of(closed) == lot.names
+
+
+async def test_an_inspection_of_untracked_stock_names_no_lot(api_client, session, tenant, lab):
+    inspection_id = await plain_inspection(session, tenant, lab)
+
+    data = ok(await api_client.get(f"/quality/inspections/{inspection_id}"))
+
+    assert data["batch_id"] is None and data["batch_number"] is None
+    assert data["item_code"] and data["item_name"] and data["warehouse_code"]
+
+
+async def test_the_vendor_breakdown_names_each_item(api_client, session, tenant, lab, unique_code):
+    lot = await lot_inspection(session, tenant, lab.store_id, unique_code)
+    await decide(session, tenant, uuid.UUID(lot.id), accepted="20")
+
+    data = ok(await api_client.get(f"/quality/reports/vendor/{lot.vendor_id}"))
+
+    assert [(row["item_id"], row["item_code"], row["item_name"]) for row in data["items"]] == [
+        (lot.item_id, lot.names[0], lot.names[1])
+    ]
+
+
+async def test_the_inspection_list_names_a_page_in_a_fixed_number_of_statements(
+    api_client, session, tenant, lab, unique_code, engine
+):
+    """Three lots cost what one does: each referenced table is read once per page."""
+    await lot_inspection(session, tenant, lab.store_id, unique_code)
+    params = {"qc_stage": "INCOMING"}
+    with counted(engine) as one_row:
+        assert len(ok(await api_client.get("/quality/inspections", params=params))) == 1
+    await lot_inspection(session, tenant, lab.store_id, unique_code)
+    await lot_inspection(session, tenant, lab.store_id, unique_code)
+    with counted(engine) as three_rows:
+        rows = ok(await api_client.get("/quality/inspections", params=params))
+
+    assert len(rows) == 3 and all(row["batch_number"] for row in rows)
+    assert selects(three_rows) == selects(one_row)
 
 
 # -----------------------------------------------------------------------------

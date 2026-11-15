@@ -68,6 +68,7 @@ from tests.job_work_support import seed_vendor as seed_job_work_vendor
 from tests.job_work_support import (
     seed_warehouse as seed_job_work_warehouse,
 )
+from tests.statement_support import counted, selects
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -911,6 +912,67 @@ class TestOrderLinesNameTheirItems:
             await api_client.post(f"/job-work/{order_id}/issue", json={"reason": "Handed over"})
         )
         assert line_labels(issued_result["order"]) == expected
+
+
+class TestChallansAndThePendingFeedNameWhatTheyPointAt:
+    """A challan names its order and the at-vendor feed names its item.
+
+    The challan register printed ``job_work_order_id.slice(0, 8)`` and the
+    pending-at-vendor tab ``item_id.slice(0, 8)``, for want of these names.
+    """
+
+    async def test_every_challan_read_names_its_order(
+        self, api_client: AsyncClient, session, tenant, job
+    ) -> None:
+        order_id = await approved(session, tenant, job)
+        order_code = await column(session, JobWorkOrder.code, order_id)
+
+        issued_result = ok(
+            await api_client.post(f"/job-work/{order_id}/issue", json={"reason": "Handed over"})
+        )
+
+        assert issued_result["challan"]["job_work_order_code"] == order_code
+        (per_order,) = ok(await api_client.get(f"/job-work/{order_id}/challans"))
+        assert per_order["job_work_order_code"] == order_code
+        (registered,) = ok(
+            await api_client.get("/job-work/challans", params={"vendor_id": str(job.vendor_id)})
+        )
+        assert registered["job_work_order_code"] == order_code
+
+    async def test_the_register_names_a_page_in_a_fixed_number_of_statements(
+        self, api_client: AsyncClient, session, tenant, job, engine
+    ) -> None:
+        """Three challans cost what one does: their orders are named in one statement."""
+        mine = {"vendor_id": str(job.vendor_id)}
+        await issued(session, tenant, job)
+        with counted(engine) as one_row:
+            assert len(ok(await api_client.get("/job-work/challans", params=mine))) == 1
+        await issued(session, tenant, job)
+        await issued(session, tenant, job)
+        with counted(engine) as three_rows:
+            rows = ok(await api_client.get("/job-work/challans", params=mine))
+
+        assert len(rows) == 3 and all(row["job_work_order_code"] for row in rows)
+        assert len({row["job_work_order_code"] for row in rows}) == 3
+        assert selects(three_rows) == selects(one_row)
+
+    async def test_the_pending_feed_names_each_item(
+        self, api_client: AsyncClient, session, tenant, job
+    ) -> None:
+        await issued(session, tenant, job)
+        raw_code = await column(session, Item.code, job.raw_item_id)
+
+        rows = ok(
+            await api_client.get(
+                "/job-work/pending-at-vendor", params={"vendor_id": str(job.vendor_id)}
+            )
+        )
+
+        assert [(row["item_id"], row["item_code"], row["item_name"]) for row in rows] == [
+            (str(job.raw_item_id), raw_code, f"Item {raw_code}")
+        ]
+        (fed,) = await service.pending_at_vendor(session, tenant, vendor_id=job.vendor_id)
+        assert (fed.item_code, fed.item_name) == (raw_code, f"Item {raw_code}")
 
 
 # -----------------------------------------------------------------------------

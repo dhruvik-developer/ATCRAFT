@@ -94,6 +94,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.common.document_access import register_document_entity_resolver
+from src.common.repository import labels_by_id
 from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -119,12 +120,13 @@ from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.documents.service import DocumentService
-from src.modules.inventory.models import StockState
+from src.modules.inventory.models import StockBatch, StockState
 from src.modules.inventory.service import change_stock_state, get_balance
 from src.modules.notifications.alerts import AlertCandidate
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.repository import NotificationRepository
 from src.modules.notifications.service import NotificationDraft, notify_many, notify_role
+from src.modules.products.models import Item
 from src.modules.quality import owners
 from src.modules.quality.models import (
     DECIDED_STATUSES,
@@ -170,6 +172,7 @@ from src.modules.quality.schemas import (
     InspectionDetail,
     InspectionFilters,
     InspectionResultRead,
+    InspectionSummary,
     ItemQualityHistory,
     MeasurementIn,
     ParameterEvaluationRead,
@@ -195,6 +198,7 @@ from src.modules.quality.serial_tracking import (
     prepare_serial_inspection,
     validate_serial_decision,
 )
+from src.modules.warehouses.models import Warehouse
 
 log = get_logger(__name__)
 
@@ -960,6 +964,78 @@ def inspection_detail(
     detail.decisions = [DecisionHistoryRead.model_validate(row) for row in decisions]
     detail.rework_records = [ReworkRecordRead.model_validate(row) for row in rework_records]
     detail.serial_labels = dict(serial_labels or {})
+    return detail
+
+
+async def label_inspections(
+    session: AsyncSession, tenant: TenantContext, reads: Sequence[InspectionSummary]
+) -> None:
+    """Name each read's item, warehouse and batch beside its ids.
+
+    One tenant-scoped IN-query per referenced table for the whole set - three
+    for a page whatever its size, two when no row on it names a lot - never one
+    per row (section 32). An id of no row of this company labels as nothing.
+    """
+    items = await labels_by_id(
+        session, tenant, (read.item_id for read in reads), Item.code, Item.name
+    )
+    warehouses = await labels_by_id(
+        session, tenant, (read.warehouse_id for read in reads), Warehouse.code
+    )
+    batches = await labels_by_id(
+        session, tenant, (read.batch_id for read in reads), StockBatch.batch_number
+    )
+    for read in reads:
+        item = items.get(read.item_id)
+        read.item_code = item.code if item else None
+        read.item_name = item.name if item else None
+        warehouse = warehouses.get(read.warehouse_id)
+        read.warehouse_code = warehouse.code if warehouse else None
+        batch = batches.get(read.batch_id) if read.batch_id is not None else None
+        read.batch_number = batch.batch_number if batch else None
+
+
+async def summarise_inspections(
+    session: AsyncSession, tenant: TenantContext, inspections: Sequence[QcInspection]
+) -> list[InspectionSummary]:
+    """Each inspection as its list row, labelled by :func:`label_inspections`."""
+    reads = [InspectionSummary.model_validate(row) for row in inspections]
+    await label_inspections(session, tenant, reads)
+    return reads
+
+
+async def inspection_summary(
+    session: AsyncSession, tenant: TenantContext, inspection: QcInspection
+) -> InspectionSummary:
+    """One inspection as its labelled list row - what closing one answers with."""
+    (read,) = await summarise_inspections(session, tenant, [inspection])
+    return read
+
+
+async def _labelled_detail(
+    session: AsyncSession,
+    tenant: TenantContext,
+    inspection: QcInspection,
+    parameters: Sequence[QcTemplateParameter],
+    results: Sequence[QcInspectionResult],
+    *,
+    decisions: Sequence[QcInspectionDecision],
+    rework_records: Sequence[QcReworkRecord],
+) -> InspectionDetail:
+    """:func:`inspection_detail` with its serial labels and its names read.
+
+    Every endpoint answering with one inspection - fetch, record results,
+    decide - builds it here, so none of them can answer without the names.
+    """
+    detail = inspection_detail(
+        inspection,
+        parameters,
+        results,
+        decisions=decisions,
+        rework_records=rework_records,
+        serial_labels=await SerialLabelRepository(session, tenant).for_inspection(inspection),
+    )
+    await label_inspections(session, tenant, [detail])
     return detail
 
 
@@ -1922,13 +1998,14 @@ async def record_results(
         )
 
     return RecordResultsResponse(
-        inspection=inspection_detail(
+        inspection=await _labelled_detail(
+            session,
+            tenant,
             inspection,
             parameters,
             results,
             decisions=decisions,
             rework_records=rework_records,
-            serial_labels=await SerialLabelRepository(session, tenant).for_inspection(inspection),
         ),
         evaluation=evaluation_read(evaluation),
     )
@@ -2168,13 +2245,14 @@ async def decide_inspection(
         )
 
     return DecisionResponse(
-        inspection=inspection_detail(
+        inspection=await _labelled_detail(
+            session,
+            tenant,
             inspection,
             parameters,
             results,
             decisions=decisions,
             rework_records=rework_records,
-            serial_labels=await SerialLabelRepository(session, tenant).for_inspection(inspection),
         ),
         evaluation=evaluation_read(evaluation),
         released_quantity=moved[StockState.AVAILABLE],
@@ -2669,8 +2747,11 @@ async def list_inspections(
     filters: InspectionFilters,
     params: PageParams,
     sort: SortParams,
-) -> tuple[list[QcInspection], OffsetPagination]:
-    return await QcInspectionRepository(session, tenant).list_inspections(filters, params, sort)
+) -> tuple[list[InspectionSummary], OffsetPagination]:
+    rows, pagination = await QcInspectionRepository(session, tenant).list_inspections(
+        filters, params, sort
+    )
+    return await summarise_inspections(session, tenant, rows), pagination
 
 
 async def list_pending(
@@ -2680,11 +2761,12 @@ async def list_pending(
     *,
     stage: QcStage | None = None,
     warehouse_id: uuid.UUID | None = None,
-) -> tuple[list[QcInspection], OffsetPagination]:
+) -> tuple[list[InspectionSummary], OffsetPagination]:
     """The inspection queue - what is holding stock up right now."""
-    return await QcInspectionRepository(session, tenant).list_pending(
+    rows, pagination = await QcInspectionRepository(session, tenant).list_pending(
         params, stage=stage, warehouse_id=warehouse_id
     )
+    return await summarise_inspections(session, tenant, rows), pagination
 
 
 async def get_inspection_detail(
@@ -2697,13 +2779,14 @@ async def get_inspection_detail(
         inspection.id
     )
     rework_records = await QcReworkRepository(session, tenant).list_for_inspection(inspection.id)
-    return inspection_detail(
+    return await _labelled_detail(
+        session,
+        tenant,
         inspection,
         parameters,
         results,
         decisions=decisions,
         rework_records=rework_records,
-        serial_labels=await SerialLabelRepository(session, tenant).for_inspection(inspection),
     )
 
 
@@ -2845,6 +2928,8 @@ async def vendor_quality_summary(
     rows = await repo.vendor_item_rows(vendor_id, since=since, until=until, limit=item_limit)
     truncated = len(rows) > item_limit
     rows = rows[:item_limit]
+    # The breakdown's items named in one statement, as an inspection page is.
+    items = await labels_by_id(session, tenant, (row.item_id for row in rows), Item.code, Item.name)
 
     return VendorQualitySummary(
         vendor_id=vendor_id,
@@ -2862,6 +2947,8 @@ async def vendor_quality_summary(
         items=[
             VendorQualityItemRow(
                 item_id=row.item_id,
+                item_code=items[row.item_id].code if row.item_id in items else None,
+                item_name=items[row.item_id].name if row.item_id in items else None,
                 inspection_count=row.totals.inspection_count,
                 inspected_quantity=row.totals.inspected_quantity,
                 rejected_quantity=row.totals.rejected_quantity,
@@ -2940,9 +3027,11 @@ __all__ = [
     "get_inspection_detail",
     "get_template_detail",
     "inspection_detail",
+    "inspection_summary",
     "inspections_for_reference",
     "inspections_for_references",
     "item_quality_history",
+    "label_inspections",
     "list_inspections",
     "list_pending",
     "list_templates",
@@ -2951,6 +3040,7 @@ __all__ = [
     "rejection_rate",
     "retire_template",
     "status_for",
+    "summarise_inspections",
     "template_detail",
     "update_template",
     "validate_disposition",

@@ -34,9 +34,10 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Select, and_, case, delete, func, select
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import InstrumentedAttribute
 
-from src.common.repository import BaseRepository
+from src.common.repository import BaseRepository, labels_by_id
 from src.core.clock import today, utcnow
 from src.core.database import affected_rows
 from src.core.pagination import PageParams, SortParams, paginate_rows
@@ -860,8 +861,7 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
             warehouse_id=warehouse_id,
             overdue_only=overdue_only,
         ).limit(limit)
-        now = utcnow()
-        return [_pending_row(row, now) for row in (await self.session.execute(stmt)).all()]
+        return await self._pending_rows((await self.session.execute(stmt)).all())
 
     async def pending_at_vendor_page(
         self,
@@ -883,21 +883,31 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
             ),
             params,
         )
+        return await self._pending_rows(rows), pagination
+
+    async def _pending_rows(self, rows: Sequence[Any]) -> list[PendingAtVendorRow]:
+        """Map aggregate rows, naming their items in one statement for the whole set."""
+        items = await labels_by_id(
+            self.session, self.tenant, (row.item_id for row in rows), Item.code, Item.name
+        )
         now = utcnow()
-        return [_pending_row(row, now) for row in rows], pagination
+        return [_pending_row(row, now, items.get(row.item_id)) for row in rows]
 
 
-def _pending_row(row: Any, now: datetime) -> PendingAtVendorRow:
+def _pending_row(row: Any, now: datetime, item: Row[Any] | None) -> PendingAtVendorRow:
     """Map one aggregate row, keeping the numerics as ``Decimal`` (section 84).
 
     Ageing is computed here rather than in SQL so a frozen clock in a test moves
     it, and so the figure is the same whichever database the query ran on.
+    ``item`` is the row's ``labels_by_id`` entry, ``None`` for an unknown id.
     """
     issued_at: datetime | None = row.oldest_issued_at
     expected: date | None = row.earliest_expected_return
     return PendingAtVendorRow(
         vendor_id=row.vendor_id,
         item_id=row.item_id,
+        item_code=item.code if item else None,
+        item_name=item.name if item else None,
         warehouse_id=row.warehouse_id,
         outstanding_quantity=Decimal(str(row.outstanding_quantity)),
         order_count=int(row.order_count),

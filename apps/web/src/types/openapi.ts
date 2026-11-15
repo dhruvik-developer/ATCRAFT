@@ -17617,6 +17617,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Job Work Order Code */
+            job_work_order_code?: string | null;
             /**
              * Job Work Order Id
              * Format: uuid
@@ -23298,6 +23300,8 @@ export interface components {
             accepted_quantity: string;
             /** Batch Id */
             batch_id: string | null;
+            /** Batch Number */
+            batch_number?: string | null;
             /** Closed At */
             closed_at?: string | null;
             /** Code */
@@ -23322,11 +23326,15 @@ export interface components {
             inspected_quantity: string;
             /** Inspector User Id */
             inspector_user_id: string | null;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Parameters */
             parameters?: components["schemas"]["TemplateParameterRead"][];
             qc_stage: components["schemas"]["QcStage"];
@@ -23372,6 +23380,8 @@ export interface components {
             template_version: number | null;
             /** Vendor Id */
             vendor_id: string | null;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
             /**
              * Warehouse Id
              * Format: uuid
@@ -23439,12 +23449,21 @@ export interface components {
          * @enum {string}
          */
         InspectionStatus: "PENDING" | "IN_PROGRESS" | "ACCEPTED" | "REWORK" | "REJECTED" | "HOLD" | "SCRAP" | "CLOSED" | "WITHDRAWN";
-        /** InspectionSummary */
+        /**
+         * InspectionSummary
+         * @description One inspection, naming what it holds as well as pointing at it.
+         *
+         *     ``item_code``/``item_name``, ``warehouse_code`` and ``batch_number`` are what
+         *     a person reads beside the three ids. Each is null only when its id names no
+         *     record of this company; ``batch_number`` is null for stock tracked by no lot.
+         */
         InspectionSummary: {
             /** Accepted Quantity */
             accepted_quantity: string;
             /** Batch Id */
             batch_id: string | null;
+            /** Batch Number */
+            batch_number?: string | null;
             /** Code */
             code: string;
             /**
@@ -23465,11 +23484,15 @@ export interface components {
             inspected_quantity: string;
             /** Inspector User Id */
             inspector_user_id: string | null;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             qc_stage: components["schemas"]["QcStage"];
             /** Reference Code */
             reference_code: string | null;
@@ -23501,6 +23524,8 @@ export interface components {
             template_version: number | null;
             /** Vendor Id */
             vendor_id: string | null;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
             /**
              * Warehouse Id
              * Format: uuid
@@ -30796,11 +30821,15 @@ export interface components {
             earliest_expected_return: string | null;
             /** Is Overdue */
             is_overdue: boolean;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Oldest Issued At */
             oldest_issued_at: string | null;
             /** Order Count */
@@ -41991,11 +42020,15 @@ export interface components {
             inspected_quantity: string;
             /** Inspection Count */
             inspection_count: number;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Rejected Quantity */
             rejected_quantity: string;
             /** Rejection Rate */

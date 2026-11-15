@@ -325,9 +325,7 @@ async def list_pending(
     rows, pagination = await service.list_pending(
         session, tenant, params, stage=qc_stage, warehouse_id=warehouse_id
     )
-    return PaginatedResponse[InspectionSummary](
-        data=[InspectionSummary.model_validate(row) for row in rows], pagination=pagination
-    )
+    return PaginatedResponse[InspectionSummary](data=rows, pagination=pagination)
 
 
 @router.get(
@@ -393,9 +391,7 @@ async def list_inspections(
     sort: SortDep,
 ) -> PaginatedResponse[InspectionSummary]:
     rows, pagination = await service.list_inspections(session, tenant, filters, params, sort)
-    return PaginatedResponse[InspectionSummary](
-        data=[InspectionSummary.model_validate(row) for row in rows], pagination=pagination
-    )
+    return PaginatedResponse[InspectionSummary](data=rows, pagination=pagination)
 
 
 @router.post(
@@ -500,7 +496,7 @@ async def close_inspection(
         session, tenant, inspection_id, reason=payload.reason
     )
     return ApiResponse[InspectionSummary].ok(
-        InspectionSummary.model_validate(inspection),
+        await service.inspection_summary(session, tenant, inspection),
         success_message(f"Inspection {inspection.code}", "closed"),
     )
 
