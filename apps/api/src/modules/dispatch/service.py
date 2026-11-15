@@ -119,11 +119,11 @@ from src.modules.dispatch.repository import (
     DispatchLineRepository,
     DispatchRepository,
     DispatchTrackingEventRepository,
+    FulfilledOrderLineRepository,
+    FulfilledOrderRepository,
     ItemLookupRepository,
     LedgerLookupRepository,
     PackingOrderLookupRepository,
-    SalesOrderLineRepository,
-    SalesOrderRepository,
     SerialLookupRepository,
     TransporterLookupRepository,
     VendorLookupRepository,
@@ -1103,7 +1103,7 @@ async def _validate_lines(
                 "A line cannot reference a sales-order line when the consignment names no "
                 "sales order."
             )
-        found = await SalesOrderLineRepository(session, tenant).get_many(referenced)
+        found = await FulfilledOrderLineRepository(session, tenant).get_many(referenced)
         order_lines = {row.id: row for row in found}
     live = await live_reservations(session, tenant, list(order_lines.values()))
     planned = (
@@ -1371,7 +1371,7 @@ async def _validate_header(
         # Locked, not merely read: the lines are then checked against what
         # other unsent consignments already carry for this order, and two plans
         # saved at once must not both be measured against the same balance.
-        header = await SalesOrderRepository(session, tenant).lock_header(sales_order_id)
+        header = await FulfilledOrderRepository(session, tenant).lock_header(sales_order_id)
         if header is None:
             raise NotFoundError("Sales order", sales_order_id)
         if customer_id is not None and header.customer_id != customer_id:
@@ -1582,7 +1582,7 @@ async def create_dispatch(
             sales_order_id=payload.sales_order_id,
         )
         if payload.sales_order_id is not None:
-            locked_order = await SalesOrderRepository(session, tenant).lock_header(
+            locked_order = await FulfilledOrderRepository(session, tenant).lock_header(
                 payload.sales_order_id
             )
             if locked_order is None:
@@ -1722,7 +1722,7 @@ async def update_dispatch(
             sales_order_id=dispatch.sales_order_id,
         )
         if dispatch.sales_order_id is not None:
-            locked_order = await SalesOrderRepository(session, tenant).lock_header(
+            locked_order = await FulfilledOrderRepository(session, tenant).lock_header(
                 dispatch.sales_order_id
             )
             if locked_order is None:
@@ -2019,8 +2019,8 @@ async def dispatch_consignment(
     """
     repo = DispatchRepository(session, tenant)
     line_repo = DispatchLineRepository(session, tenant)
-    order_repo = SalesOrderRepository(session, tenant)
-    order_line_repo = SalesOrderLineRepository(session, tenant)
+    order_repo = FulfilledOrderRepository(session, tenant)
+    order_line_repo = FulfilledOrderLineRepository(session, tenant)
 
     consumed: list[uuid.UUID] = []
 
@@ -2345,7 +2345,7 @@ async def _advance_sales_order(
     sequence it actually went through rather than as a jump the machine does not
     describe, and ``sales_orders.status`` keeps the one writer it claims.
     """
-    orders = SalesOrderRepository(session, tenant)
+    orders = FulfilledOrderRepository(session, tenant)
     current = SalesOrderStatus(sales_order.status)
     for target in sales_order_status_path(current, fully_dispatched=fully_dispatched):
         await transition_sales_order(
@@ -2361,7 +2361,9 @@ async def _advance_sales_order(
     if (
         fully_dispatched
         and current == SalesOrderStatus.DISPATCHED
-        and await SalesOrderLineRepository(session, tenant).uninvoiced_line_count(sales_order.id)
+        and await FulfilledOrderLineRepository(session, tenant).uninvoiced_line_count(
+            sales_order.id
+        )
         == 0
     ):
         await transition_sales_order(

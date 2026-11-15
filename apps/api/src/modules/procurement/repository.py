@@ -652,9 +652,11 @@ class BatchLookupRepository(BaseRepository[StockBatch]):
         return {(row.item_id, row.batch_number): row.id for row in rows}
 
 
-class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
+class PurchasingTermsRepository(BaseRepository[ItemVendorLink]):
     """Maintains the purchase-history columns ``products`` expects this module
-    to write (see ``ItemVendorLink.last_purchase_price``)."""
+    to write (see ``ItemVendorLink.last_purchase_price``), and reads the terms a
+    purchase is raised on. Named apart from products' ``ItemVendorLinkRepository``,
+    which maintains the links themselves."""
 
     model = ItemVendorLink
 
@@ -1862,7 +1864,6 @@ __all__ = [
     "GoodsReceiptLineRepository",
     "GoodsReceiptRepository",
     "ItemCategoryLookupRepository",
-    "ItemVendorLinkRepository",
     "OrganizationLookupRepository",
     "PendingApprovalRepository",
     "PurchasableItem",
@@ -1872,6 +1873,7 @@ __all__ = [
     "PurchaseReturnLineRepository",
     "PurchaseReturnRepository",
     "PurchasingTerms",
+    "PurchasingTermsRepository",
     "QuotationLineRepository",
     "QuotationRepository",
     "RequisitionLineRepository",

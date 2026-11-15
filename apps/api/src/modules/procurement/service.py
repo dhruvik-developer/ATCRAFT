@@ -134,7 +134,6 @@ from src.modules.procurement.repository import (
     GoodsReceiptLineRepository,
     GoodsReceiptRepository,
     ItemCategoryLookupRepository,
-    ItemVendorLinkRepository,
     OrganizationLookupRepository,
     PendingApprovalRepository,
     PurchasableItem,
@@ -143,6 +142,7 @@ from src.modules.procurement.repository import (
     PurchaseOrderRepository,
     PurchaseReturnLineRepository,
     PurchaseReturnRepository,
+    PurchasingTermsRepository,
     QuotationLineRepository,
     QuotationRepository,
     RequisitionLineRepository,
@@ -4159,7 +4159,7 @@ async def _plan_conversion(
     lineages = {
         category_id: category_lineage(facts.path) for category_id, facts in categories.items()
     }
-    terms = await ItemVendorLinkRepository(session, tenant).purchasing_terms(item_ids)
+    terms = await PurchasingTermsRepository(session, tenant).purchasing_terms(item_ids)
     preferred_by_category = await VendorCategoryLookupRepository(session, tenant).preferred_for(
         sorted({c for lineage in lineages.values() for c in lineage}, key=str)
     )
@@ -5108,7 +5108,7 @@ async def post_goods_receipt(
         # The products module documents these two columns as written by goods
         # receipt posting (see ItemVendorLink.last_purchase_price). One
         # statement for every item on the receipt.
-        await ItemVendorLinkRepository(session, tenant).record_last_purchase(
+        await PurchasingTermsRepository(session, tenant).record_last_purchase(
             receipt.vendor_id,
             {
                 line.item_id: Decimal(line.unit_cost)

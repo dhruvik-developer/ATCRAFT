@@ -1987,8 +1987,12 @@ class JobWorkReceiptLineLookupRepository(BaseRepository[JobWorkReceiptLine]):
         return {row.id: row for row in rows}
 
 
-class FinancialYearRepository(BaseRepository[FinancialYear]):
-    """The period a posting belongs to, and whether it is still open."""
+class FinancialYearLookupRepository(BaseRepository[FinancialYear]):
+    """The period a posting belongs to, and whether it is still open.
+
+    Finance's own lookup of organization's table, named apart from the owner's
+    ``FinancialYearRepository``, which carries the year's own rules.
+    """
 
     model = FinancialYear
 
@@ -2785,7 +2789,7 @@ __all__ = [
     "TAXABLE_DISPATCH_STATUSES",
     "AgeingCurrencyTotal",
     "CustomerLookupRepository",
-    "FinancialYearRepository",
+    "FinancialYearLookupRepository",
     "GoodsReceiptFacts",
     "GoodsReceiptLineFacts",
     "GoodsReceiptLineLookupRepository",

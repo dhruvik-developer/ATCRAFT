@@ -157,7 +157,7 @@ from src.modules.finance.repository import (
     AGEING_TOTAL_COLUMNS,
     AgeingCurrencyTotal,
     CustomerLookupRepository,
-    FinancialYearRepository,
+    FinancialYearLookupRepository,
     GoodsReceiptLineLookupRepository,
     GoodsReceiptLookupRepository,
     GstRepository,
@@ -1566,7 +1566,7 @@ async def post_journal(
     denomination = currency or await company_currency(session, tenant)
 
     account_repo = LedgerAccountRepository(session, tenant)
-    year_repo = FinancialYearRepository(session, tenant)
+    year_repo = FinancialYearLookupRepository(session, tenant)
 
     async with transaction(session):
         reversal_account_ids = {line.account_id for line in lines if line.reverses_entry_id}
@@ -1946,7 +1946,7 @@ async def trial_balance(
     subtotal. ``balanced`` is the arithmetic the report exists to prove: the
     closing debit balances equal the closing credit balances.
     """
-    year = await FinancialYearRepository(session, tenant).containing(as_of)
+    year = await FinancialYearLookupRepository(session, tenant).containing(as_of)
     if year is not None:
         period_start = year.start_date
     else:

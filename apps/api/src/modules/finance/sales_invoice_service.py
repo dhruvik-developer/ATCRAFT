@@ -39,7 +39,7 @@ from src.modules.finance.models import (
     SalesInvoiceStatus,
     SystemAccount,
 )
-from src.modules.finance.repository import FinancialYearRepository
+from src.modules.finance.repository import FinancialYearLookupRepository
 from src.modules.finance.sales_invoice_repository import (
     SalesInvoiceRepository,
     SalesInvoiceSourceRepository,
@@ -299,7 +299,7 @@ async def preview_sales_invoice(
         date = today()
     if date < order.order_date:
         raise ValidationError(date_before("invoice date", "sales-order date"))
-    year = await FinancialYearRepository(session, tenant).containing(date)
+    year = await FinancialYearLookupRepository(session, tenant).containing(date)
     if year is not None and year.is_closed:
         raise BusinessRuleError("The invoice date belongs to a closed financial year.")
     facts = await source.item_facts([line.item_id for line in dispatch_lines])
@@ -716,7 +716,7 @@ async def cancel_sales_invoice(
             ol.invoiced_quantity = to_quantity(
                 Decimal(ol.invoiced_quantity) - Decimal(line.quantity)
             )
-        year = await FinancialYearRepository(session, tenant).containing(invoice.invoice_date)
+        year = await FinancialYearLookupRepository(session, tenant).containing(invoice.invoice_date)
         entries = await reverse_journal(
             session,
             tenant,

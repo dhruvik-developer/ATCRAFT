@@ -462,12 +462,13 @@ class LedgerLookupRepository(BaseRepository[InventoryTransaction]):
         return [row.id for row in (await self.session.execute(stmt)).all()]
 
 
-class SalesOrderRepository(BaseRepository[SalesOrder]):
+class FulfilledOrderRepository(BaseRepository[SalesOrder]):
     """The sales order this consignment fulfils.
 
     The dispatch module writes ``sales_order_lines.dispatched_quantity`` and
     advances the order's status through the sales module's own state machine, so
-    it needs both the header under a lock and its lines under one.
+    it needs both the header under a lock and its lines under one. Named apart
+    from sales' ``SalesOrderRepository``, which carries the order's own rules.
     """
 
     model = SalesOrder
@@ -489,7 +490,9 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
 
-class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
+class FulfilledOrderLineRepository(BaseRepository[SalesOrderLine]):
+    """The lines of the order a consignment fulfils, locked and counted."""
+
     model = SalesOrderLine
 
     async def lock_lines(self, line_ids: Sequence[uuid.UUID]) -> list[SalesOrderLine]:
@@ -1135,12 +1138,12 @@ __all__ = [
     "DispatchLineRepository",
     "DispatchRepository",
     "DispatchTrackingEventRepository",
+    "FulfilledOrderLineRepository",
+    "FulfilledOrderRepository",
     "ItemLookupRepository",
     "LedgerLookupRepository",
     "PackingOrderLookupRepository",
     "PartyFacts",
-    "SalesOrderLineRepository",
-    "SalesOrderRepository",
     "SerialFacts",
     "SerialLookupRepository",
     "TransporterLookupRepository",
