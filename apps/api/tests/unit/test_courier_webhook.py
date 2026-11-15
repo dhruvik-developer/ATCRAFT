@@ -1,7 +1,7 @@
 """The courier webhook is decided by the service, before anything is recorded.
 
 ``admit_webhook`` runs before the body is read: the deployment switch, then the
-``COURIER_WEBHOOK`` flood guard keyed on the sending address. ``receive_webhook``
+``COURIER_WEBHOOK_PER_IP`` flood guard keyed on the sending address. ``receive_webhook``
 then authenticates the delivery - the URL's token names the account, a generic
 provider signs ``<timestamp>.<body>``, Shiprocket sends the secret as its key -
 and parses only an authenticated body. All of it used to live in the route
@@ -307,7 +307,7 @@ def redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
 
 
 def _exhaust(redis: FakeRedis, address: str) -> None:
-    scope, limit, _ = RateLimitPolicy.COURIER_WEBHOOK
+    scope, limit, _ = RateLimitPolicy.COURIER_WEBHOOK_PER_IP
     now_ms = int(utcnow().timestamp() * 1000)
     redis.windows[f"{KEY_PREFIX}:rl:{scope}:{address}"] = [
         (now_ms, f"spent-{n}") for n in range(limit)
@@ -316,7 +316,7 @@ def _exhaust(redis: FakeRedis, address: str) -> None:
 
 def test_the_flood_guard_is_sixty_deliveries_a_minute() -> None:
     """docs/security.md D3 names it; a silent widening is visible here."""
-    assert RateLimitPolicy.COURIER_WEBHOOK == ("courier_webhook", 60, 60)
+    assert RateLimitPolicy.COURIER_WEBHOOK_PER_IP == ("courier_webhook", 60, 60)
 
 
 async def test_a_disabled_deployment_refuses_before_spending_the_budget(
@@ -334,7 +334,7 @@ async def test_the_flood_guard_is_spent_per_sending_address(
     monkeypatch: pytest.MonkeyPatch, redis: FakeRedis
 ) -> None:
     monkeypatch.setattr(settings, "courier_tracking_enabled", True)
-    scope = RateLimitPolicy.COURIER_WEBHOOK[0]
+    scope = RateLimitPolicy.COURIER_WEBHOOK_PER_IP[0]
 
     await service.admit_webhook("203.0.113.7")
     await service.admit_webhook(None)

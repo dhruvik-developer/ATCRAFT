@@ -367,13 +367,13 @@ async def test_connection(
 async def admit_webhook(client_ip: str | None) -> None:
     """Let a webhook delivery in, or refuse it before its body is read.
 
-    The deployment switch first, then the ``COURIER_WEBHOOK`` flood guard keyed
+    The deployment switch first, then the ``COURIER_WEBHOOK_PER_IP`` flood guard keyed
     on the sending address - both before the body is streamed or the database
     touched, so a refused delivery costs neither.
     """
     if not settings.courier_tracking_enabled:
         raise ValidationError("Courier tracking is disabled for this deployment.")
-    await enforce_policy(RateLimitPolicy.COURIER_WEBHOOK, client_ip or "unknown")
+    await enforce_policy(RateLimitPolicy.COURIER_WEBHOOK_PER_IP, client_ip or "unknown")
 
 
 async def receive_webhook(

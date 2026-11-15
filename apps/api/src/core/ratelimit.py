@@ -213,7 +213,7 @@ class RateLimitPolicy:
     # the sending address and spent before the body is read or the database
     # touched, by courier_tracking.service.admit_webhook. A provider's address is
     # a site, so every account it delivers to shares this one budget.
-    COURIER_WEBHOOK = ("courier_webhook", 60, 60)
+    COURIER_WEBHOOK_PER_IP = ("courier_webhook", 60, 60)
 
 
 async def enforce_policy(policy: tuple[str, int, int], identifier: str) -> RateLimitResult:

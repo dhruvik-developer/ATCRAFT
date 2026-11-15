@@ -256,7 +256,7 @@ def test_the_limiter_rule_rejects_a_literal_budget_and_passes_a_named_one() -> N
         "async def handler(ip):\n"
         "    await enforce_rate_limit(f'hook:{ip}', limit=60, window_seconds=60)\n"
         "    await ratelimit.check_rate_limit(ip, limit=5)\n"
-        "    await enforce_policy(RateLimitPolicy.COURIER_WEBHOOK, ip)\n"
+        "    await enforce_policy(RateLimitPolicy.COURIER_WEBHOOK_PER_IP, ip)\n"
     )
     assert raw_limiter_calls(source) == [
         "line 3: enforce_rate_limit()",
