@@ -65,11 +65,12 @@ import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { useCategoryOptions } from '@/features/items/item-model'
+import { useWorkCentreOptions } from '@/features/production/work-order-model'
 import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
-import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
+import { SELECT_NONE } from '@/lib/constants'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -992,19 +993,9 @@ function WorkCenterFilter({
   onChange: (next: string) => void
   error?: string
 }) {
-  const params = {
-    page: 1,
-    limit: LOOKUP_LIST_LIMIT,
-    with_total: false,
-    is_active: true,
-  } as const
-  const options = useQuery({
-    queryKey: queryKeys.routing.workCenters(params),
-    queryFn: async ({ signal }) =>
-      (await api.getPage<SchemaOf<'WorkCenterRead'>>('/routing/work-centers', { params, signal }))
-        .data,
-    staleTime: staleTimes.reference,
-  })
+  // The shared active-centre lookup, so the planning board, the work orders and
+  // this filter read one cache entry rather than one each for the same list.
+  const options = useWorkCentreOptions()
 
   return (
     <div className="space-y-1.5">

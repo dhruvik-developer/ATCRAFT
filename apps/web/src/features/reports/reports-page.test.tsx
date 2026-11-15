@@ -12,6 +12,7 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { useWorkCentreOptions } from '@/features/production/work-order-model'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
@@ -246,6 +247,39 @@ describe('production cost filters', () => {
     expect(asked).toHaveLength(1)
     expect(asked[0]!.searchParams.get('work_center_id')).toBe('wc-mill')
     expect(asked[0]!.searchParams.get('cost_centre_id')).toBe('cc-production')
+  })
+
+  it('reads the active work centres the production screens read, as one request', async () => {
+    // The filter asked for the list with parameters of its own, so it sat in a
+    // cache entry beside the shared one and the same list was fetched twice.
+    let reads = 0
+    function ProductionScreen() {
+      const centres = useWorkCentreOptions()
+      return <p>{centres.data ? 'Centres read' : 'Reading centres'}</p>
+    }
+    const { user } = renderScreen(
+      <>
+        <ReportsPage />
+        <ProductionScreen />
+      </>,
+      {
+        permissions: [P.REPORT_VIEW, P.ITEM_COST_VIEW, P.WORK_CENTER_VIEW],
+        route: '/reports?report=PRODUCTION_COST&date_from=2026-09-01&date_to=2026-09-30',
+        routes: {
+          ...routes,
+          'GET /reports/catalogue': ok([PRODUCTION_COST]),
+          'GET /routing/work-centers': () => {
+            reads += 1
+            return page([])
+          },
+        },
+      },
+    )
+
+    expect(await screen.findByText('Centres read')).toBeVisible()
+    await user.click(await screen.findByRole('combobox', { name: 'Work centre' }))
+    expect(await screen.findByRole('option', { name: 'All work centres' })).toBeVisible()
+    expect(reads).toBe(1)
   })
 })
 
