@@ -21,7 +21,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Scale } from 'lucide-react'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/primitives'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
@@ -45,7 +46,7 @@ import {
 } from './finance-types'
 
 export function PartyLedgerTab() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const partyType: LedgerSide = searchParams.get('party_type') === 'VENDOR' ? 'VENDOR' : 'CUSTOMER'
   const partyId = searchParams.get('party_id') ?? ''
@@ -55,32 +56,14 @@ export function PartyLedgerTab() {
   const limit = Number(searchParams.get('limit') ?? DEFAULT_PAGE_SIZE)
 
   /**
-   * Write every key a handler changes in ONE update.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the `searchParams` of the render that created the callback and then
-   * navigates. Two calls in one handler therefore both start from the same
-   * stale base and the second navigation overwrites the first - which is how
-   * choosing a party used to set `page` and silently drop `party_id`, leaving
-   * this tab permanently unable to load a statement. One call, one base, every
-   * key.
+   * Every key a handler changes, in ONE update: two calls in one handler both
+   * start from the same captured URL and the second overwrites the first -
+   * which is how choosing a party used to set `page` and drop `party_id`,
+   * leaving this tab unable to load a statement. A narrowing goes back to the
+   * first page; turning the page moves nothing else.
    */
-  const updateParams = useCallback(
-    (changes: Record<string, string | number | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(changes)) {
-            if (value === undefined || value === '') next.delete(key)
-            else next.set(key, String(value))
-          }
-          return next
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
+  const writeFilters = useFilterWriter()
+  const turnPage = useFilterWriter(null)
 
   const params = useMemo(
     () => ({
@@ -249,13 +232,7 @@ export function PartyLedgerTab() {
               size="sm"
               variant={partyType === side.value ? 'default' : 'ghost'}
               aria-pressed={partyType === side.value}
-              onClick={() =>
-                updateParams({
-                  party_type: side.value,
-                  party_id: undefined,
-                  page: undefined,
-                })
-              }
+              onClick={() => writeFilters({ party_type: side.value, party_id: undefined })}
             >
               {side.label}
             </Button>
@@ -269,7 +246,7 @@ export function PartyLedgerTab() {
             hideLabel
             placeholder="Choose a customer"
             value={partyId || null}
-            onChange={(next) => updateParams({ party_id: next ?? undefined, page: undefined })}
+            onChange={(next) => writeFilters({ party_id: next ?? undefined })}
           />
         ) : (
           <VendorPicker
@@ -278,7 +255,7 @@ export function PartyLedgerTab() {
             hideLabel
             placeholder="Choose a vendor"
             value={partyId || null}
-            onChange={(next) => updateParams({ party_id: next ?? undefined, page: undefined })}
+            onChange={(next) => writeFilters({ party_id: next ?? undefined })}
           />
         )}
 
@@ -288,8 +265,8 @@ export function PartyLedgerTab() {
           to={dateTo}
           fromInputProps={{ max: dateTo || undefined }}
           toInputProps={{ min: dateFrom || undefined }}
-          onFromChange={(value) => updateParams({ date_from: value || undefined, page: undefined })}
-          onToChange={(value) => updateParams({ date_to: value || undefined, page: undefined })}
+          onFromChange={(value) => writeFilters({ date_from: value || undefined })}
+          onToChange={(value) => writeFilters({ date_to: value || undefined })}
         />
       </div>
 
@@ -344,8 +321,8 @@ export function PartyLedgerTab() {
             isLoading={statement.isLoading}
             isFetching={statement.isFetching}
             error={statement.error as Error | null}
-            onPageChange={(next) => updateParams({ page: next })}
-            onLimitChange={(next) => updateParams({ limit: next, page: undefined })}
+            onPageChange={(next) => turnPage({ page: next })}
+            onLimitChange={(next) => writeFilters({ limit: next })}
             onRefresh={() => void statement.refetch()}
             getRowId={(row) => row.entry_id}
             emptyTitle="No postings in this window"

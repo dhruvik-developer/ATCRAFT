@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate } from '@/lib/format'
@@ -83,7 +84,7 @@ const STATE_VARIANT: Record<TransporterState, 'secondary' | 'muted' | 'destructi
 
 export default function TransportersPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   // Create, edit and all four lifecycle commands are one right on this router:
   // every write is `require_permission(Permission.TRANSPORTER_MANAGE)`.
@@ -118,25 +119,11 @@ export default function TransportersPage() {
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   /**
-   * Clear every filter in ONE URL write.
-   *
-   * `setSearchParams` is not a React state setter: three `setParam` calls in a
-   * row each build the next URL from the same captured `searchParams`, so only
-   * the last navigation survives and the other two filters stay exactly where
-   * they were.
+   * Clear every filter in ONE URL write: three `setParam` calls in a row each
+   * start from the same captured URL, so only the last would survive.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // The page belonged to the narrowed list, not to this one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   const openForm = (transporterId: string | null) => {
     setFormTransporterId(transporterId)

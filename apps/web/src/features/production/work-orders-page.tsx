@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { ShiftSelect } from '@/features/shifts/shift-select'
@@ -109,7 +110,7 @@ const TABS = [
 
 export default function WorkOrdersPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [assigning, setAssigning] = useState<WorkOrder | null>(null)
   const [pending, setPending] = useState<PendingTransition | null>(null)
@@ -180,25 +181,11 @@ export default function WorkOrdersPage() {
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   /**
-   * Clear every filter in ONE URL write.
-   *
-   * `setSearchParams` is not a React state setter: it builds the next URL from
-   * the `searchParams` captured when the callback was created and then
-   * navigates, so a sequence of `setParam` calls all start from the same stale
-   * base and only the last one survives.
+   * Every key a handler changes, in ONE URL write: a sequence of `setParam`
+   * calls all start from the same captured URL, and only the last survives.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // The page belonged to the narrowed list, not to this one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   /**
    * Change the work centre - and drop the machine with it - in ONE URL write.
@@ -213,23 +200,15 @@ export default function WorkOrdersPage() {
    * what makes a cell on the board a way in to its own list.
    */
   const chooseWorkCentre = useCallback(
-    (nextWorkCentreId: string | null, { showOnQueue = false } = {}) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          if (nextWorkCentreId) next.set('work_center_id', nextWorkCentreId)
-          else next.delete('work_center_id')
-          // A machine belongs to exactly one cell, so it cannot outlive a
-          // change of work centre.
-          next.delete('machine_id')
-          next.delete('page')
-          if (showOnQueue) next.set('tab', 'queue')
-          return next
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
+    (nextWorkCentreId: string | null, { showOnQueue = false } = {}) =>
+      writeFilters({
+        work_center_id: nextWorkCentreId ?? undefined,
+        // A machine belongs to exactly one cell, so it cannot outlive a change
+        // of work centre.
+        machine_id: undefined,
+        ...(showOnQueue ? { tab: 'queue' } : {}),
+      }),
+    [writeFilters],
   )
 
   const showQueueForWorkCentre = useCallback(
@@ -237,21 +216,11 @@ export default function WorkOrdersPage() {
     [chooseWorkCentre],
   )
 
+  // Page 4 of the queue, and a sort on a field the board does not offer, are
+  // both meaningless once the board is what is on screen.
   const changeTab = useCallback(
-    (next: string) => {
-      setSearchParams(
-        (current) => {
-          const params = new URLSearchParams(current)
-          params.set('tab', next)
-          // Page 4 of the queue, and a sort on a field the board does not
-          // offer, are both meaningless once the board is what is on screen.
-          for (const key of ['page', 'sort', 'dir']) params.delete(key)
-          return params
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
+    (next: string) => writeFilters({ tab: next, ...cleared(['sort', 'dir']) }),
+    [writeFilters],
   )
 
   const columns = useMemo<ColumnDef<WorkOrder, unknown>[]>(() => {

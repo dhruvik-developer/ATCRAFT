@@ -36,6 +36,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { reportFieldErrors } from '@/lib/form-errors'
@@ -83,7 +84,7 @@ const UPDATE_FOLLOW_UP_FAILED = 'Could not update the payment follow-up'
 
 export default function CollectionsPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mobileSearch, setMobileSearch] = useState(() => searchParams.get('q') ?? '')
   const queryClient = useQueryClient()
@@ -103,21 +104,6 @@ export default function CollectionsPage() {
   useEffect(() => {
     setMobileSearch(searchParams.get('q') ?? '')
   }, [searchParams])
-
-  useEffect(() => {
-    const currentSearch = searchParams.get('q') ?? ''
-    if (settledMobileSearch === currentSearch) return
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        if (settledMobileSearch) next.set('q', settledMobileSearch)
-        else next.delete('q')
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [searchParams, settledMobileSearch, setSearchParams])
 
   const worklist = useListQuery<WorklistRow>({
     path: '/collections/worklist',
@@ -149,27 +135,23 @@ export default function CollectionsPage() {
   /**
    * Set or clear one filter and send the list it narrows back to its first
    * page, in one navigation. The worklist keeps its page under `page` and the
-   * register under its own namespaced key, so a register filter names the
+   * register under its own namespaced key, so a register filter resets the
    * register's: resetting the worklist's instead left the register on a page
    * the narrower result did not have, drawn as "No records". The filter keys
    * themselves stay as they were, so a bookmarked view still opens.
    */
-  const setFilter = (
-    key: string,
-    value: string | undefined,
-    pageParam: string = worklist.pageParam,
-  ) => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        if (value) next.set(key, value)
-        else next.delete(key)
-        next.delete(pageParam)
-        return next
-      },
-      { replace: true },
-    )
-  }
+  const writeWorklist = useFilterWriter(worklist.pageParam)
+  const writeRegister = useFilterWriter(followUps.pageParam)
+  const setFilter = (key: string, value: string | undefined) => writeWorklist({ [key]: value })
+  const setRegisterFilter = (key: string, value: string | undefined) =>
+    writeRegister({ [key]: value })
+
+  // The narrow-screen search box types into the worklist's own search.
+  useEffect(() => {
+    const currentSearch = searchParams.get('q') ?? ''
+    if (settledMobileSearch === currentSearch) return
+    writeWorklist({ q: settledMobileSearch })
+  }, [searchParams, settledMobileSearch, writeWorklist])
 
   const openFollowUp = useMutation({
     mutationFn: (row: WorklistRow) =>
@@ -586,11 +568,7 @@ export default function CollectionsPage() {
                 <Select
                   value={registerStatus || SELECT_ALL}
                   onValueChange={(next) =>
-                    setFilter(
-                      'followup_status',
-                      next === SELECT_ALL ? undefined : next,
-                      followUps.pageParam,
-                    )
+                    setRegisterFilter('followup_status', next === SELECT_ALL ? undefined : next)
                   }
                 >
                   <SelectTrigger aria-label="Register status" className="w-full sm:w-44">
@@ -609,11 +587,7 @@ export default function CollectionsPage() {
                   <Checkbox
                     checked={registerLiveOnly}
                     onCheckedChange={(checked) =>
-                      setFilter(
-                        'live_only',
-                        checked === true ? undefined : 'false',
-                        followUps.pageParam,
-                      )
+                      setRegisterFilter('live_only', checked === true ? undefined : 'false')
                     }
                   />
                   Live only
@@ -622,10 +596,9 @@ export default function CollectionsPage() {
                   <Checkbox
                     checked={registerAssignedToMe}
                     onCheckedChange={(checked) =>
-                      setFilter(
+                      setRegisterFilter(
                         'followup_assigned_to_me',
                         checked === true ? 'true' : undefined,
-                        followUps.pageParam,
                       )
                     }
                   />

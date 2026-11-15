@@ -70,6 +70,7 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { api, ApiError } from '@/lib/api-client'
@@ -601,7 +602,7 @@ function DocumentDetailDialog({
 export default function DocumentsPage() {
   const { can, user } = useAuth()
   const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [detailDoc, setDetailDoc] = useState<DocumentRow | null>(null)
   const [pendingDelete, setPendingDelete] = useState<DocumentRow | null>(null)
@@ -663,39 +664,16 @@ export default function DocumentsPage() {
   )
 
   /**
-   * Clear every filter in ONE URL write.
-   *
-   * `setSearchParams` navigates from the `searchParams` captured when the
-   * callback was made, so a `setParam` per key would leave all but the last
-   * change behind.
+   * Every filter key a handler changes, in ONE URL write: a `setParam` per key
+   * would leave all but the last change behind.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   /** Narrow the list to everything filed against the same record. */
   const showAttachmentsOf = useCallback(
-    (type: string, id: string) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          next.set('entity_type', type)
-          next.set('entity_id', id)
-          next.delete('page')
-          return next
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
+    (type: string, id: string) => writeFilters({ entity_type: type, entity_id: id }),
+    [writeFilters],
   )
 
   const download = useMutation({

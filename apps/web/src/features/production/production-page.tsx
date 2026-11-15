@@ -29,6 +29,7 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { usePlantOptions } from '@/hooks/use-organisation-options'
 import { SELECT_ALL } from '@/lib/constants'
@@ -89,20 +90,13 @@ function ProgressCell({ row }: { row: ProductionOrderRow }) {
 
 export default function ProductionPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [createOpen, setCreateOpen] = useState(false)
 
   const tab = searchParams.get('tab') ?? 'orders'
-  const changeTab = (next: string) =>
-    setSearchParams(
-      (current) => {
-        const params = new URLSearchParams(current)
-        params.set('tab', next)
-        for (const key of ['page', 'sort', 'dir']) params.delete(key)
-        return params
-      },
-      { replace: true },
-    )
+  // The orders' page and sort mean nothing on the next tab.
+  const writeTab = useFilterWriter()
+  const changeTab = (next: string) => writeTab({ tab: next, ...cleared(['sort', 'dir']) })
 
   // Gating an affordance only - the API authorises the write itself.
   const newOrderButton = can(P.PRODUCTION_ORDER_CREATE) ? (
@@ -146,7 +140,7 @@ export default function ProductionPage() {
 
 function OrdersTable({ emptyAction }: { emptyAction: React.ReactNode }) {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const status = searchParams.get('status') ?? ''
   const itemId = searchParams.get('item_id') ?? ''
@@ -182,24 +176,11 @@ function OrdersTable({ emptyAction }: { emptyAction: React.ReactNode }) {
   const { setParam } = list
 
   /**
-   * Clearing is one write, not six.
-   *
-   * `setSearchParams` resolves its updater against the `searchParams` of the
-   * render it was called from and navigates immediately, so six calls in one
-   * handler all start from the same location and the last navigation is the only
-   * one that survives - clearing the source filter and silently leaving the
-   * other five in place.
+   * Clearing is one write, not six: six `setParam` calls in one handler all
+   * start from the same location, and only the last navigation survives.
    */
-  const clearFilters = () =>
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = () => writeFilters(cleared(FILTER_KEYS))
 
   const filterCount =
     (status ? 1 : 0) +

@@ -38,6 +38,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overla
 import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CostCentreName } from '@/features/admin/cost-centre-select'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
@@ -1023,22 +1024,13 @@ const TABS = [
 ] as const
 
 export default function MovementsPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const tab = searchParams.get('tab') ?? 'transfers'
 
-  const changeTab = (next: string) => {
-    setSearchParams(
-      (current) => {
-        const params = new URLSearchParams(current)
-        params.set('tab', next)
-        // Page 4 of transfers is meaningless once the table below is
-        // adjustments, and so is a sort column the next list does not have.
-        for (const key of ['page', 'q', 'sort', 'dir']) params.delete(key)
-        return params
-      },
-      { replace: true },
-    )
-  }
+  // Page 4 of transfers is meaningless once the table below is adjustments,
+  // and so is a search or sort column the next list does not have.
+  const writeTab = useFilterWriter()
+  const changeTab = (next: string) => writeTab({ tab: next, ...cleared(['q', 'sort', 'dir']) })
 
   return (
     <div>

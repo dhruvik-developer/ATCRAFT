@@ -78,6 +78,7 @@ import {
 import { Alert, AlertDescription, AlertTitle, Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
@@ -112,7 +113,6 @@ import {
   UomConversionCheckDialog,
   UomFormDialog,
 } from './uom-dialogs'
-import { useFilterWriter } from './use-filter-writer'
 
 type TabKey =
   | 'categories'

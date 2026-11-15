@@ -42,6 +42,7 @@ import {
 import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, humanise } from '@/lib/format'
@@ -101,7 +102,7 @@ const MATCH_VARIANT: Record<MatchStatus, 'success' | 'warning' | 'destructive' |
 
 export default function VendorInvoicesPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null)
 
   /**
@@ -148,26 +149,12 @@ export default function VendorInvoicesPage() {
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   /**
-   * Clear every filter in ONE URL write.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the `searchParams` captured when the callback was created, then
-   * navigates. Seven `setParam` calls in a row therefore all started from the
-   * same stale base and only the last navigation survived, so Clear removed
-   * `overdue_only` and left the other six filters exactly where they were.
+   * Clear every filter in ONE URL write. Seven `setParam` calls in a row all
+   * started from the same stale base and only the last navigation survived,
+   * so Clear removed `overdue_only` and left the other six where they were.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // The page belonged to the narrowed list, not to this one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   const columns = useMemo<ColumnDef<VendorInvoiceSummary, unknown>[]>(
     () => [

@@ -39,6 +39,7 @@ import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { fetchAuditPage, type AuditLogRow } from '@/features/audit/audit-types'
 import { CustomerPicker } from '@/features/customers/customer-picker'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { CARTON_SCAN_HISTORY_DAYS, DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
@@ -275,28 +276,14 @@ export default function PackingPage() {
   })
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
 
   /**
-   * Clear every filter in one write.
-   *
-   * Six `setParam` calls looked like six clears but were one: react-router's
-   * `setSearchParams` closes over the search params of the render it was
-   * created in, so each call recomputed from the *same* starting point and only
-   * the last survived - the screen kept five of the six filters and looked
-   * broken. The next params are computed once and written once.
+   * Clear every filter in one write. Six `setParam` calls looked like six
+   * clears but were one: each started from the same captured URL and only the
+   * last survived, so the screen kept five of the six filters.
    */
-  const clearFilters = () => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // Page 4 of the filtered list does not exist in the unfiltered one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }
+  const clearFilters = () => writeFilters(cleared(FILTER_KEYS))
 
   const filterCount =
     (status ? 1 : 0) +
@@ -563,18 +550,10 @@ export default function PackingPage() {
           }}
           onCreated={(created) => {
             setCreateStandaloneOpen(false)
-            setSearchParams(
-              (current) => {
-                const next = new URLSearchParams(current)
-                next.delete('create_from_sales_order_id')
-                if (created.sales_order_id) {
-                  next.set('sales_order_id', created.sales_order_id)
-                }
-                next.delete('page')
-                return next
-              },
-              { replace: true },
-            )
+            writeFilters({
+              create_from_sales_order_id: undefined,
+              ...(created.sales_order_id ? { sales_order_id: created.sales_order_id } : {}),
+            })
           }}
         />
       )}

@@ -37,7 +37,7 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { FileSpreadsheet } from 'lucide-react'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -47,6 +47,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { WarehouseSelect } from '@/features/inventory/pickers'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import {
@@ -79,7 +80,7 @@ import {
  */
 export function InventoryValuationTab() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   // UX only - the API refuses the export regardless of what this button does.
   const canExport = can(P.REPORT_EXPORT)
@@ -89,31 +90,14 @@ export function InventoryValuationTab() {
   const limit = Number(searchParams.get('limit') ?? DEFAULT_PAGE_SIZE)
 
   /**
-   * Write every key a handler changes in ONE update.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the `searchParams` captured when the callback was created, then
-   * navigates. Two calls in one handler both start from that same stale base and
-   * the second navigation overwrites the first, so narrowing to a warehouse
-   * while sitting on page 6 used to reset the page and never apply the
-   * warehouse.
+   * Every key a handler changes, in ONE update: two calls in one handler both
+   * start from the same captured URL and the second overwrites the first, so
+   * narrowing to a warehouse while on page 6 used to reset the page and never
+   * apply the warehouse. A narrowing goes back to the first page; turning the
+   * page moves nothing else.
    */
-  const updateParams = useCallback(
-    (changes: Record<string, string | number | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(changes)) {
-            if (value === undefined || value === '') next.delete(key)
-            else next.set(key, String(value))
-          }
-          return next
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
+  const writeFilters = useFilterWriter()
+  const turnPage = useFilterWriter(null)
 
   const params = useMemo(
     () => ({
@@ -288,8 +272,8 @@ export function InventoryValuationTab() {
         isLoading={valuation.isLoading}
         isFetching={valuation.isFetching}
         error={valuation.error as Error | null}
-        onPageChange={(next) => updateParams({ page: next })}
-        onLimitChange={(next) => updateParams({ limit: next, page: undefined })}
+        onPageChange={(next) => turnPage({ page: next })}
+        onLimitChange={(next) => writeFilters({ limit: next })}
         onRefresh={() => void valuation.refetch()}
         getRowId={(row) => `${row.item_id}:${row.warehouse_id}`}
         virtualise={rows.length > 150}
@@ -304,9 +288,7 @@ export function InventoryValuationTab() {
               hideLabel
               includeAll
               value={warehouseId}
-              onChange={(next) =>
-                updateParams({ warehouse_id: next || undefined, page: undefined })
-              }
+              onChange={(next) => writeFilters({ warehouse_id: next || undefined })}
             />
 
             {canExport && (

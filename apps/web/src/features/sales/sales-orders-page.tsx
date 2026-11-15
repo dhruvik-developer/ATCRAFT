@@ -14,7 +14,7 @@
 
 import { type ColumnDef } from '@tanstack/react-table'
 import { Plus, ShieldQuestion, X } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -46,7 +46,7 @@ const OPEN_STATUSES = new Set(['DRAFT', 'CONFIRMED', 'ALLOCATED', 'PARTIALLY_DIS
 export default function SalesOrdersPage() {
   const { can } = useAuth()
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [createOpen, setCreateOpen] = useState(false)
 
   const status = searchParams.get('status') ?? ''
@@ -79,33 +79,11 @@ export default function SalesOrdersPage() {
   })
 
   /**
-   * Every filter key that changes, written once.
-   *
-   * `list.setParam` takes a single key, and react-router resolves even the
-   * functional form of `setSearchParams` against the `searchParams` captured
-   * for *this* render rather than against an accumulator. Two calls in one
-   * handler therefore both start from the same snapshot and the last
-   * navigation wins, silently discarding the first - clearing six filters that
-   * way cleared exactly one. Compute the next params once, write them once.
+   * Every filter key that changes, written once: `list.setParam` takes a single
+   * key, and two calls in one handler both start from the same snapshot, so
+   * clearing six filters that way cleared exactly one.
    */
-  const setParams = useCallback(
-    (next: Record<string, string | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const updated = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(next)) {
-            if (value === undefined || value === '') updated.delete(key)
-            else updated.set(key, value)
-          }
-          // A filter change invalidates the page cursor, exactly as setParam does.
-          updated.set('page', '1')
-          return updated
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
+  const { setParams } = list
 
   const filterCount =
     (status ? 1 : 0) +

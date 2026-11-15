@@ -17,6 +17,7 @@ import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity } from '@/lib/format'
 import { empty } from '@/lib/messages'
@@ -25,13 +26,13 @@ import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
 
 import { ChallanDownload } from './job-work-challan-download'
-import { clearSearchKeys, jobWorkKeys, type ChallanRow } from './job-work-model'
+import { jobWorkKeys, type ChallanRow } from './job-work-model'
 
 const FILTER_KEYS = ['vendor_id', 'date_from', 'date_to'] as const
 
 export default function JobWorkChallansTab() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const vendors = useVendorOptions(can(P.VENDOR_VIEW))
   const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
@@ -54,6 +55,7 @@ export default function JobWorkChallansTab() {
   })
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount = (vendorId ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0)
 
   const columns = useMemo<ColumnDef<ChallanRow, unknown>[]>(
@@ -185,11 +187,7 @@ export default function JobWorkChallansTab() {
             />
           </div>
           {filterCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => clearSearchKeys(setSearchParams, FILTER_KEYS)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => writeFilters(cleared(FILTER_KEYS))}>
               Clear
             </Button>
           )}

@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
 import { manufacturerLabeller, useManufacturerOptions } from '@/hooks/use-manufacturer-options'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { empty } from '@/lib/messages'
@@ -41,7 +42,6 @@ import { staleTimes } from '@/lib/query-client'
 import { BrandFormDialog, BrandRetireDialog } from './brand-dialogs'
 import { mastersKeys, type BrandRow } from './masters-model'
 import { ActiveBadge, StatusFilter, TabIntro } from './masters-shared'
-import { useFilterWriter } from './use-filter-writer'
 
 export function BrandsTab() {
   const { can } = useAuth()

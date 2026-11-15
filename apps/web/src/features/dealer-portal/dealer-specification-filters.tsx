@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Label, NativeSelect } from '@/components/ui/primitives'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { PICKER_PAGE_SIZE, SPECIFICATION_FILTER_MAX } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -13,7 +14,10 @@ import { DEALER_API } from './dealer-hooks'
 
 /** The dealer reads a browse-authorized projection, never the staff master endpoint. */
 export function DealerSpecificationFilters() {
-  const [params, setParams] = useSearchParams()
+  const [params] = useSearchParams()
+  // The specifications narrow the catalogue beside them, which keeps its page
+  // under `page`; this list of facets keeps its own under `facets_page`.
+  const writeFilters = useFilterWriter()
   const [open, setOpen] = useState(() => params.has('spec'))
   const [error, setError] = useState<string>()
   const list = useListQuery<SchemaOf<'DealerSpecificationFilterRead'>>({
@@ -56,16 +60,7 @@ export function DealerSpecificationFilters() {
                     return
                   }
                   setError(undefined)
-                  setParams(
-                    (current) => {
-                      const updated = new URLSearchParams(current)
-                      updated.delete('spec')
-                      next.forEach((filter) => updated.append('spec', filter))
-                      updated.delete('page')
-                      return updated
-                    },
-                    { replace: true },
-                  )
+                  writeFilters({ spec: next })
                 }}
               >
                 <option value="">Any {attribute.name.toLowerCase()}</option>
@@ -105,15 +100,7 @@ export function DealerSpecificationFilters() {
           className="mt-3 min-h-11"
           onClick={() => {
             setError(undefined)
-            setParams(
-              (current) => {
-                const updated = new URLSearchParams(current)
-                updated.delete('spec')
-                updated.delete('page')
-                return updated
-              },
-              { replace: true },
-            )
+            writeFilters({ spec: undefined })
           }}
         >
           Clear specification filters

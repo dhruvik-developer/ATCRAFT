@@ -57,6 +57,7 @@ import { Alert, AlertDescription, AlertTitle, Badge, Skeleton } from '@/componen
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
@@ -299,7 +300,7 @@ function AccountDetailDialog({
 
 export default function AccountsPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [selected, setSelected] = useState<LedgerAccount | null>(null)
 
   // Every endpoint this screen reads - the account list, one account, and the
@@ -339,50 +340,23 @@ export default function AccountsPage() {
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   /**
-   * Write every key a handler changes in ONE URL write.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the `searchParams` captured when the callback was created, then
-   * navigates. Two calls in one handler therefore both start from the same
-   * stale base and only the second survives - which is how a screen comes to
-   * set `party_kind` and silently drop the `party_id` beside it.
+   * Every key a handler changes, in ONE URL write: two calls in one handler
+   * both start from the same captured URL and only the second survives, which
+   * is how a screen comes to set `party_kind` and drop the `party_id` beside
+   * it. A filter narrows the chart and sends it back to its first page; the
+   * statement chosen below it leaves the chart's page where it was.
    */
-  const updateParams = useCallback(
-    (changes: Record<string, string | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(changes)) {
-            if (value === undefined || value === '') next.delete(key)
-            else next.set(key, value)
-          }
-          return next
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
+  const writeFilters = useFilterWriter(list.pageParam)
+  const updateParams = useFilterWriter(null)
 
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // The page belonged to the narrowed list, not to this one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   const showChildren = useCallback(
     (accountId: string) => {
       setSelected(null)
-      updateParams({ parent_id: accountId, page: undefined })
+      writeFilters({ parent_id: accountId })
     },
-    [updateParams],
+    [writeFilters],
   )
 
   const openPartyLedger = useCallback(

@@ -48,6 +48,7 @@ import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, humanise } from '@/lib/format'
@@ -56,7 +57,6 @@ import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
 
-import { clearSearchKeys } from './procurement-types'
 import { RfqCommandDialog, RfqFormDialog } from './rfq-dialogs'
 import {
   RFQ_STATUSES,
@@ -81,7 +81,7 @@ const VENDORS_SHOWN = 2
 export default function RfqsPage() {
   const { can } = useAuth()
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -121,6 +121,7 @@ export default function RfqsPage() {
   const warehouseById = useMemo(() => indexById(warehouses.data), [warehouses.data])
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   const openForm = (rfqId: string | null) => {
@@ -438,11 +439,7 @@ export default function RfqsPage() {
             </div>
 
             {filterCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => clearSearchKeys(setSearchParams, FILTER_KEYS)}
-              >
+              <Button variant="ghost" size="sm" onClick={() => writeFilters(cleared(FILTER_KEYS))}>
                 <X />
                 Clear {filterCount}
               </Button>

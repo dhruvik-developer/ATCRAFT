@@ -69,6 +69,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
@@ -93,7 +94,6 @@ import {
   JOB_WORK_STATUSES,
   acceptsIssue,
   acceptsReceipt,
-  clearSearchKeys,
   daysOut,
   daysOverdue,
   isApprovable,
@@ -204,7 +204,7 @@ function AgeingCell({
 function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [issueFor, setIssueFor] = useState<JobWorkOrderRow | null>(null)
   const [receiveFor, setReceiveFor] = useState<JobWorkOrderRow | null>(null)
@@ -277,6 +277,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
   })
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount = (status ? 1 : 0) + (vendorId ? 1 : 0) + (overdueOnly ? 1 : 0)
 
   const invalidate = () => {
@@ -648,7 +649,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => clearSearchKeys(setSearchParams, ORDER_FILTER_KEYS)}
+                onClick={() => writeFilters(cleared(ORDER_FILTER_KEYS))}
               >
                 <X />
                 Clear
@@ -819,7 +820,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
 
 function PendingPanel() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const vendorId = searchParams.get('vendor_id') ?? ''
   const overdueOnly = searchParams.get('overdue_only') === 'true'
 
@@ -846,6 +847,7 @@ function PendingPanel() {
   })
 
   const { setParam, data: rows } = list
+  const writeFilters = useFilterWriter(list.pageParam)
 
   const columns = useMemo<ColumnDef<PendingAtVendorRow, unknown>[]>(() => {
     const defs: ColumnDef<PendingAtVendorRow, unknown>[] = [
@@ -1000,7 +1002,7 @@ function PendingPanel() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => clearSearchKeys(setSearchParams, PENDING_FILTER_KEYS)}
+                onClick={() => writeFilters(cleared(PENDING_FILTER_KEYS))}
               >
                 <X />
                 Clear

@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatQuantity, humanise } from '@/lib/format'
@@ -352,7 +353,7 @@ function InspectionsTab({
   reworkOnly?: boolean
 }) {
   const { canAny } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const canInspect = canAny(P.QC_INSPECT, P.QC_DECIDE)
 
@@ -376,28 +377,16 @@ function InspectionsTab({
   const { setParam } = list
 
   /**
-   * Both filter keys, written once.
-   *
-   * react-router resolves even the functional form of `setSearchParams`
-   * against the `searchParams` captured for *this* render rather than against
-   * an accumulator, so `setParam('stage', ...)` followed by
+   * Every filter key, written once: `setParam('stage', ...)` followed by
    * `setParam('result', ...)` both start from the same snapshot and the second
-   * navigation discards the first. Clearing the two filters cleared only the
-   * result. Compute the next params once, write them once.
+   * navigation discards the first, which is how Clear came to clear only the
+   * result.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const params = new URLSearchParams(current)
-        params.delete('stage')
-        params.delete('result')
-        params.delete('status')
-        params.set('page', '1')
-        return params
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(
+    () => writeFilters(cleared(['stage', 'result', 'status'])),
+    [writeFilters],
+  )
 
   const filterCount = (stage ? 1 : 0) + (result ? 1 : 0) + (status ? 1 : 0)
 
@@ -626,27 +615,18 @@ const TABS = [
 
 export default function QualityPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [inspecting, setInspecting] = useState<QcInspectionRow | null>(null)
   const [viewing, setViewing] = useState<QcInspectionRow | null>(null)
   const [raising, setRaising] = useState(false)
 
   const tab = searchParams.get('tab') ?? 'pending'
 
-  const changeTab = (next: string) => {
-    setSearchParams(
-      (current) => {
-        const params = new URLSearchParams(current)
-        params.set('tab', next)
-        // Page 4 of the pending queue is meaningless once the table below is
-        // the full history, and so is a filter the next list does not offer.
-        for (const key of ['page', 'q', 'sort', 'dir', 'stage', 'result', 'status'])
-          params.delete(key)
-        return params
-      },
-      { replace: true },
-    )
-  }
+  // Page 4 of the pending queue is meaningless once the table below is the
+  // full history, and so is a filter the next list does not offer.
+  const writeTab = useFilterWriter()
+  const changeTab = (next: string) =>
+    writeTab({ tab: next, ...cleared(['q', 'sort', 'dir', 'stage', 'result', 'status']) })
 
   return (
     <div>

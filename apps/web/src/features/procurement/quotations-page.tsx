@@ -48,6 +48,7 @@ import { Badge, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
@@ -84,7 +85,7 @@ const FILTER_KEYS = ['status', 'vendor_id', 'rfq_id', 'valid_on'] as const
 
 export default function QuotationsPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const canManage = can(P.QUOTATION_MANAGE)
 
@@ -124,26 +125,12 @@ export default function QuotationsPage() {
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   /**
-   * Clear every filter in ONE URL write.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the `searchParams` captured when the callback was created, then
-   * navigates. Four `setParam` calls in a row would all start from the same
-   * stale base and only the last navigation would survive - the bug the vendor
-   * invoice register already shipped once.
+   * Clear every filter in ONE URL write: four `setParam` calls in a row would
+   * all start from the same stale base and only the last would survive - the
+   * bug the vendor invoice register already shipped once.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // The page belonged to the narrowed list, not to this one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   const openRevision = (quotationId: string) => {
     setDetailId(null)

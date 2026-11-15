@@ -47,6 +47,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
@@ -59,7 +60,6 @@ import { PurchaseOrderFormDialog } from './purchase-order-form-dialog'
 import {
   OPEN_PO_STATUSES,
   PURCHASE_ORDER_STATUSES,
-  clearSearchKeys,
   isUrgentPriority,
   type PurchaseOrderRow,
 } from './procurement-types'
@@ -81,7 +81,7 @@ const OPEN_STATUSES = new Set<string>(OPEN_PO_STATUSES)
 export default function PurchaseOrdersPage() {
   const { can } = useAuth()
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [createOpen, setCreateOpen] = useState(false)
 
   const status = searchParams.get('status') ?? ''
@@ -131,21 +131,13 @@ export default function PurchaseOrdersPage() {
     : null
 
   // A row's category narrows the book to it - and to the categories beneath it,
-  // which is how the API reads `item_category_id`. Written against the setter
-  // rather than `setParam`, whose identity changes every render and would
+  // which is how the API reads `item_category_id`. Written through the filter
+  // writer rather than `setParam`, whose identity changes every render and would
   // rebuild every cell with it.
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterByCategory = useCallback(
-    (id: string) =>
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          next.set('item_category_id', id)
-          next.delete('page')
-          return next
-        },
-        { replace: true },
-      ),
-    [setSearchParams],
+    (id: string) => writeFilters({ item_category_id: id }),
+    [writeFilters],
   )
 
   const { setParam } = list
@@ -447,11 +439,7 @@ export default function PurchaseOrdersPage() {
             </div>
 
             {filterCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => clearSearchKeys(setSearchParams, FILTER_KEYS)}
-              >
+              <Button variant="ghost" size="sm" onClick={() => writeFilters(cleared(FILTER_KEYS))}>
                 <X />
                 Clear
               </Button>

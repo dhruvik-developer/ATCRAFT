@@ -62,6 +62,7 @@ import {
   TableScroller,
 } from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDateTime, humanise, toDateInput } from '@/lib/format'
@@ -564,29 +565,12 @@ export default function AuditPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   /**
-   * Change several parameters in ONE navigation.
-   *
-   * `setSearchParams` is not a React state setter: every functional update in a
-   * tick is computed from the value captured at the last render, so calling the
-   * single-key helper in a loop writes the last key and discards the rest. The
-   * "Clear" button did exactly that and cleared one filter of three.
+   * Change several parameters in ONE navigation: calling the single-key helper
+   * in a loop writes the last key and discards the rest, which is how "Clear"
+   * came to clear one filter of three. The log pages by cursor, not by a URL
+   * page, so there is no page to send back.
    */
-  const setParams = useCallback(
-    (next: Record<string, string | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const updated = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(next)) {
-            if (!value) updated.delete(key)
-            else updated.set(key, value)
-          }
-          return updated
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
+  const setParams = useFilterWriter(null)
 
   const setParam = useCallback(
     (key: string, value: string | undefined) => setParams({ [key]: value }),

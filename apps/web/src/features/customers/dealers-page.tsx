@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
@@ -76,7 +77,7 @@ const FILTER_KEYS = [
 
 export default function DealersPage() {
   const { can, canAny, user } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   /**
    * The route enforces `require_any_permission(DEALER_VIEW, CUSTOMER_VIEW)` -
@@ -133,25 +134,11 @@ export default function DealersPage() {
     (mine ? 1 : 0)
 
   /**
-   * Clear every filter in ONE URL write.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the params captured when the callback was created. Six `setParam`
-   * calls in a row would therefore all start from the same stale base and only
-   * the last navigation would survive.
+   * Clear every filter in ONE URL write: six `setParam` calls in a row would
+   * all start from the same stale base, and only the last would survive.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // The page number belonged to the narrowed list, not to this one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   const columns = useMemo<ColumnDef<Dealer, unknown>[]>(
     () => [

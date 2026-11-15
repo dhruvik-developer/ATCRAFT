@@ -23,7 +23,6 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import type { SetURLSearchParams } from 'react-router-dom'
 
 import { api } from '@/lib/api-client'
 import { daysUntil } from '@/lib/format'
@@ -362,34 +361,6 @@ export function useVendorLedger({ vendorId, dateFrom, dateTo }: VendorLedgerPara
     staleTime: staleTimes.transactional,
     enabled: Boolean(vendorId) && Boolean(dateFrom) && Boolean(dateTo),
   })
-}
-
-// ------------------------------------------------------------ url filters ---
-
-/**
- * Clear a set of filter keys in one write.
- *
- * Calling `setParam` once per key reads like several clears but is only one:
- * react-router resolves the updater passed to `setSearchParams` against the
- * search params of the render that produced the setter, so every call in one
- * handler starts from the *same* base and only the last write survives - the
- * earlier keys are silently left in the URL and keep filtering the list. The
- * whole set is therefore computed once and written once.
- */
-export function clearSearchKeys(
-  setSearchParams: SetURLSearchParams,
-  keys: readonly string[],
-): void {
-  setSearchParams(
-    (current) => {
-      const next = new URLSearchParams(current)
-      for (const key of keys) next.delete(key)
-      // Page 6 of the filtered list does not exist in the unfiltered one.
-      next.delete('page')
-      return next
-    },
-    { replace: true },
-  )
 }
 
 // -------------------------------------------------------------- derived -----

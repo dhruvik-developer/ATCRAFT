@@ -29,7 +29,7 @@ import { describeError } from '@/lib/messages'
 
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Bar,
@@ -61,6 +61,7 @@ import {
 } from '@/components/ui/primitives'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { api } from '@/lib/api-client'
 import { formatDate, formatMoney, formatNumber, toDateInput, toDecimal } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
@@ -131,7 +132,7 @@ const CHART_ROWS = 10
 const PARTY_LIMIT = 200
 
 export function AgeingTab() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const partyType: LedgerSide = searchParams.get('party_type') === 'VENDOR' ? 'VENDOR' : 'CUSTOMER'
   const partyId = searchParams.get('party_id') ?? ''
@@ -139,32 +140,14 @@ export function AgeingTab() {
   const currency = searchParams.get('currency') ?? ''
 
   /**
-   * Write every key a handler changes in ONE update.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the `searchParams` captured when the callback was created, then
-   * navigates. Two calls in one handler both start from that same stale base
-   * and the second navigation overwrites the first - which is how the
-   * Receivables/Payables toggle used to clear `party_id` and silently leave
-   * `party_type` on the side the reader had just switched away from, reporting
-   * one ledger under the other's heading.
+   * Every key a handler changes, in ONE update: two calls in one handler both
+   * start from the same captured URL and the second overwrites the first -
+   * which is how the Receivables/Payables toggle used to clear `party_id` and
+   * leave `party_type` on the side the reader had just switched away from,
+   * reporting one ledger under the other's heading. The report is not paged,
+   * so no page goes with a change.
    */
-  const updateParams = useCallback(
-    (changes: Record<string, string | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(changes)) {
-            if (value === undefined || value === '') next.delete(key)
-            else next.set(key, value)
-          }
-          return next
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
+  const updateParams = useFilterWriter(null)
 
   const params = useMemo(
     () => ({

@@ -50,6 +50,7 @@ import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney } from '@/lib/format'
@@ -109,7 +110,7 @@ interface MenuEntry {
 
 export default function PaymentsPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [formOpen, setFormOpen] = useState(false)
   const [formPaymentId, setFormPaymentId] = useState<string | null>(null)
@@ -155,36 +156,13 @@ export default function PaymentsPage() {
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   /**
-   * Write several filter keys in ONE navigation.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the params captured when the callback was created, so two calls in
-   * a row both start from the same stale base and only the last one survives.
-   * Choosing a side has to clear the party with it, and clearing has to clear
-   * all eight, so both go through here.
+   * Several filter keys in ONE navigation: two calls in a row both start from
+   * the same captured URL and only the last survives. Choosing a side has to
+   * clear the party with it, and clearing has to clear all eight, so both go
+   * through here.
    */
-  const setFilters = useCallback(
-    (next: Record<string, string | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const updated = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(next)) {
-            if (value === undefined || value === '') updated.delete(key)
-            else updated.set(key, value)
-          }
-          // The page belonged to the previous narrowing, not to this one.
-          updated.delete('page')
-          return updated
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
-
-  const clearFilters = useCallback(() => {
-    setFilters(Object.fromEntries(FILTER_KEYS.map((key) => [key, undefined])))
-  }, [setFilters])
+  const setFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => setFilters(cleared(FILTER_KEYS)), [setFilters])
 
   const openForm = useCallback((paymentId: string | null) => {
     setFormPaymentId(paymentId)

@@ -58,6 +58,7 @@ import {
   RaiseSalesInvoiceDialog,
   SalesInvoiceDetailDialog,
 } from '@/features/finance/sales-invoice-dialogs'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
@@ -105,30 +106,6 @@ const DISPATCH_FILTER_KEYS = [
 
 /** The tracking board takes no customer filter, so it clears one key fewer. */
 const TRACKING_FILTER_KEYS = ['status', 'dispatch_type', 'delayed_only', 'in_flight_only'] as const
-
-/**
- * Clear a set of filter keys in one write.
- *
- * Calling `setParam` once per key looked like several clears but was one:
- * react-router's `setSearchParams` closes over the search params of the render
- * that created it, so every call recomputed from the *same* starting point and
- * only the last one survived. The whole set is computed once and written once.
- */
-function clearKeys(
-  setSearchParams: ReturnType<typeof useSearchParams>[1],
-  keys: readonly string[],
-): void {
-  setSearchParams(
-    (current) => {
-      const next = new URLSearchParams(current)
-      for (const key of keys) next.delete(key)
-      // Page 4 of the filtered list does not exist in the unfiltered one.
-      next.delete('page')
-      return next
-    },
-    { replace: true },
-  )
-}
 
 interface PendingAction {
   dispatch: DispatchRow
@@ -472,7 +449,7 @@ function DispatchesTab({
   onViewInvoice: (id: string) => void
 }) {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const canUpdate = can(P.DISPATCH_UPDATE)
   // Sending the goods is the stock-moving act, and `POST /{id}/dispatch`
@@ -505,6 +482,7 @@ function DispatchesTab({
   })
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount =
     (status ? 1 : 0) +
     (type ? 1 : 0) +
@@ -947,7 +925,7 @@ function DispatchesTab({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => clearKeys(setSearchParams, DISPATCH_FILTER_KEYS)}
+              onClick={() => writeFilters(cleared(DISPATCH_FILTER_KEYS))}
             >
               <X />
               Clear
@@ -962,7 +940,7 @@ function DispatchesTab({
 // -------------------------------------------------------- tracking board ----
 
 function TrackingTab() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const status = searchParams.get('status') ?? ''
   const type = searchParams.get('dispatch_type') ?? ''
@@ -990,6 +968,7 @@ function TrackingTab() {
   })
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount =
     (status ? 1 : 0) + (type ? 1 : 0) + (delayedOnly ? 1 : 0) + (inFlightOnly ? 1 : 0)
 
@@ -1191,7 +1170,7 @@ function TrackingTab() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => clearKeys(setSearchParams, TRACKING_FILTER_KEYS)}
+              onClick={() => writeFilters(cleared(TRACKING_FILTER_KEYS))}
             >
               <X />
               Clear
@@ -1212,7 +1191,7 @@ const TABS = [
 
 export default function DispatchPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<DispatchRow | null>(null)
@@ -1223,31 +1202,24 @@ export default function DispatchPage() {
 
   const canCreate = can(P.DISPATCH_CREATE)
   const tab = searchParams.get('tab') ?? 'dispatches'
+  const writeTab = useFilterWriter()
 
   const changeTab = (next: string) => {
-    setSearchParams(
-      (current) => {
-        const params = new URLSearchParams(current)
-        params.set('tab', next)
-        // Page 4 of the dispatch list is meaningless once the table below is
-        // the tracking board, and so is a filter the next list does not offer.
-        for (const key of [
-          'page',
-          'q',
-          'sort',
-          'dir',
-          'status',
-          'dispatch_type',
-          'customer_id',
-          'delayed_only',
-          'in_flight_only',
-        ]) {
-          params.delete(key)
-        }
-        return params
-      },
-      { replace: true },
-    )
+    // Page 4 of the dispatch list is meaningless once the table below is the
+    // tracking board, and so is a sort or filter the next list does not offer.
+    writeTab({
+      tab: next,
+      ...cleared([
+        'q',
+        'sort',
+        'dir',
+        'status',
+        'dispatch_type',
+        'customer_id',
+        'delayed_only',
+        'in_flight_only',
+      ]),
+    })
   }
 
   return (

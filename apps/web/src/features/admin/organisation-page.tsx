@@ -61,6 +61,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useCostCentreOptions } from '@/hooks/use-organisation-options'
 import { useUserOptions } from '@/hooks/use-user-options'
@@ -705,7 +706,7 @@ function CostCentresTab({
   canSeePlants: boolean
   canSeeUsers: boolean
 }) {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<CostCentreRow | null>(null)
   const [retiring, setRetiring] = useState<CostCentreRow | null>(null)
@@ -743,17 +744,11 @@ function CostCentresTab({
 
   // One URL write: two `setParam` calls in a row would each start from the same
   // stale query string, and only the second would survive.
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of COST_CENTRE_FILTER_KEYS) next.delete(key)
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(
+    () => writeFilters(cleared(COST_CENTRE_FILTER_KEYS)),
+    [writeFilters],
+  )
 
   const openEdit = useCallback((row: CostCentreRow) => {
     setEditing(row)

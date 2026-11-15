@@ -36,6 +36,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatQuantity, humanise, plural, toDecimal } from '@/lib/format'
@@ -49,7 +50,6 @@ import { indexById } from '@/lib/utils'
 import { GrnReceiveDialog } from './grn-receive-dialog'
 import {
   GRN_STATUSES,
-  clearSearchKeys,
   type GoodsReceiptPostResult,
   type GoodsReceiptRow,
 } from './procurement-types'
@@ -66,7 +66,7 @@ const FILTER_KEYS = [
 export default function GoodsReceiptsPage() {
   const { can } = useAuth()
   const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [receiveOpen, setReceiveOpen] = useState(false)
   const [pendingPost, setPendingPost] = useState<GoodsReceiptRow | null>(null)
@@ -106,6 +106,7 @@ export default function GoodsReceiptsPage() {
   const warehouseById = useMemo(() => indexById(warehouses.data), [warehouses.data])
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount =
     (status ? 1 : 0) +
     (vendorId ? 1 : 0) +
@@ -385,11 +386,7 @@ export default function GoodsReceiptsPage() {
             </div>
 
             {filterCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => clearSearchKeys(setSearchParams, FILTER_KEYS)}
-              >
+              <Button variant="ghost" size="sm" onClick={() => writeFilters(cleared(FILTER_KEYS))}>
                 <X />
                 Clear
               </Button>

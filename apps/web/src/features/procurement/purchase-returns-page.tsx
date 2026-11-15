@@ -42,6 +42,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, humanise } from '@/lib/format'
@@ -50,7 +51,6 @@ import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
 
-import { clearSearchKeys } from './procurement-types'
 import {
   PurchaseReturnCancelDialog,
   PurchaseReturnDetailDialog,
@@ -70,7 +70,7 @@ import {
  *
  * The Clear button and the count of what is applied read the same list, so a
  * filter added to the toolbar cannot end up counted but not cleared - and
- * `clearSearchKeys` writes the whole set in one navigation, because seven
+ * `useFilterWriter` writes the whole set in one navigation, because seven
  * `setParam` calls in a handler all resolve against the same stale URL and only
  * the last one survives.
  */
@@ -85,7 +85,7 @@ const FILTER_KEYS = [
 
 export default function PurchaseReturnsPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [formOpen, setFormOpen] = useState(false)
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -141,6 +141,7 @@ export default function PurchaseReturnsPage() {
   const warehouseById = useMemo(() => indexById(warehouses.data), [warehouses.data])
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   const columns = useMemo<ColumnDef<PurchaseReturnRow, unknown>[]>(() => {
@@ -432,11 +433,7 @@ export default function PurchaseReturnsPage() {
             )}
 
             {filterCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => clearSearchKeys(setSearchParams, FILTER_KEYS)}
-              >
+              <Button variant="ghost" size="sm" onClick={() => writeFilters(cleared(FILTER_KEYS))}>
                 <X />
                 Clear {filterCount}
               </Button>

@@ -51,6 +51,7 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatDateTime, humanise } from '@/lib/format'
@@ -273,7 +274,7 @@ function LocationDetailDialog({
 
 export default function LocationsPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [detailRow, setDetailRow] = useState<StorageLocationRow | null>(null)
 
@@ -326,40 +327,19 @@ export default function LocationsPage() {
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
   /**
-   * Clear every filter in ONE URL write.
-   *
-   * `setSearchParams` is not a React state setter: react-router builds the next
-   * URL from the `searchParams` captured when the callback was made, then
-   * navigates. Five `setParam` calls in a row would all start from the same
-   * stale base and only the last would survive.
+   * Every key a handler changes, in ONE URL write: five `setParam` calls in a
+   * row would all start from the same captured URL, and only the last would
+   * survive.
    */
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        // The page number belonged to the narrowed list, not to this one.
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
-  }, [setSearchParams])
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = useCallback(() => writeFilters(cleared(FILTER_KEYS)), [writeFilters])
 
   const filterByParent = useCallback(
     (parentId: string) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current)
-          next.set('parent_location_id', parentId)
-          next.delete('page')
-          return next
-        },
-        { replace: true },
-      )
+      writeFilters({ parent_location_id: parentId })
       setDetailRow(null)
     },
-    [setSearchParams],
+    [writeFilters],
   )
 
   /**
@@ -370,23 +350,16 @@ export default function LocationsPage() {
    * empty grid they have no way to read.
    */
   const toggleRetired = useCallback(
-    (next: boolean) => {
-      setSearchParams(
-        (current) => {
-          const params = new URLSearchParams(current)
-          if (next) {
-            params.set('include_deleted', 'true')
-            if (params.get('is_active') === 'true') params.delete('is_active')
-          } else {
-            params.delete('include_deleted')
-          }
-          params.delete('page')
-          return params
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
+    (next: boolean) =>
+      writeFilters(
+        next
+          ? {
+              include_deleted: 'true',
+              ...(activeState === 'true' ? { is_active: undefined } : {}),
+            }
+          : { include_deleted: undefined },
+      ),
+    [activeState, writeFilters],
   )
 
   const columns = useMemo<ColumnDef<StorageLocationRow, unknown>[]>(() => {

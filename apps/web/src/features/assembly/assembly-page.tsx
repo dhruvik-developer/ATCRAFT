@@ -29,6 +29,7 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
@@ -53,7 +54,7 @@ const FILTER_KEYS = ['status', 'item_id', 'date_from', 'date_to'] as const
 
 export default function AssemblyPage() {
   const { can } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const [openOrderId, setOpenOrderId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [view, setView] = useState<'orders' | 'board'>('orders')
@@ -88,24 +89,11 @@ export default function AssemblyPage() {
   const { setParam } = list
 
   /**
-   * Clearing is one write, not four.
-   *
-   * `setSearchParams` resolves its updater against the `searchParams` of the
-   * render it was called from and navigates immediately, so four calls in one
-   * handler all start from the same location and only the last navigation
-   * survives - the status, item and from-date filters stayed exactly where they
-   * were while the button claimed to have cleared them.
+   * Clearing is one write, not four: four `setParam` calls in one handler all
+   * start from the same location, and only the last navigation survives.
    */
-  const clearFilters = () =>
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        for (const key of FILTER_KEYS) next.delete(key)
-        next.delete('page')
-        return next
-      },
-      { replace: true },
-    )
+  const writeFilters = useFilterWriter(list.pageParam)
+  const clearFilters = () => writeFilters(cleared(FILTER_KEYS))
 
   const filterCount = (status ? 1 : 0) + (itemId ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0)
 

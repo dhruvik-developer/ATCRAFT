@@ -62,6 +62,7 @@ import { Badge, Checkbox, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useDepartmentOptions } from '@/hooks/use-organisation-options'
+import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
@@ -77,7 +78,6 @@ import {
   ACTIONABLE_REQUISITION_STATUSES,
   CONVERTIBLE_REQUISITION_STATUSES,
   REQUISITION_STATUSES,
-  clearSearchKeys,
   isRequisitionAmendable,
   isRequisitionCancellable,
   isRequisitionClosable,
@@ -195,7 +195,7 @@ const COMMANDS: Record<
 export default function RequisitionsPage() {
   const { can } = useAuth()
   const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
   const [decision, setDecision] = useState<Decision | null>(null)
   const [reason, setReason] = useState('')
@@ -265,6 +265,7 @@ export default function RequisitionsPage() {
   const departmentById = useMemo(() => indexById(departments.data), [departments.data])
 
   const { setParam } = list
+  const writeFilters = useFilterWriter(list.pageParam)
   const filterCount =
     (status ? 1 : 0) + (requiredFrom ? 1 : 0) + (requiredTo ? 1 : 0) + (openOnly ? 1 : 0)
 
@@ -721,11 +722,7 @@ export default function RequisitionsPage() {
             </div>
 
             {filterCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => clearSearchKeys(setSearchParams, FILTER_KEYS)}
-              >
+              <Button variant="ghost" size="sm" onClick={() => writeFilters(cleared(FILTER_KEYS))}>
                 <X />
                 Clear
               </Button>

@@ -7,6 +7,7 @@ import { DataTable } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
 import type { SpecificationAttribute } from '@/features/product-descriptions/specification-model'
+import { useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { EMPTY_VALUE } from '@/lib/format'
 import { P } from '@/lib/permissions'
@@ -15,7 +16,6 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { CategorySpecificationsPanel } from './category-specifications-panel'
 import { ActiveBadge, StatusFilter, TabIntro } from './masters-shared'
 import { SpecificationFormDialog, SpecificationRetireDialog } from './specification-dialogs'
-import { useFilterWriter } from './use-filter-writer'
 
 export function SpecificationsTab() {
   const { can } = useAuth()
