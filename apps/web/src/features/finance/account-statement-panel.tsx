@@ -33,7 +33,7 @@ import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import { EMPTY_VALUE, formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, humanise, plural, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
@@ -315,9 +315,7 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <p className="text-muted-foreground" role="status">
-          {rows.length === 0
-            ? 'No postings'
-            : `${rows.length} ${rows.length === 1 ? 'posting' : 'postings'} loaded`}
+          {rows.length === 0 ? 'No postings' : `${plural(rows.length, 'posting')} loaded`}
         </p>
 
         {statement.hasNextPage ? (

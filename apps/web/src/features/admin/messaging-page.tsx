@@ -17,7 +17,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { ApiError, api } from '@/lib/api-client'
 import { MESSAGING_DELIVERIES_PAGE_SIZE } from '@/lib/constants'
-import { formatDateTime, humanise } from '@/lib/format'
+import { formatDateTime, humanise, plural } from '@/lib/format'
 import { partitionFieldErrors } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -90,7 +90,7 @@ function templateProblems(template: MessagingTemplate): string[] {
     const listed = template.parameters.length
     if (placeholders !== listed) {
       problems.push(
-        `The registered text has ${placeholders} {#var#} placeholder${placeholders === 1 ? '' : 's'} but ${listed} parameter${listed === 1 ? ' is' : 's are'} listed.`,
+        `The registered text has ${plural(placeholders, '{#var#} placeholder')} but ${plural(listed, 'parameter is', 'parameters are')} listed.`,
       )
     }
   }

@@ -425,13 +425,13 @@ export default function MrpRunDetailPage() {
         // Closed, but the owning module raised nothing. The suggestion will not
         // come back, and there is no document to work from either.
         toast.warning(
-          `Closed ${formatNumber(closed)} suggestion${closed === 1 ? '' : 's'}`,
+          `Closed ${plural(closed, 'suggestion')}`,
           `${formatNumber(closed - handled)} produced no document because the module that would own it is unavailable. They will not be planned again from this run.`,
         )
       } else {
         toast.success(
           'Suggestions converted',
-          `${formatNumber(handled)} suggestion${handled === 1 ? '' : 's'} became live documents.`,
+          `${plural(handled, 'suggestion')} became live documents.`,
         )
       }
     },
@@ -473,7 +473,7 @@ export default function MrpRunDetailPage() {
       } else {
         toast.success(
           'Suggestions ignored',
-          `${formatNumber(result.ignored_count)} suggestion${result.ignored_count === 1 ? '' : 's'} will not be planned again from this run.`,
+          `${plural(result.ignored_count, 'suggestion')} will not be planned again from this run.`,
         )
       }
     },
@@ -874,9 +874,8 @@ export default function MrpRunDetailPage() {
                     origins.size > 1 ? 'font-medium text-primary' : 'text-muted-foreground',
                   )}
                 >
-                  {formatNumber(demands.length)} demand{demands.length === 1 ? '' : 's'}
-                  {origins.size > 0 &&
-                    ` from ${formatNumber(origins.size)} source${origins.size === 1 ? '' : 's'}`}
+                  {plural(demands.length, 'demand')}
+                  {origins.size > 0 && ` from ${plural(origins.size, 'source')}`}
                 </span>
               </button>
 
@@ -1115,8 +1114,7 @@ export default function MrpRunDetailPage() {
       {selectedRows.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2">
           <span className="text-sm font-medium" role="status">
-            {formatNumber(selectedRows.length)} suggestion{selectedRows.length === 1 ? '' : 's'}{' '}
-            selected
+            {plural(selectedRows.length, 'suggestion')} selected
             {selectedRows.length > MAX_BULK_IGNORE && (
               <span className="ml-2 font-normal text-warning">
                 (at most {formatNumber(MAX_BULK_IGNORE)} can be ignored at a time)
@@ -1262,7 +1260,7 @@ export default function MrpRunDetailPage() {
       <ConfirmDialog
         open={convertOpen && jobWorkRows.length === 0}
         onOpenChange={setConvertOpen}
-        title={`Convert ${formatNumber(convertibleRows.length)} suggestion${convertibleRows.length === 1 ? '' : 's'}?`}
+        title={`Convert ${plural(convertibleRows.length, 'suggestion')}?`}
         description="This creates real documents that other people will act on. Each suggestion is converted separately, so a rejected one does not undo the rest."
         confirmLabel="Convert"
         loading={convert.isPending}
@@ -1419,7 +1417,7 @@ export default function MrpRunDetailPage() {
           setIgnoreOpen(open)
           if (!open) setIgnoreReasonTouched(false)
         }}
-        title={`Ignore ${formatNumber(ignoreBatch.length)} suggestion${ignoreBatch.length === 1 ? '' : 's'}?`}
+        title={`Ignore ${plural(ignoreBatch.length, 'suggestion')}?`}
         description="Ignored suggestions stay on the run for the record but are never converted. The shortage itself does not go away - the next run will raise it again."
         confirmLabel="Ignore"
         destructive

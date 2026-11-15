@@ -62,7 +62,14 @@ import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
-import { EMPTY_VALUE, formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatNumber,
+  formatQuantity,
+  humanise,
+  plural,
+} from '@/lib/format'
 import { empty, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -408,7 +415,7 @@ function DelayBadge({ days }: { days: number | null }) {
   return (
     <Badge variant="destructive">
       <AlertTriangle className="h-3 w-3" aria-hidden />
-      {days} day{days === 1 ? '' : 's'} late
+      {plural(days, 'day')} late
     </Badge>
   )
 }
@@ -757,7 +764,7 @@ function DispatchesTab({
                       description:
                         daysLate === null
                           ? 'Records that the consignment reached its destination. Anything requiring inspection on arrival moves to QC pending.'
-                          : `Promised for ${formatDate(dispatch.expected_delivery_date)}, ${daysLate} day${daysLate === 1 ? '' : 's'} late - a reason is required. Anything requiring inspection on arrival moves to QC pending.`,
+                          : `Promised for ${formatDate(dispatch.expected_delivery_date)}, ${plural(daysLate, 'day')} late - a reason is required. Anything requiring inspection on arrival moves to QC pending.`,
                       confirmLabel: 'Confirm delivery',
                       successTitle: success.confirmed('Delivery'),
                       successBody: `${dispatch.code} is delivered.`,

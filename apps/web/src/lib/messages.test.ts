@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from './api-client'
 import { REASON_MIN_LENGTH } from './constants'
+import { plural } from './format'
 import {
   describeError,
   errorDescription,
@@ -58,14 +59,14 @@ describe('error descriptions', () => {
 
 describe('notification read results', () => {
   it('describes a partial update without claiming all notifications are read', () => {
-    expect(notificationsRead(50, 12)).toEqual({
+    expect(notificationsRead(plural(50, 'notification'), 12)).toEqual({
       title: 'Notifications updated',
       description: '50 notifications marked as read. 12 still unread.',
     })
   })
 
   it('uses singular wording for one notification and confirms completion', () => {
-    expect(notificationsRead(1, 0)).toEqual({
+    expect(notificationsRead(plural(1, 'notification'), 0)).toEqual({
       title: 'All notifications read',
       description: '1 notification marked as read.',
     })

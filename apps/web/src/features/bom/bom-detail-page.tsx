@@ -627,8 +627,12 @@ function ExplosionPanel({ bom }: { bom: BomDetail }) {
       {(explosion.data?.phantom_item_codes.length ?? 0) > 0 && (
         <Alert variant="info">
           <AlertTitle>
-            {explosion.data?.phantom_item_codes.length} phantom sub-assembl
-            {explosion.data?.phantom_item_codes.length === 1 ? 'y was' : 'ies were'} passed through
+            {plural(
+              explosion.data?.phantom_item_codes.length ?? 0,
+              'phantom sub-assembly was',
+              'phantom sub-assemblies were',
+            )}{' '}
+            passed through
           </AlertTitle>
           <AlertDescription>
             {explosion.data?.phantom_item_codes.join(', ')} carry no stock of their own, so their
@@ -754,8 +758,12 @@ function CostPanel({ bomId }: { bomId: string }) {
       {uncosted.length > 0 && (
         <Alert variant="warning">
           <AlertTitle>
-            {uncosted.length} item{uncosted.length === 1 ? '' : 's'} in this structure carr
-            {uncosted.length === 1 ? 'ies' : 'y'} no cost
+            {plural(
+              uncosted.length,
+              'item in this structure carries',
+              'items in this structure carry',
+            )}{' '}
+            no cost
           </AlertTitle>
           <AlertDescription>
             {uncosted.join(', ')} contributed nothing to the figures below, so the total is a floor

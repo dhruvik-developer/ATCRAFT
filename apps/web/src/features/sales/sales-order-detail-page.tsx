@@ -152,7 +152,7 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
       toast.success(
         view.fully_allocated
           ? fulfilment.allocatedAll
-          : fulfilment.allocatedSome(view.total_shortfall_lines),
+          : fulfilment.allocatedSome(plural(view.total_shortfall_lines, 'line')),
         order.code,
       )
     },
@@ -178,9 +178,7 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
       const warnings = plan.warnings ?? []
       if (documents > 0) {
         toast.success(
-          `${documents} draft document${documents === 1 ? '' : 's'} now ${
-            documents === 1 ? 'covers' : 'cover'
-          } the shortfall`,
+          `${plural(documents, 'draft document now covers', 'draft documents now cover')} the shortfall`,
           'Nothing has been released or ordered: a planner still reviews and submits each draft.',
         )
       } else if (jobWork.length > 0) {
@@ -387,19 +385,14 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
           <Badge variant={allocation.data.fully_allocated ? 'success' : 'warning'}>
             {allocation.data.fully_allocated
               ? 'Fully allocated'
-              : `${allocation.data.total_shortfall_lines} line${
-                  allocation.data.total_shortfall_lines === 1 ? '' : 's'
-                } short`}
+              : `${plural(allocation.data.total_shortfall_lines, 'line')} short`}
           </Badge>
         )}
       </CardHeader>
       <CardContent className="space-y-4">
         {shortLines.length > 0 && (
           <Alert variant="warning">
-            <AlertTitle>
-              {shortLines.length} line{shortLines.length === 1 ? '' : 's'} not fully covered by
-              stock
-            </AlertTitle>
+            <AlertTitle>{plural(shortLines.length, 'line')} not fully covered by stock</AlertTitle>
             <AlertDescription className="space-y-3">
               <p>
                 What is on hand has been reserved for this order, and what is reserved may ship now.

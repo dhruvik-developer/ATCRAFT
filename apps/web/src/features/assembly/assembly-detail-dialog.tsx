@@ -1012,8 +1012,8 @@ function ReleaseReadiness({
     <div className="space-y-2 pb-3">
       <Alert variant="warning">
         <AlertDescription>
-          {short.length} line{short.length === 1 ? ' is' : 's are'} short. A release is refused
-          while any line is short, so nothing below is reserved yet.
+          {plural(short.length, 'line is', 'lines are')} short. A release is refused while any line
+          is short, so nothing below is reserved yet.
         </AlertDescription>
       </Alert>
       <ul className="space-y-1.5">

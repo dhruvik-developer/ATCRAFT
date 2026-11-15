@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { plural } from '@/lib/format'
 import { describeError } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -82,7 +83,7 @@ export function PushDeviceCard() {
     onSuccess: (result) =>
       toast.success(
         result.queued > 0
-          ? `Test notification queued for ${result.queued} device${result.queued === 1 ? '' : 's'}`
+          ? `Test notification queued for ${plural(result.queued, 'device')}`
           : 'No subscribed devices are available',
       ),
     onError: (error) => setFailure(describeError(error)),

@@ -35,7 +35,7 @@ import { Card, CardContent } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReallocationRequestDialog } from '@/features/inventory/reallocation-request-dialog'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatDate, formatQuantity, toDecimal } from '@/lib/format'
+import { formatDate, formatQuantity, plural, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 
@@ -387,8 +387,8 @@ export function ShortageReportTab({
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
             <div className="space-y-1 text-sm">
               <div className="font-medium">
-                {lateRows} shortage{lateRows === 1 ? '' : 's'} on this page have supply that arrives
-                too late
+                {plural(lateRows, 'shortage on this page has', 'shortages on this page have')}{' '}
+                supply that arrives too late
               </div>
               <p className="text-muted-foreground">
                 The stock exists and is committed, but it lands after the date it is needed, so the

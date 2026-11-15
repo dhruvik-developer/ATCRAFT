@@ -44,7 +44,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import type { WhereUsedRow } from '@/features/bom/bom-model'
 import { mastersKeys } from '@/features/masters/masters-model'
 import { api } from '@/lib/api-client'
-import { formatQuantity, toDecimal } from '@/lib/format'
+import { formatQuantity, plural, toDecimal } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -62,7 +62,7 @@ const CHECK_LIMIT = 1
 /** Plural that reads correctly at one, and admits when the count is unknown. */
 function bomPhrase(total: number | null | undefined): string {
   if (total === null || total === undefined) return 'at least one bill of materials'
-  return total === 1 ? '1 bill of materials' : `${total} bills of materials`
+  return plural(total, 'bill of materials', 'bills of materials')
 }
 
 export function RetireItemDialog({

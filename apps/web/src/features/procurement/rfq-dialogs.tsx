@@ -205,7 +205,7 @@ export function RfqCommandDialog({
       description={
         rfq && copy
           ? command === 'send'
-            ? `${copy.description} (${rfq.code}, ${rfq.vendor_ids.length} vendor${rfq.vendor_ids.length === 1 ? '' : 's'})`
+            ? `${copy.description} (${rfq.code}, ${plural(rfq.vendor_ids.length, 'vendor')})`
             : `${copy.description} (${rfq.code})`
           : undefined
       }

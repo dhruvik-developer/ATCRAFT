@@ -843,8 +843,7 @@ export function GrnReceiveDialog({
               <Alert variant="warning">
                 <ShieldAlert aria-hidden />
                 <AlertTitle>
-                  {qcLines.length} line{qcLines.length === 1 ? '' : 's'} will not become available
-                  stock
+                  {plural(qcLines.length, 'line')} will not become available stock
                 </AlertTitle>
                 <AlertDescription>
                   {qcLines

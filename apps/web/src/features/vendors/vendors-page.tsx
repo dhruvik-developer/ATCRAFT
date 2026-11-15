@@ -59,6 +59,7 @@ import {
   formatNumber,
   formatPercent,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { describeError, empty, messages, success } from '@/lib/messages'
@@ -146,7 +147,7 @@ function RatingStars({ rating, sampleSize }: { rating: string | null; sampleSize
   // Percentage of the star row to paint. Computed with decimal.js and only then
   // turned into a number, which is a layout width and not a business figure.
   const percent = value.dividedBy(MAX_VENDOR_RATING).times(100).toDecimalPlaces(2).toNumber()
-  const label = `Rated ${value.toDecimalPlaces(2).toFixed(2)} out of ${MAX_VENDOR_RATING} from ${sampleSize} receipt${sampleSize === 1 ? '' : 's'}`
+  const label = `Rated ${value.toDecimalPlaces(2).toFixed(2)} out of ${MAX_VENDOR_RATING} from ${plural(sampleSize, 'receipt')}`
 
   return (
     <span className="flex items-center gap-1.5">
@@ -240,7 +241,7 @@ function VendorRatingDialog({
       if (result.applied) {
         toast.success(
           success.recorded('Vendor rating'),
-          `${toDecimal(result.rating).toDecimalPlaces(2).toFixed(2)} out of ${MAX_VENDOR_RATING} from ${result.receipt_count} receipt${result.receipt_count === 1 ? '' : 's'}`,
+          `${toDecimal(result.rating).toDecimalPlaces(2).toFixed(2)} out of ${MAX_VENDOR_RATING} from ${plural(result.receipt_count, 'receipt')}`,
         )
         return
       }

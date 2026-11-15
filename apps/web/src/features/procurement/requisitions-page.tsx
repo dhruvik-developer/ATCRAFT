@@ -66,7 +66,7 @@ import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
-import { EMPTY_VALUE, daysUntil, formatDate, formatDateTime, humanise } from '@/lib/format'
+import { daysUntil, EMPTY_VALUE, formatDate, formatDateTime, humanise, plural } from '@/lib/format'
 import { empty, errors, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -422,7 +422,7 @@ export default function RequisitionsPage() {
           return open === 0 ? (
             <span className="text-xs text-muted-foreground">All ordered</span>
           ) : (
-            <span className="font-medium">{open === 1 ? '1 line' : `${open} lines`}</span>
+            <span className="font-medium">{plural(open, 'line')}</span>
           )
         },
       },

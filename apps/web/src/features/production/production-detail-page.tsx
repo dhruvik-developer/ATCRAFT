@@ -283,9 +283,7 @@ function ComponentsPanel({
     <div className="space-y-4">
       {shortCount > 0 && (
         <Alert variant="warning">
-          <AlertTitle>
-            {shortCount} component{shortCount === 1 ? '' : 's'} short of free stock
-          </AlertTitle>
+          <AlertTitle>{plural(shortCount, 'component')} short of free stock</AlertTitle>
           <AlertDescription className="space-y-3">
             <p>
               The balance to issue is larger than what is available. Issuing what there is now is
@@ -755,8 +753,8 @@ function CostingPanel({ order }: { order: ProductionOrderDetail }) {
       {data.uncosted_operation_count > 0 && (
         <Alert variant="warning">
           <AlertTitle>
-            {formatNumber(data.uncosted_operation_count)} operation
-            {data.uncosted_operation_count === 1 ? ' has' : 's have'} no rate behind them
+            {plural(data.uncosted_operation_count, 'operation has', 'operations have')} no rate
+            behind them
           </AlertTitle>
           <AlertDescription>
             Their work centre carries no cost per hour, so the operation cost below is an

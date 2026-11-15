@@ -59,6 +59,7 @@ import {
   formatDateTime,
   formatNumber,
   formatQuantity,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { empty } from '@/lib/messages'
@@ -354,7 +355,7 @@ export default function RfqDetailPage() {
     <>
       <PageHeader
         title={rfq.code}
-        description={`${lines.length} line${lines.length === 1 ? '' : 's'} out to ${rfq.vendor_ids.length} vendor${rfq.vendor_ids.length === 1 ? '' : 's'}`}
+        description={`${plural(lines.length, 'line')} out to ${plural(rfq.vendor_ids.length, 'vendor')}`}
         breadcrumbs={[{ label: 'RFQs', to: '/procurement/rfqs' }, { label: rfq.code }]}
         status={
           <span className="flex items-center gap-2">

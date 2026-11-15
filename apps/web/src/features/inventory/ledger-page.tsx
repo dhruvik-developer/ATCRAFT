@@ -33,6 +33,7 @@ import {
   formatDateTime,
   formatQuantity,
   humanise,
+  plural,
   toDateInput,
   toDecimal,
 } from '@/lib/format'
@@ -381,9 +382,7 @@ export default function InventoryLedgerPage() {
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
         <p className="text-muted-foreground" role="status">
-          {rows.length === 0
-            ? 'No movements'
-            : rows.length + (rows.length === 1 ? ' movement loaded' : ' movements loaded')}
+          {rows.length === 0 ? 'No movements' : `${plural(rows.length, 'movement')} loaded`}
         </p>
 
         {ledger.hasNextPage ? (

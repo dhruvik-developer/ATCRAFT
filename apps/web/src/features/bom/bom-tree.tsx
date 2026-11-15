@@ -21,7 +21,7 @@ import { Link } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/primitives'
 import { TableScroller } from '@/components/ui/table'
-import { EMPTY_VALUE, formatPercent, formatQuantity } from '@/lib/format'
+import { EMPTY_VALUE, formatPercent, formatQuantity, plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { BomLine, ExplodedComponent } from './bom-model'
@@ -42,7 +42,7 @@ export function BomStructure({
   return (
     <div className={cn('space-y-2', className)}>
       <p className="text-xs text-muted-foreground">
-        {lines.length} component line{lines.length === 1 ? '' : 's'} on this bill.
+        {plural(lines.length, 'component line')} on this bill.
       </p>
 
       <TableScroller label={`Components of ${label}`} className="rounded-lg border">

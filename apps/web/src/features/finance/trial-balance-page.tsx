@@ -51,7 +51,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
-import { formatDate, formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
+import { formatDate, formatMoney, humanise, plural, toDateInput, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -76,9 +76,7 @@ function GroupTable({ group }: { group: TrialBalanceGroup }) {
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-2.5">
         <SectionHeader title={humanise(group.account_type)} />
-        <span className="text-xs text-muted-foreground">
-          {rows.length} {rows.length === 1 ? 'account' : 'accounts'}
-        </span>
+        <span className="text-xs text-muted-foreground">{plural(rows.length, 'account')}</span>
       </div>
 
       <TableScroller label={`${humanise(group.account_type)} balances`}>

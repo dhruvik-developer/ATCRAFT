@@ -49,6 +49,7 @@ import {
   formatNumber,
   formatPercent,
   formatQuantity,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { P } from '@/lib/permissions'
@@ -159,9 +160,7 @@ export function RfqComparisonPanel({
         <SectionHeader title={`Comparison for ${board.rfq_code}`} />
         <StatusBadge status={board.rfq_status} />
         <span className="text-xs text-muted-foreground">
-          {formatNumber(board.vendors.length)} vendor
-          {board.vendors.length === 1 ? '' : 's'} · {formatNumber(totalRows)} item
-          {totalRows === 1 ? '' : 's'}
+          {plural(board.vendors.length, 'vendor')} · {plural(totalRows, 'item')}
         </span>
       </div>
 
@@ -276,9 +275,7 @@ export function RfqComparisonPanel({
                       </div>
                       <div className="flex justify-between gap-2">
                         <dt>Best on</dt>
-                        <dd className="tabular">
-                          {formatNumber(won)} line{won === 1 ? '' : 's'}
-                        </dd>
+                        <dd className="tabular">{plural(won, 'line')}</dd>
                       </div>
                     </dl>
 

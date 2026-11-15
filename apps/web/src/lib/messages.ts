@@ -212,12 +212,18 @@ export const fileMessages = {
   generationFailed: 'The file could not be generated. Try again.',
 } as const
 
-/** Describe partial notification updates accurately, including singular counts. */
+/**
+ * Describe partial notification updates accurately, including singular counts.
+ *
+ * `marked` arrives already counted - `plural(n, 'notification')` - because this
+ * module is on the first paint and `lib/format.ts`, which words every count,
+ * is not: importing it here moved decimal.js and date-fns into the entry chunk.
+ */
 export function notificationsRead(
-  marked: number,
+  marked: string,
   remaining: number,
 ): { title: string; description: string } {
-  const markedDescription = `${marked} notification${marked === 1 ? '' : 's'} marked as read.`
+  const markedDescription = `${marked} marked as read.`
   return {
     title: remaining > 0 ? success.updated('Notifications') : 'All notifications read',
     description:
@@ -291,8 +297,8 @@ export const fulfilment = {
   allocateAction: 'Allocate available stock',
   /** Toast after a manual top-up, by outcome. */
   allocatedAll: 'Every line is now fully reserved',
-  allocatedSome: (shortLines: number) =>
-    `${shortLines} line${shortLines === 1 ? '' : 's'} still short of stock`,
+  /** `shortLines` counted by the caller - `plural(n, 'line')`, as `notificationsRead` says why. */
+  allocatedSome: (shortLines: string) => `${shortLines} still short of stock`,
   reservedColumn: 'Reserved',
   dispatchableColumn: 'Dispatchable now',
   shortColumn: 'Short',

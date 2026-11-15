@@ -12,7 +12,7 @@ import { useState } from 'react'
 import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Textarea } from '@/components/ui/primitives'
-import { formatQuantity, toDecimal } from '@/lib/format'
+import { formatQuantity, plural, toDecimal } from '@/lib/format'
 
 import { normaliseSerial, SERIAL_BULK_MAX, splitSerialNumbers } from './serial-numbers'
 
@@ -97,7 +97,7 @@ export function SerialNumbersField({
           overLimit || countMismatch ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
         }
       >
-        {numbers.length} serial{numbers.length === 1 ? '' : 's'} captured
+        {plural(numbers.length, 'serial')} captured
         {expectedCount !== null && expectedCount.greaterThan(0)
           ? `; ${formatQuantity(expected ?? '0')} expected, one per unit`
           : ''}

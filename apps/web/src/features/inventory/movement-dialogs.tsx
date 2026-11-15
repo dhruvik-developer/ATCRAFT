@@ -1196,9 +1196,11 @@ export function ConfirmPhysicalCountDialog({
         {!lines.isLoading && !lines.error && preview.varied.length > 0 && (
           <div>
             <p className="mb-1.5 text-xs font-medium">
-              What the posting moves ({formatNumber(preview.varied.length)}
-              {sampled ? ' of ' + formatNumber(count.variance_line_count) : ''} line
-              {preview.varied.length === 1 ? '' : 's'})
+              What the posting moves (
+              {sampled
+                ? `${formatNumber(preview.varied.length)} of ${plural(count.variance_line_count, 'line')}`
+                : plural(preview.varied.length, 'line')}
+              )
             </p>
             <ul className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
               {preview.varied.map((line) => {

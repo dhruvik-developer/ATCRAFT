@@ -967,7 +967,7 @@ function CartonCard({
                     </td>
                     <td className="py-1.5 text-xs text-muted-foreground">
                       {content.serial_ids.length > 0
-                        ? `${content.serial_ids.length} serial${content.serial_ids.length === 1 ? '' : 's'}`
+                        ? plural(content.serial_ids.length, 'serial')
                         : content.batch_id
                           ? 'Batch named'
                           : EMPTY_VALUE}

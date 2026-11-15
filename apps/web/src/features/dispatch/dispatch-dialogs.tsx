@@ -1905,9 +1905,8 @@ export function DispatchTimelineDialog({
               <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {serialised.map((line) => (
                   <li key={line.id}>
-                    Line {line.line_number}: {line.serial_ids.length} serial
-                    {line.serial_ids.length === 1 ? '' : 's'} for a quantity of{' '}
-                    {formatQuantity(line.quantity)}
+                    Line {line.line_number}: {plural(line.serial_ids.length, 'serial')} for a
+                    quantity of {formatQuantity(line.quantity)}
                   </li>
                 ))}
               </ul>

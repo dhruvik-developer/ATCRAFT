@@ -110,7 +110,14 @@ import {
 } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
-import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
+import {
+  formatDate,
+  formatMoney,
+  formatQuantity,
+  plural,
+  toDateInput,
+  toDecimal,
+} from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -1017,8 +1024,7 @@ export function VendorInvoiceFormDialog({
                       onClick={copyLines}
                     >
                       <ClipboardCopy />
-                      Copy {seedSource.lines.length}{' '}
-                      {seedSource.lines.length === 1 ? 'line' : 'lines'} from {seedSource.code}
+                      Copy {plural(seedSource.lines.length, 'line')} from {seedSource.code}
                     </Button>
                   )}
                   <Button

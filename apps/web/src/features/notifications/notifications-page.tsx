@@ -53,7 +53,7 @@ import { TableScroller } from '@/components/ui/table'
 import { api } from '@/lib/api-client'
 import { NOTIFICATION_POLL_MS, SELECT_ALL } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { formatDateTime, formatRelative, humanise } from '@/lib/format'
+import { formatDateTime, formatRelative, humanise, plural } from '@/lib/format'
 import { describeError, notificationsRead, success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -246,7 +246,7 @@ function InboxTab() {
       invalidate()
       const marked = result?.marked ?? 0
       const remaining = result?.remaining_unread ?? 0
-      const message = notificationsRead(marked, remaining)
+      const message = notificationsRead(plural(marked, 'notification'), remaining)
       toast.success(message.title, message.description)
     },
   })

@@ -60,12 +60,13 @@ import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import {
-  EMPTY_VALUE,
   daysUntil,
+  EMPTY_VALUE,
   formatDate,
   formatMoney,
   formatQuantity,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { describeError, empty, raisedDocuments, validation } from '@/lib/messages'
@@ -686,16 +687,11 @@ function ProposalSummary({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" role="status">
-      <span className="font-medium">
-        {orderCount === 1 ? '1 purchase order' : `${orderCount} purchase orders`}
-      </span>
-      <span className="text-muted-foreground">
-        {lineCount === 1 ? '1 line' : `${lineCount} lines`}
-      </span>
+      <span className="font-medium">{plural(orderCount, 'purchase order')}</span>
+      <span className="text-muted-foreground">{plural(lineCount, 'line')}</span>
       {skipped > 0 && (
         <span className="text-muted-foreground">
-          {skipped === 1 ? '1 line' : `${skipped} lines`} not included - already ordered, cancelled
-          or left out
+          {plural(skipped, 'line')} not included - already ordered, cancelled or left out
         </span>
       )}
       {updating && <span className="text-xs text-muted-foreground">Updating the proposal...</span>}
@@ -974,9 +970,7 @@ function UnresolvedLines({
     >
       <header className="border-b border-destructive/20 p-3">
         <h3 id="conversion-unresolved" className="font-medium">
-          {lines.length === 1
-            ? '1 line cannot be converted yet'
-            : `${lines.length} lines cannot be converted yet`}
+          {plural(lines.length, 'line')} cannot be converted yet
         </h3>
         <p className="text-xs text-muted-foreground">
           Name a vendor or a price where that is what is missing, or leave the line out - it stays
@@ -1180,8 +1174,7 @@ export function RequisitionBatchPicker({
         header: 'To order',
         enableSorting: false,
         meta: { align: 'right' },
-        cell: ({ row }) =>
-          row.original.open_line_count === 1 ? '1 line' : `${row.original.open_line_count} lines`,
+        cell: ({ row }) => plural(row.original.open_line_count, 'line'),
       },
       {
         id: 'warehouse',

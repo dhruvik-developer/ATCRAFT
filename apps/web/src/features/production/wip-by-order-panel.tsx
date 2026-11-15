@@ -20,7 +20,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { usePlantOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatMoney, formatNumber, formatQuantity } from '@/lib/format'
+import { formatDate, formatMoney, formatNumber, formatQuantity, plural } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import type { PaginatedEnvelope } from '@/types/api'
@@ -120,10 +120,7 @@ export function WipByOrderPanel() {
         meta: { align: 'right' },
         cell: ({ row }) =>
           row.original.days_late > 0 ? (
-            <Badge variant="warning">
-              {formatNumber(row.original.days_late)} {row.original.days_late === 1 ? 'day' : 'days'}{' '}
-              late
-            </Badge>
+            <Badge variant="warning">{plural(row.original.days_late, 'day')} late</Badge>
           ) : (
             <span className="text-muted-foreground">On time</span>
           ),

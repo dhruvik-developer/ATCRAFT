@@ -25,7 +25,14 @@ import { ShiftSelect } from '@/features/shifts/shift-select'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import { EMPTY_VALUE, formatDate, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatQuantity,
+  plural,
+  toDateInput,
+  toDecimal,
+} from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -53,7 +60,7 @@ function DayCell({ total }: { total: DayTotal | undefined }) {
     <span className="tabular">
       {formatQuantity(total.produced)}
       <span className="block text-2xs text-muted-foreground">
-        {total.bookings} booking{total.bookings === 1 ? '' : 's'}
+        {plural(total.bookings, 'booking')}
         {!rejected.isZero() ? ` · ${formatQuantity(total.rejected)} rejected` : ''}
       </span>
     </span>
