@@ -484,11 +484,6 @@ export function componentShortage(component: ProductionComponent): Decimal {
   return short.greaterThan(0) ? short : ZERO
 }
 
-/** Planned minutes for a work order: setup once, plus the run time. */
-export function plannedMinutes(workOrder: WorkOrderRow): Decimal {
-  return toDecimal(workOrder.planned_setup_minutes).plus(toDecimal(workOrder.planned_run_minutes))
-}
-
 /**
  * Minutes actually spent, when both ends of the clock are recorded.
  *

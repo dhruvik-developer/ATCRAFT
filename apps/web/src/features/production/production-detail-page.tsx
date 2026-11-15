@@ -102,7 +102,6 @@ import {
   isReleasable,
   isStartable,
   outstandingQuantity,
-  plannedMinutes,
   priorityBand,
   progressPercent,
   returnableQuantity,
@@ -117,6 +116,7 @@ import {
   type ProductionStatus,
   type WorkOrderRow,
 } from './production-model'
+import { plannedMinutes } from './work-order-model'
 
 // ------------------------------------------------------------- stepper ------
 
