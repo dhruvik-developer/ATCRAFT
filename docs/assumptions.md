@@ -5059,8 +5059,13 @@ at least one, and the API refuses anything wider. That read needs
 right: an administrator assigned to some warehouses needs `warehouse.view`
 beside `user.create` or `user.update` to give an account warehouses from the
 screen. The ADMIN and SUPER_ADMIN presets hold all three. Without it the form
-says the warehouse list cannot be read and offers none, and a create is refused
-before any request.
+reads and offers no warehouses and says that choosing them needs the warehouse
+view right: to an administrator assigned to some warehouses, that they cannot
+create an account until they hold it - and a create is refused before any
+request; to an unrestricted one, that a new account may use every warehouse;
+and on an edit, that the assignment cannot be changed, naming what the account
+holds, which the save leaves as it was. A `403` on that read - the right taken
+away since sign-in - says the same.
 
 **Why.** Without it a holder of `user.update` limited to one store could clear
 their own list and read every store, and a holder of `user.create` could create
@@ -5074,8 +5079,10 @@ stored silently.
 `_assert_references` (through `WarehouseRepository.ids_in_scope`);
 `src/modules/warehouses/router.py` - `list_warehouse_options`;
 `apps/web/src/features/admin/user-dialogs.tsx` - `WarehouseAssignment`, with its
-rules in `user-warehouses.ts`. `tests/unit/test_users_permissions.py` fails if
-a preset that administers accounts cannot read the warehouses it hands out.
+rules in `user-warehouses.ts` and its wording without the right in
+`withoutWarehouseView`. `tests/unit/test_users_permissions.py` fails if a preset
+that administers accounts cannot read the warehouses it hands out, and
+`users-page.test.tsx` pins each of the three sentences.
 
 **Impact if wrong.** Switch `REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN` off to let
 any `user.create`/`user.update` holder set any assignment. If a user
