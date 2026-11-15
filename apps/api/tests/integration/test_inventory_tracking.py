@@ -28,6 +28,7 @@ from sqlalchemy import select
 
 from src.core.clock import today
 from src.core.errors import BusinessRuleError
+from src.core.messages import serial_label_repeated
 from src.modules.audit.models import AuditLog
 from src.modules.inventory.models import (
     BatchStatus,
@@ -789,6 +790,31 @@ class TestSerialRegistration:
             ).all()
         )
         assert [named[serial_id] for serial_id in ids] == labels
+
+    async def test_a_document_naming_one_unit_twice_is_refused_in_the_shared_words(
+        self, session, tenant, unique_code
+    ) -> None:
+        """Cleaned before counting, so a lower-case repeat is still the same unit."""
+        item = await seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=unique_code("TWIN"),
+            is_serial_tracked=True,
+        )
+
+        with pytest.raises(BusinessRuleError) as refused:
+            await TraceabilityService(session, tenant).resolve_serial_ids(
+                item.id,
+                [f"{item.code}-1", f"{item.code.lower()}-1 "],
+                batch_id=None,
+                warehouse_id=None,
+                location_id=None,
+                received_on=today(),
+                source="TEST/TWIN",
+            )
+
+        assert refused.value.message == serial_label_repeated("serial number")
+        assert refused.value.details == {"item_code": item.code, "source": "TEST/TWIN"}
 
     async def test_a_label_run_writes_its_audit_rows_in_one_statement(
         self, session, tenant, engine, unique_code

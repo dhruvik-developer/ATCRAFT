@@ -119,6 +119,7 @@ from src.core.messages import (
     no_longer_editable,
     not_tracked,
     plural,
+    serial_label_repeated,
 )
 from src.core.observability import insufficient_stock_events, inventory_conflicts
 from src.core.pagination import CursorParams, PageParams, SortParams, paginate, paginate_keyset
@@ -4756,7 +4757,7 @@ class TraceabilityService:
         cleaned = ["".join(value.split()).upper() for value in serial_numbers]
         if len(set(cleaned)) != len(cleaned):
             raise BusinessRuleError(
-                "A document cannot name the same serial twice.",
+                serial_label_repeated("serial number"),
                 details={"item_code": item.code, "source": source},
             )
         existing = await self.serials.by_numbers(item_id, cleaned)
