@@ -2038,12 +2038,12 @@ async def plan(
                 if entry.shortage > 0:
                     shortages.append((requirement, item))
 
-            # ASSUMPTION: the caveat is raised only where it would have made a
-            # difference. An item covered by its own stock with a late order
-            # behind it needs no warning - the plan is right, and saying so
-            # anyway is noise that trains a planner to skip the warnings that
-            # matter. The figure is still on the requirement row for anyone who
-            # wants it.
+            # ASSUMPTION (docs/assumptions.md §21): the caveat is raised only
+            # where it would have made a difference. An item covered by its own
+            # stock with a late order behind it needs no warning - the plan is
+            # right, and saying so anyway is noise that trains a planner to skip
+            # the warnings that matter. The figure is still on the requirement
+            # row for anyone who wants it.
             if (
                 entry.shortage > 0
                 and entry.split.first_late_arrival is not None

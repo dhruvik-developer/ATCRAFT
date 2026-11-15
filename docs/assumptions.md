@@ -660,9 +660,12 @@ Related to open question 6 below.
 that requirement's own earliest required date. Supply promised *on* the required
 date counts as in time; one day later does not. Supply excluded for being late is
 never dropped silently — it is carried on the requirement as
-`late_incoming_quantity` / `late_in_production_quantity`, counted in
-`result_summary["late_supply_item_count"]`, and named in a run warning giving the
-item, the quantity, the date it does arrive and the date it was needed.
+`late_incoming_quantity` / `late_in_production_quantity`. Where the requirement
+is still short, the item is also counted in
+`result_summary["late_supply_item_count"]` and named in a run warning giving the
+item, the quantity, the date it does arrive and the date it was needed; an item
+its own stock covers carries the late figure on its row and raises no warning,
+because the plan for it is right.
 
 **Why.** Without phasing, a purchase order arriving at the end of the horizon
 cancelled a shortage due at the start of it: a line needing 100 bolts in two days
@@ -671,7 +674,8 @@ shortage and raised no suggestion. Under-ordering stops the shop floor; the
 opposite failure is a purchase order a buyer can see and cancel.
 
 **Where.** `src/modules/mrp/engine.py` — `supply_split()` / `SupplySplit`, which
-is the single place the split is computed. Each item is netted exactly once, at
+is the single place the split is computed (each feed through `split_supply`),
+and the late-supply warning in `plan()`. Each item is netted exactly once, at
 its low-level code, and only the net shortfall is exploded, so there is no
 second decision that could phase the same item at a different date.
 
