@@ -24,9 +24,16 @@ from src.common.document_access import assert_entity_held, document_entity_resol
 from src.core.deps import TenantContext
 from src.core.errors import NotFoundError
 from src.modules.documents.router import upload_document
+from src.modules.finance.credit_note_service import CREDIT_NOTE_DOCUMENT_ENTITY
+from src.modules.finance.sales_invoice_service import SALES_INVOICE_DOCUMENT_ENTITY
+from src.modules.finance.service import VALUATION_DOCUMENT_ENTITY
+from src.modules.job_work.service import CHALLAN_DOCUMENT_ENTITY
 from src.modules.packing.service import PACKING_ORDER_DOCUMENT_ENTITY
 from src.modules.procurement.inbound_repository import ORDER_DOCUMENT_ENTITY
-from src.modules.procurement.service import RECEIPT_DOCUMENT_ENTITY
+from src.modules.procurement.service import (
+    PURCHASE_RETURN_DOCUMENT_ENTITY,
+    RECEIPT_DOCUMENT_ENTITY,
+)
 from src.modules.products.service import ITEM_DOCUMENT_ENTITY
 from src.modules.quality.service import INSPECTION_DOCUMENT_ENTITY
 from src.modules.reports.service import REPORT_DOCUMENT_ENTITY
@@ -51,11 +58,15 @@ DOCUMENT_MODEL = (
 
 #: Entity types a person files documents under through ``POST /documents``: the
 #: item image panel, an inspection's attachments and reading photos, the record
-#: types the Documents page suggests, and the records people attach their own
+#: types the Documents page suggests, the records people attach their own
 #: paperwork to - a purchase order's signed copy, a carrier's challan on a goods
 #: receipt, a vendor's registration, a customer's order on a sales order, a stock
-#: extract on a warehouse, which the demo loader files as a person would. Every
-#: one needs a resolver, or a mistyped or foreign id files the document against
+#: extract on a warehouse, which the demo loader files as a person would - and
+#: every type the report worker files a generated document under. The Documents
+#: page lists those types and takes the type as free text, so a person can file
+#: a customer's signed invoice, an acknowledged credit note, debit note or
+#: challan, or an auditor's note on a valuation under the same type. Every one
+#: needs a resolver, or a mistyped or foreign id files the document against
 #: nothing.
 FILED_THROUGH_UPLOAD = (
     ITEM_DOCUMENT_ENTITY,
@@ -64,24 +75,18 @@ FILED_THROUGH_UPLOAD = (
     REPORT_DOCUMENT_ENTITY,
     ORDER_DOCUMENT_ENTITY,
     RECEIPT_DOCUMENT_ENTITY,
+    PURCHASE_RETURN_DOCUMENT_ENTITY,
     VENDOR_DOCUMENT_ENTITY,
     SALES_ORDER_DOCUMENT_ENTITY,
+    SALES_INVOICE_DOCUMENT_ENTITY,
+    CREDIT_NOTE_DOCUMENT_ENTITY,
     WAREHOUSE_DOCUMENT_ENTITY,
+    VALUATION_DOCUMENT_ENTITY,
+    CHALLAN_DOCUMENT_ENTITY,
 )
 
-#: Entity types only a worker files documents under, against the record it has
-#: just read to render - a sales invoice, a credit note, a purchase return's
-#: debit note, a valuation workbook, a job-work challan. No screen suggests one,
-#: and ``POST /documents`` stores such a type as given. A screen that starts
-#: offering one moves it to ``FILED_THROUGH_UPLOAD``, and its owner registers a
-#: resolver.
-UNRESOLVED_ENTITY_TYPES = (
-    report_tasks.SALES_INVOICE_ENTITY,
-    report_tasks.CREDIT_NOTE_ENTITY,
-    report_tasks.PURCHASE_RETURN_ENTITY,
-    report_tasks.VALUATION_ENTITY,
-    report_tasks.JOB_WORK_CHALLAN_ENTITY,
-)
+#: A type no module knows, which ``POST /documents`` stores as given.
+UNKNOWN_ENTITY_TYPE = "drawing_register"
 
 _SUGGESTIONS = re.compile(r"KNOWN_ENTITY_TYPES\s*=\s*\[([^\]]*)\]")
 _QUOTED = re.compile(r"'([a-z][a-z0-9_]*)'")
@@ -91,6 +96,19 @@ _RESOLVED_IN_DESCRIPTION = re.compile(r"its module resolves \(([^)]*)\)")
 def unresolved(entity_types: tuple[str, ...]) -> list[str]:
     """The entity types no registered resolver covers."""
     return [entity for entity in entity_types if document_entity_resolver(entity) is None]
+
+
+def worker_filed(module: object) -> tuple[str, ...]:
+    """The entity types a worker module files documents under: its ``*_ENTITY`` names."""
+    return tuple(
+        sorted(
+            {
+                value
+                for name, value in vars(module).items()
+                if name.endswith("_ENTITY") and isinstance(value, str)
+            }
+        )
+    )
 
 
 def suggested(source: str) -> list[str]:
@@ -124,20 +142,40 @@ def test_the_guard_reports_a_filed_entity_type_with_no_resolver(monkeypatch) -> 
 
 
 def test_the_registry_resolves_exactly_the_declared_entity_types() -> None:
-    # Which types have a resolver and which have none is stated above; adding or
-    # removing one moves an entity type from one list to the other.
+    # Which types have a resolver is stated above; adding or removing one adds
+    # an entity type to the list or takes it off.
     assert sorted(document_access._entity_resolvers) == sorted(FILED_THROUGH_UPLOAD)
-    assert unresolved(UNRESOLVED_ENTITY_TYPES) == list(UNRESOLVED_ENTITY_TYPES)
+    assert unresolved((UNKNOWN_ENTITY_TYPE,)) == [UNKNOWN_ENTITY_TYPE]
 
 
 def test_the_guard_reports_a_resolver_nobody_declared(monkeypatch) -> None:
     async def anything(session: AsyncSession, tenant: TenantContext, entity_id: uuid.UUID) -> None:
         return None
 
-    undeclared = report_tasks.SALES_INVOICE_ENTITY
-    monkeypatch.setitem(document_access._entity_resolvers, undeclared, anything)
+    monkeypatch.setitem(document_access._entity_resolvers, UNKNOWN_ENTITY_TYPE, anything)
     assert sorted(document_access._entity_resolvers) != sorted(FILED_THROUGH_UPLOAD)
-    assert undeclared not in unresolved(UNRESOLVED_ENTITY_TYPES)
+    assert unresolved((UNKNOWN_ENTITY_TYPE,)) == []
+
+
+def test_every_type_the_report_worker_files_under_resolves() -> None:
+    # The Documents page lists a generated invoice, credit note, debit note,
+    # valuation workbook or challan under its type, and a person typing that
+    # type beside another company's id, or an id naming none, filed against
+    # nothing - those five were stored as given.
+    filed = worker_filed(report_tasks)
+
+    assert report_tasks.SALES_INVOICE_ENTITY in filed
+    assert unresolved(filed) == []
+
+
+def test_the_worker_guard_reports_a_type_with_no_resolver(monkeypatch) -> None:
+    monkeypatch.delitem(document_access._entity_resolvers, CREDIT_NOTE_DOCUMENT_ENTITY)
+    monkeypatch.setattr(report_tasks, "SURVEY_SHEET_ENTITY", UNKNOWN_ENTITY_TYPE, raising=False)
+
+    assert unresolved(worker_filed(report_tasks)) == [
+        CREDIT_NOTE_DOCUMENT_ENTITY,
+        UNKNOWN_ENTITY_TYPE,
+    ]
 
 
 def test_every_record_type_the_documents_page_suggests_resolves() -> None:
@@ -150,9 +188,11 @@ def test_every_record_type_the_documents_page_suggests_resolves() -> None:
 
 
 def test_the_suggestion_reader_sees_each_quoted_type() -> None:
-    source = "export const KNOWN_ENTITY_TYPES = ['qc_inspection', 'sales_invoice'] as const"
-    assert suggested(source) == ["qc_inspection", "sales_invoice"]
-    assert unresolved(tuple(suggested(source))) == [report_tasks.SALES_INVOICE_ENTITY]
+    source = (
+        f"export const KNOWN_ENTITY_TYPES = ['qc_inspection', '{UNKNOWN_ENTITY_TYPE}'] as const"
+    )
+    assert suggested(source) == ["qc_inspection", UNKNOWN_ENTITY_TYPE]
+    assert unresolved(tuple(suggested(source))) == [UNKNOWN_ENTITY_TYPE]
 
 
 def test_the_upload_route_names_exactly_the_resolved_types() -> None:
@@ -170,11 +210,16 @@ def test_the_upload_route_names_exactly_the_resolved_types() -> None:
 
 
 def test_the_worker_files_under_the_types_people_file_under() -> None:
-    # A generated packing list, report and purchase order PDF are found under
-    # the same type as a file a person attached to that record.
+    # Every generated document is found under the same type as a file a person
+    # attached to that record, named once by the record's owner.
     assert report_tasks.PACKING_LIST_ENTITY == PACKING_ORDER_DOCUMENT_ENTITY
     assert report_tasks.GENERATED_REPORT_ENTITY == REPORT_DOCUMENT_ENTITY
     assert report_tasks.PURCHASE_ORDER_ENTITY == ORDER_DOCUMENT_ENTITY
+    assert report_tasks.SALES_INVOICE_ENTITY == SALES_INVOICE_DOCUMENT_ENTITY
+    assert report_tasks.CREDIT_NOTE_ENTITY == CREDIT_NOTE_DOCUMENT_ENTITY
+    assert report_tasks.PURCHASE_RETURN_ENTITY == PURCHASE_RETURN_DOCUMENT_ENTITY
+    assert report_tasks.VALUATION_ENTITY == VALUATION_DOCUMENT_ENTITY
+    assert report_tasks.JOB_WORK_CHALLAN_ENTITY == CHALLAN_DOCUMENT_ENTITY
 
 
 async def test_a_resolved_entity_type_refuses_an_id_its_reader_cannot_find(monkeypatch) -> None:

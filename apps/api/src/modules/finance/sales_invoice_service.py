@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.core.clock import today, utcnow
 from src.core.currency import assert_customer_currency
 from src.core.database import transaction
@@ -153,6 +154,19 @@ SALES_INVOICE_LIFECYCLE: StateMachine[SalesInvoiceStatus] = StateMachine(
         ),
     ),
     terminal=frozenset({SalesInvoiceStatus.CANCELLED, SalesInvoiceStatus.CREDITED}),
+)
+
+#: ``documents.entity_type`` of a file filed against a sales invoice - the PDF
+#: the report worker renders, and a customer's signed or stamped copy.
+SALES_INVOICE_DOCUMENT_ENTITY = "sales_invoice"
+
+# A file filed against a sales invoice is one of this company's invoices - not
+# another company's, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    SALES_INVOICE_DOCUMENT_ENTITY,
+    lambda session, tenant, invoice_id: SalesInvoiceRepository(session, tenant).get_or_404(
+        invoice_id
+    ),
 )
 
 

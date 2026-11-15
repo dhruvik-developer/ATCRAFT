@@ -103,9 +103,10 @@ FilterDep = Annotated[DocumentFilters, Depends(document_filters)]
         "against an `item` also needs `item.update`, because the dealer catalogue publishes "
         "the images filed against a sellable item (403 otherwise). An `entity_id` of a type "
         "its module resolves (`item`, `qc_inspection`, `purchase_order`, `goods_receipt`, "
-        "`vendor`, `sales_order`, `warehouse`, `packing_order`, `report_snapshot`) must be a "
-        "record this company holds and the caller may see (404 otherwise); any other entity "
-        "type is stored as given."
+        "`purchase_return`, `vendor`, `sales_order`, `sales_invoice`, `credit_note`, "
+        "`warehouse`, `packing_order`, `report_snapshot`, `inventory_valuation`, "
+        "`job_work_challan`) must be a record of that type this company holds and the caller "
+        "may see (404 otherwise); any other entity type is stored as given."
     ),
     dependencies=[
         require_permission(Permission.DOCUMENT_UPLOAD),

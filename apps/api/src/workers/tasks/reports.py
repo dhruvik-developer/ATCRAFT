@@ -92,15 +92,18 @@ from src.modules.finance.schemas import Gstr1Return, TrialBalance, ValuationFilt
 from src.modules.finance.service import (
     GSTR1_TASK_NAME,
     TRIAL_BALANCE_TASK_NAME,
+    VALUATION_DOCUMENT_ENTITY,
     VALUATION_TASK_NAME,
     gstr1_return,
     trial_balance,
     valuation_row,
 )
+from src.modules.job_work import service as job_work_service
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify
 from src.modules.packing import service as packing_service
 from src.modules.procurement import purchase_return_debit_note_pdf_repository
+from src.modules.procurement import service as procurement_service
 from src.modules.procurement.inbound_repository import ORDER_DOCUMENT_ENTITY
 from src.modules.procurement.purchase_return_debit_note_pdf import (
     render_purchase_return_debit_note_pdf,
@@ -118,9 +121,9 @@ XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sh
 #: What the generated document is filed against, so "every artefact for this
 #: packing order" is one indexed lookup on ``documents``.
 PACKING_LIST_ENTITY = packing_service.PACKING_ORDER_DOCUMENT_ENTITY
-SALES_INVOICE_ENTITY = "sales_invoice"
-CREDIT_NOTE_ENTITY = "credit_note"
-PURCHASE_RETURN_ENTITY = "purchase_return"
+SALES_INVOICE_ENTITY = sales_invoice_service.SALES_INVOICE_DOCUMENT_ENTITY
+CREDIT_NOTE_ENTITY = credit_note_service.CREDIT_NOTE_DOCUMENT_ENTITY
+PURCHASE_RETURN_ENTITY = procurement_service.PURCHASE_RETURN_DOCUMENT_ENTITY
 
 #: Page geometry. 15 mm margins keep the table inside the printable area of every
 #: office printer we have met, without wasting a column of width.
@@ -140,7 +143,7 @@ MAX_VALUATION_EXPORT_ROWS = 100_000
 
 #: A valuation workbook is filed against its job so the captured scope remains
 #: traceable throughout the artifact's lifetime.
-VALUATION_ENTITY = "inventory_valuation"
+VALUATION_ENTITY = VALUATION_DOCUMENT_ENTITY
 
 
 # -----------------------------------------------------------------------------
@@ -638,7 +641,7 @@ async def generate_packing_list(
 
 #: The ``documents.entity_type`` a challan PDF is filed under - the challan
 #: itself, so the challan register and the order's file list both find it.
-JOB_WORK_CHALLAN_ENTITY = "job_work_challan"
+JOB_WORK_CHALLAN_ENTITY = job_work_service.CHALLAN_DOCUMENT_ENTITY
 
 #: What a challan PDF is called in the document store and in the download's
 #: ``Content-Disposition``: ``job-work-challan-<code>.pdf``.
@@ -863,8 +866,6 @@ async def generate_job_work_challan(
     ``request_id`` is not used here but is read by the ``task_prerun`` signal so
     the API's correlation id follows the work into the worker's logs (section 55).
     """
-    from src.modules.job_work import service as job_work_service
-
     tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
     challan_id = uuid.UUID(job_work_challan_id)
     identifier = uuid.UUID(snapshot_id)
@@ -1450,7 +1451,7 @@ def _valuation_file_name(moment: Any) -> str:
     return f"inventory-valuation-{stamp}.xlsx"
 
 
-@async_task(name="reports.inventory_valuation", queue="reports")
+@async_task(name=VALUATION_TASK_NAME, queue="reports")
 async def inventory_valuation(
     company_id: str,
     user_id: str,
@@ -1494,10 +1495,7 @@ async def inventory_valuation(
                 }
 
             # The queued snapshot is the authority, never arbitrary task kwargs.
-            if (
-                snapshot.report_key != ReportKey.INVENTORY_VALUATION
-                or (snapshot.parameters or {}).get("task") != VALUATION_TASK_NAME
-            ):
+            if not reports_service.is_valuation_export(snapshot):
                 raise BusinessRuleError("The report job is not a finance valuation export.")
             if snapshot.created_by_id != tenant.user_id:
                 raise BusinessRuleError("The valuation export creator does not match its worker.")

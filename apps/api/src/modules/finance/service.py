@@ -78,6 +78,7 @@ from sqlalchemy import Select, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.currency import assert_customer_currency
@@ -248,7 +249,7 @@ from src.modules.organization.service import (
     require_cost_centres,
 )
 from src.modules.reports import service as reports_service
-from src.modules.reports.models import ReportKey
+from src.modules.reports.models import ReportKey, ReportSnapshot
 from src.modules.reports.repository import ReportSnapshotRepository
 
 log = get_logger(__name__)
@@ -284,10 +285,34 @@ CUSTOMER_ADJUSTMENT_LABELS: dict[CustomerAdjustmentType, str] = {
 #: the API process never imports the worker package.
 VALUATION_TASK_NAME = "reports.inventory_valuation"
 VALUATION_QUEUE = "reports"
+#: ``documents.entity_type`` of a file filed against a valuation job - the
+#: workbook the report worker renders - and what a 404 calls the job.
+VALUATION_DOCUMENT_ENTITY = "inventory_valuation"
+VALUATION_JOB_LABEL = "Inventory valuation"
 #: Rendered finance artefacts that travel through the same job row and status
 #: route as every other background report.
 TRIAL_BALANCE_TASK_NAME = "reports.generate_trial_balance"
 GSTR1_TASK_NAME = "reports.generate_gstr1"
+
+
+async def _held_valuation_job(
+    session: AsyncSession, tenant: TenantContext, job_id: uuid.UUID
+) -> ReportSnapshot:
+    """This company's valuation export job ``job_id``; another report's job is not one.
+
+    The catalogue's tabular valuation shares the report key, so the job's
+    provenance decides, as it does for the job's download and its worker.
+    """
+    job = await ReportSnapshotRepository(session, tenant).get(job_id)
+    if job is None or not reports_service.is_valuation_export(job):
+        raise NotFoundError(VALUATION_JOB_LABEL, job_id)
+    return job
+
+
+# A file filed against a valuation job is one of this company's valuation jobs -
+# not another company's, not another report's job - the catalogue's tabular
+# valuation among them - and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(VALUATION_DOCUMENT_ENTITY, _held_valuation_job)
 
 #: Label used on an open item that is not yet due. Kept out of
 #: :data:`AGEING_BUCKET_LABELS` because "not due" is not an age.

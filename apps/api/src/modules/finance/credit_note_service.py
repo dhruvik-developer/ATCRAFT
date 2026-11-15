@@ -7,6 +7,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.common.repository import labels_by_id
 from src.core.clock import utcnow
 from src.core.database import transaction
@@ -78,6 +79,17 @@ CREDIT_NOTE_LIFECYCLE: StateMachine[CreditNoteStatus] = StateMachine(
         ),
     ),
     terminal=frozenset(),
+)
+
+#: ``documents.entity_type`` of a file filed against a credit note - the PDF
+#: the report worker renders, and a customer's acknowledged copy.
+CREDIT_NOTE_DOCUMENT_ENTITY = "credit_note"
+
+# A file filed against a credit note is one of this company's notes - not
+# another company's, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    CREDIT_NOTE_DOCUMENT_ENTITY,
+    lambda session, tenant, note_id: CreditNoteRepository(session, tenant).get_or_404(note_id),
 )
 
 

@@ -294,10 +294,14 @@ AUDIT_PURCHASE_RETURN = "purchase_return"
 #: filed under ``ORDER_DOCUMENT_ENTITY``.
 RECEIPT_DOCUMENT_ENTITY = "goods_receipt"
 
-# A file filed against a purchase order or a goods receipt is one of this
-# company's - not another company's, and not an id naming none, which no order
-# or receipt would ever list. A vendor's shared files are filed against the
-# order the portal has just read, and are not checked again.
+#: ``documents.entity_type`` of a file filed against a purchase return - the
+#: debit note the report worker renders, and the vendor's acknowledged copy.
+PURCHASE_RETURN_DOCUMENT_ENTITY = "purchase_return"
+
+# A file filed against a purchase order, a goods receipt or a purchase return is
+# one of this company's - not another company's, and not an id naming none,
+# which no order, receipt or return would ever list. A vendor's shared files are
+# filed against the order the portal has just read, and are not checked again.
 # docs/assumptions.md §DOC-2.
 register_document_entity_resolver(
     ORDER_DOCUMENT_ENTITY,
@@ -307,6 +311,12 @@ register_document_entity_resolver(
     RECEIPT_DOCUMENT_ENTITY,
     lambda session, tenant, receipt_id: GoodsReceiptRepository(session, tenant).get_or_404(
         receipt_id
+    ),
+)
+register_document_entity_resolver(
+    PURCHASE_RETURN_DOCUMENT_ENTITY,
+    lambda session, tenant, return_id: PurchaseReturnRepository(session, tenant).get_or_404(
+        return_id
     ),
 )
 

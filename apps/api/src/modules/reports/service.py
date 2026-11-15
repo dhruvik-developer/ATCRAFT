@@ -1666,7 +1666,7 @@ def job_read(snapshot: ReportSnapshot) -> ReportJobRead:
         download_url=(
             (
                 job_download_url(snapshot.id)
-                if _is_valuation_export(snapshot)
+                if is_valuation_export(snapshot)
                 or snapshot.report_key == ReportKey.JOB_WORK_CHALLAN
                 or snapshot.report_key == ReportKey.PURCHASE_RETURN_DEBIT_NOTE
                 or _is_trial_balance_export(snapshot)
@@ -1688,9 +1688,12 @@ async def get_job(session: AsyncSession, tenant: TenantContext, job_id: uuid.UUI
     return job_read(snapshot)
 
 
-def _is_valuation_export(snapshot: ReportSnapshot) -> bool:
-    # The catalogue also has INVENTORY_VALUATION jobs. Only the server's finance
-    # export task has this provenance; the report key alone is not sufficient.
+def is_valuation_export(snapshot: ReportSnapshot) -> bool:
+    """Whether ``snapshot`` is a job of the finance valuation export.
+
+    The catalogue also has INVENTORY_VALUATION jobs. Only the server's finance
+    export task has this provenance; the report key alone is not sufficient.
+    """
     from src.modules.finance.service import VALUATION_TASK_NAME
 
     return (
@@ -1771,7 +1774,7 @@ def _owns_valuation_export(snapshot: ReportSnapshot, principal: Principal) -> bo
         and snapshot.company_id == principal.company_id
         and snapshot.created_by_id == principal.user_id
         and principal.has_all(Permission.INVENTORY_VALUATION_VIEW, Permission.REPORT_EXPORT)
-        and _is_valuation_export(snapshot)
+        and is_valuation_export(snapshot)
         and _valuation_scope_still_accessible(snapshot, principal)
     )
 
@@ -1859,7 +1862,7 @@ async def _accessible_job(
         or principal.is_dealer_user
         or snapshot.company_id != principal.company_id
         or (
-            _is_valuation_export(snapshot)
+            is_valuation_export(snapshot)
             and not _valuation_scope_still_accessible(snapshot, principal)
         )
         or (
@@ -2461,14 +2464,14 @@ def valuation_document_read_policy(
 ) -> ColumnElement[bool] | None:
     if tenant.is_superuser or not tenant.allowed_warehouse_ids:
         return None
-    from src.modules.finance.service import VALUATION_TASK_NAME
+    from src.modules.finance.service import VALUATION_DOCUMENT_ENTITY, VALUATION_TASK_NAME
 
     return ReportSnapshotRepository.valuation_document_visibility(
         tenant,
         document_id,
         task_name=VALUATION_TASK_NAME,
         scope_key=VALUATION_WAREHOUSE_SCOPE_PARAMETER,
-        entity_type="inventory_valuation",
+        entity_type=VALUATION_DOCUMENT_ENTITY,
     )
 
 
@@ -2586,6 +2589,7 @@ __all__ = [
     "fail_snapshot",
     "get_accessible_job",
     "get_job",
+    "is_valuation_export",
     "job_download_url",
     "job_read",
     "job_status_url",

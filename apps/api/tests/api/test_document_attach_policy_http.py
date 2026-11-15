@@ -9,9 +9,10 @@ enough to put a defect photo or an internal drawing in front of every dealer
 from the Documents screen. These drive the route end to end: the refusal
 stores nothing, an item editor's image reaches the catalogue, and an image filed
 under any other entity type stays inside the company. A file filed against an
-item, an inspection, a vendor or a warehouse that is another company's, or no
-record at all, is refused before a byte is stored, and so is a warehouse
-outside the caller's own assignment (docs/assumptions.md §DOC-2).
+item, an inspection, a vendor, a warehouse or a record the report worker files
+a generated document against that is another company's, or no record at all,
+is refused before a byte is stored, and so is a warehouse outside the caller's
+own assignment and a report job of another kind (docs/assumptions.md §DOC-2).
 
 Fixtures hand back ids, never ORM rows: an expected failure rolls its savepoint
 back and expires what was loaded before it (CLAUDE.md).
@@ -31,13 +32,19 @@ from httpx import AsyncClient, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.permissions import ROLE_PRESETS, Permission
 from src.modules.documents.models import Document
+from src.modules.finance import service as finance_service
+from src.modules.finance.schemas import ValuationFilters
 from src.modules.quality import service as quality
 from src.modules.quality.models import QcStage
 from src.modules.quality.schemas import InspectionCreate
+from src.modules.reports import service as reports_service
+from src.modules.reports.models import ReportKey
+from src.modules.reports.repository import ReportSnapshotRepository
 from tests import seed_support
 from tests.api.dealer_portal_support import (
     dealer_customer,
@@ -374,3 +381,92 @@ async def test_a_warehouse_outside_the_callers_assignment_is_not_found(
     assert error["message"] == f"Warehouse not found: {other}."
     assert await filed_against(session, other) == 0
     assert filed["entity_id"] == str(own)
+
+
+#: What a 404 calls each record the report worker files a generated document
+#: against - an invoice, a credit note, a purchase return's debit note, a
+#: valuation workbook, a challan - as its owner's resolver words it.
+GENERATED_RECORD_LABELS = {
+    "credit_note": "Credit note",
+    "inventory_valuation": "Inventory valuation",
+    "job_work_challan": "Job work challan",
+    "purchase_return": "Purchase return",
+    "sales_invoice": "Sales invoice",
+}
+
+
+#: What a catalogue report job holds here: no ``task``, so no module's export.
+CATALOGUE_PARAMETERS: dict[str, Any] = {"probe": True}
+
+
+async def report_job(
+    session: AsyncSession,
+    owner: TenantContext,
+    report_key: ReportKey,
+    parameters: dict[str, Any] = CATALOGUE_PARAMETERS,
+) -> uuid.UUID:
+    """A queued report job of ``owner``'s for ``report_key``, holding ``parameters``."""
+    job = reports_service.new_job_snapshot(report_key, dict(parameters), now=utcnow())
+    ReportSnapshotRepository(session, owner).add(job)
+    await session.flush()
+    return job.id
+
+
+async def valuation_export(session: AsyncSession, owner: TenantContext) -> uuid.UUID:
+    """A queued valuation export of ``owner``'s, holding what finance queues one with."""
+    parameters = finance_service.valuation_export_parameters(ValuationFilters(), tenant=owner)
+    return await report_job(session, owner, ReportKey.INVENTORY_VALUATION, parameters)
+
+
+@pytest.mark.parametrize("entity_type", sorted(GENERATED_RECORD_LABELS))
+async def test_filing_against_a_generated_documents_record_needs_one_this_company_holds(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    principal: Principal,
+    storage: Path,
+    entity_type: str,
+) -> None:
+    # The Documents page lists a generated invoice or challan under its type and
+    # takes the type as free text, and these five were stored as given: typed
+    # beside an id naming nothing, a signed copy was filed against nothing.
+    named = uuid.uuid4()
+    sign_in(holding(principal, Permission.DOCUMENT_UPLOAD))
+
+    error = error_of(await upload(api_client, entity_type, named, "signed.png"), 404, "NOT_FOUND")
+
+    assert error["message"] == f"{GENERATED_RECORD_LABELS[entity_type]} not found: {named}."
+    assert await filed_against(session, named) == 0
+    assert stored_files(storage) == []
+
+
+async def test_a_file_is_filed_against_this_companys_valuation_job_and_no_other_job(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    foreign: TenantContext,
+    storage: Path,
+) -> None:
+    # A valuation job is a report job of one kind: another report's job is not
+    # one - nor the catalogue's tabular valuation, which shares the report key
+    # but not the export's provenance - and neither is another company's.
+    own = await valuation_export(session, tenant)
+    other_report = await report_job(session, tenant, ReportKey.STOCK_AVAILABILITY)
+    catalogue_valuation = await report_job(session, tenant, ReportKey.INVENTORY_VALUATION)
+    theirs = await valuation_export(session, foreign)
+    refused = (other_report, catalogue_valuation, theirs)
+    sign_in(holding(principal, Permission.DOCUMENT_UPLOAD))
+
+    for refused_id in refused:
+        error = error_of(
+            await upload(api_client, "inventory_valuation", refused_id, "notes.png"),
+            404,
+            "NOT_FOUND",
+        )
+        assert error["message"] == f"Inventory valuation not found: {refused_id}."
+    filed = data_of(await upload(api_client, "inventory_valuation", own, "notes.png"), 201)
+
+    assert (filed["entity_type"], filed["entity_id"]) == ("inventory_valuation", str(own))
+    assert await filed_against(session, own) == 1
+    assert [await filed_against(session, refused_id) for refused_id in refused] == [0, 0, 0]
+    assert len(stored_files(storage)) == 1

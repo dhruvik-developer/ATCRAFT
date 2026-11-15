@@ -150,6 +150,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.database import transaction
@@ -275,6 +276,19 @@ log = get_logger(__name__)
 AUDIT_JOB_WORK_ORDER = "job_work_order"
 AUDIT_JOB_WORK_CHALLAN = "job_work_challan"
 AUDIT_JOB_WORK_RECEIPT = "job_work_receipt"
+
+#: ``documents.entity_type`` of a file filed against a delivery challan - the
+#: PDF the report worker renders, and the job worker's acknowledged copy.
+CHALLAN_DOCUMENT_ENTITY = "job_work_challan"
+
+# A file filed against a challan is one of this company's challans - not
+# another company's, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    CHALLAN_DOCUMENT_ENTITY,
+    lambda session, tenant, challan_id: JobWorkChallanRepository(session, tenant).get_or_404(
+        challan_id
+    ),
+)
 
 #: What the ledger rows this module posts point back at. A bare string, matching
 #: ``inventory_transactions.reference_type`` - the ledger outlives its source, so
