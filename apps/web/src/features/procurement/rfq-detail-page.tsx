@@ -31,11 +31,11 @@ import { DataTable } from '@/components/data-table'
 import {
   DescriptionList,
   EmptyState,
-  LifecycleStepper,
   LoadError,
   PageHeader,
   StatusBadge,
 } from '@/components/shared'
+import { LifecycleStepper } from '@/components/lifecycle-stepper'
 import { Button } from '@/components/ui/button'
 import {
   Alert,

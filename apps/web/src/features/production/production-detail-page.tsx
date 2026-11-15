@@ -37,12 +37,12 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
-  LifecycleStepper,
   LoadError,
   PageHeader,
   StatTile,
   StatusBadge,
 } from '@/components/shared'
+import { LifecycleStepper } from '@/components/lifecycle-stepper'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
 import {

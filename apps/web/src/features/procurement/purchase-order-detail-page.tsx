@@ -47,12 +47,12 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
-  LifecycleStepper,
   LoadError,
   PageHeader,
   PanelLoader,
   StatusBadge,
 } from '@/components/shared'
+import { LifecycleStepper } from '@/components/lifecycle-stepper'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
