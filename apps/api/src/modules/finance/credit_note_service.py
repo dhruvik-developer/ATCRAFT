@@ -1,3 +1,20 @@
+"""Issuing and cancelling a credit note against an issued sales invoice.
+
+A credit note gives part of an invoice back, line by line: a quantity of a line,
+valued in proportion to what the line has not yet credited, or a taxable amount
+with no quantity (a price adjustment, a discount). A ``RETURN`` note must name
+the sales return the goods came back on and credits no more than quality
+accepted. Issuing posts the reversing journal, raises the invoice's credited
+figures and moves its status, lowers the customer's outstanding balance and
+tells the dealer portal; cancelling (``ISSUED -> CANCELLED``, irreversible)
+reverses each of those in one transaction.
+
+It is a file of its own because a credit note is a document of its own - its
+own number, lifecycle, PDF and repository - while the invoice it credits stays
+``sales_invoice_service.py``'s: the invoice's lines and status move here only
+through the invoice's repository locks and its own transition.
+"""
+
 from __future__ import annotations
 
 import uuid
@@ -266,6 +283,31 @@ async def _validate_return_credit(
 async def issue_credit_note(
     session: AsyncSession, tenant: TenantContext, payload: CreditNoteCreate
 ) -> CreditNoteDetail:
+    """Issue a credit note against an issued invoice, in one transaction.
+
+    Requires ``credit_note.create`` (checked by the route). Refused when the
+    invoice is cancelled or fully credited; when it is paid and the note is not
+    a return credit naming a sales return; when its currency is not the
+    company's; when a line is not the invoice's, gives neither a quantity nor an
+    amount, or asks for more quantity or value than the line has left; when the
+    total is not positive or would take the invoice's credits past its ceiling -
+    the whole invoice for a paid invoice or a return credit, the unpaid balance
+    otherwise; and when a ``RETURN`` note names no return. A return credit also
+    needs a received or closed return of the same customer and dispatch,
+    received after the invoice was issued, and credits each line no more than
+    quality accepted less what earlier notes credited.
+
+    Tax follows each line in proportion (``credit_tax_parts``), and the note
+    carries its share of the invoice's round-off in proportion to the value
+    credited so far (``credit_round_off``). On success it posts the journal -
+    revenue and output tax debited, the customer's receivable credited -
+    numbers and stores the note and its lines, raises the invoice lines' and
+    the return lines' credited figures, snapshots a return credit's cost, moves
+    the invoice to its status after credit, lowers the customer's outstanding
+    balance, audits the create and notifies the dealer portal. The return is
+    locked before the invoice, the order its owner takes, so a credit cannot
+    deadlock a receipt on the same return.
+    """
     async with transaction(session):
         return_row = None
         return_lines: list[SalesReturnLine] = []
