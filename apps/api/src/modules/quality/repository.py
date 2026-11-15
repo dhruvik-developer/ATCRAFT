@@ -68,6 +68,14 @@ from src.modules.quality.schemas import InspectionFilters, ReworkFilters, Templa
 from src.modules.vendors.models import Vendor
 from src.modules.warehouses.models import Warehouse
 
+#: "Settled", as every owner of an inspected document tests it before completing
+#: the document: a verdict exists and nothing is left in rework or on hold. Both
+#: quantities are CHECKed non-negative, so their sum is zero only when each is.
+_SETTLED: tuple[ColumnElement[bool], ...] = (
+    QcInspection.result != InspectionResult.PENDING,
+    QcInspection.rework_quantity + QcInspection.hold_quantity == 0,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class InspectableItem:
@@ -568,12 +576,30 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
                 tuple_(QcInspection.reference_type, QcInspection.reference_id).in_(
                     list(dict.fromkeys(references))
                 ),
-                QcInspection.result != InspectionResult.PENDING,
-                QcInspection.rework_quantity + QcInspection.hold_quantity == 0,
+                *_SETTLED,
             )
             .order_by(QcInspection.created_at, QcInspection.id)
         )
         return list((await self.session.execute(stmt)).scalars().all())
+
+    async def all_settled(self, inspection_ids: Sequence[uuid.UUID]) -> bool:
+        """Whether every one of these inspections is settled, in one count.
+
+        The test an owner applies before it completes the document the
+        inspections were raised for (a sales return closes on it). An id this
+        company does not hold counts as unsettled. No ids asks nothing and
+        answers ``True`` without a query; the callers only ask about a document
+        that raised inspections.
+        """
+        wanted = list(dict.fromkeys(inspection_ids))
+        if not wanted:
+            return True
+        stmt = select(func.count(QcInspection.id)).where(
+            QcInspection.company_id == self.tenant.company_id,
+            QcInspection.id.in_(wanted),
+            *_SETTLED,
+        )
+        return (await self.session.execute(stmt)).scalar_one() == len(wanted)
 
     def _filtered(self, filters: InspectionFilters) -> Select[Any]:
         stmt = self._scoped()

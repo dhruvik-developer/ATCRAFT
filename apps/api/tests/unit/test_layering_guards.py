@@ -18,6 +18,12 @@
   courier webhook spent a literal 60-a-minute from its route handler, where
   ``tests/unit/test_route_budgets.py`` - which checks every *named* policy is
   spent - could not see it, and no document listed it.
+* A statement is built in a repository - "repository.py: queries and
+  persistence, always tenant-scoped". Built in a service, it re-types the tenant
+  filter and the lock order at each site, and the repository method it copies
+  rots unused beside it: four such twins were found dead. The files that still
+  build statements outside a repository are listed with what they hold; the list
+  only shrinks.
 
 Every rule is a function over source text, and each has a self-test that feeds
 it the violation it exists to catch - a guard that cannot fail is worse than
@@ -53,6 +59,56 @@ RAW_LIMITER_OWNERS: dict[str, str] = {
     "core/middleware.py": "the general per-principal API budget, sized by settings",
 }
 
+#: SQLAlchemy's statement builders, by the names ``sqlalchemy`` exports them under.
+_STATEMENT_BUILDERS = frozenset({"select", "update", "delete", "insert", "exists", "text"})
+
+#: Module files outside a repository that still build statements, each with what
+#: it holds. Move them into the module's repository and delete the entry; add one
+#: only for a documented decision, as sales/fulfilment.py is.
+SQL_OUTSIDE_REPOSITORIES: dict[str, str] = {
+    "modules/sales/fulfilment.py": (
+        "documented reporting surface: its module docstring reads every owning "
+        "module's tables directly to trace one order"
+    ),
+    "modules/vendors/service.py": (
+        "load_performance's raw-SQL probe of tables that may not exist yet in a "
+        "partially migrated database; _soft_delete_contacts not yet moved"
+    ),
+    "modules/collections/service.py": "_customer and _assert_user reads, not yet moved",
+    "modules/courier_tracking/service.py": (
+        "_replace_transporter_links and _apply_inbound_delivery, not yet moved"
+    ),
+    "modules/dealer_portal/service.py": "_live_internal_users, not yet moved",
+    "modules/finance/sales_invoice_service.py": (
+        "issued_credit_total, list_sales_invoices and _set_sales_receipt_allocations, not yet moved"
+    ),
+    "modules/finance/service.py": (
+        "the purchase-return debit allocation reads and two alert-candidate queries, not yet moved"
+    ),
+    "modules/inventory/service.py": (
+        "_job_work_serials, get_serial and below_reorder_alert_candidates, not yet moved"
+    ),
+    "modules/job_work/serial_tracking.py": (
+        "validate_receipt_units and prepare_batch_conversions, not yet moved"
+    ),
+    "modules/job_work/service.py": (
+        "the rework-source locks, the order detail, receive, the challan PDF data and "
+        "overdue_alert_candidates, not yet moved"
+    ),
+    "modules/mrp/shortfall.py": "the production and requisition document reads, not yet moved",
+    "modules/procurement/inbound_service.py": "five alert-candidate queries, not yet moved",
+    "modules/procurement/purchase_order_changes.py": "_apply_lines' line delete, not yet moved",
+    "modules/production/service.py": (
+        "_movements_for_document and delayed_alert_candidates, not yet moved"
+    ),
+    "modules/quality/serial_tracking.py": (
+        "_locked_positions and prepare_serial_inspection, not yet moved"
+    ),
+    "modules/quality/service.py": "pending_alert_candidates, not yet moved",
+    "modules/reports/service.py": "the sweeps' company lists, not yet moved",
+    "modules/sales/service.py": "at_risk_alert_candidates, not yet moved",
+}
+
 #: ``float`` in src/modules, each a non-business value.
 FLOAT_ALLOWED: dict[str, str] = {
     "modules/audit/schemas.py": "a reporting window's length in days, not a stored value",
@@ -71,6 +127,14 @@ def _python_files(root: Path) -> list[Path]:
 
 def _router_files() -> list[Path]:
     return sorted(path for path in (SRC / "modules").glob("*/*.py") if "router" in path.stem)
+
+
+def _is_repository(path: Path) -> bool:
+    return path.stem == "repository" or path.stem.endswith("_repository")
+
+
+def _module_files_outside_repositories() -> list[Path]:
+    return [path for path in _python_files(SRC / "modules") if not _is_repository(path)]
 
 
 def _line_number(finding: str) -> int:
@@ -129,6 +193,51 @@ def raw_limiter_calls(source: str) -> list[str]:
         if name in _RAW_LIMITERS:
             found.append(f"line {node.lineno}: {name}()")
     return sorted(found, key=_line_number)
+
+
+def statement_builds(source: str, *, allowed: frozenset[str] = frozenset()) -> list[str]:
+    """Calls of a SQLAlchemy statement builder, imported by name or through the module.
+
+    ``allowed`` exempts builders by name: a models file states CHECK constraints
+    and partial-index predicates through ``text()``, which is schema, not a query.
+    """
+    builders = _STATEMENT_BUILDERS - allowed
+    tree = ast.parse(source)
+    imported: dict[str, str] = {}
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "sqlalchemy":
+            imported.update(
+                (alias.asname or alias.name, alias.name)
+                for alias in node.names
+                if alias.name in builders
+            )
+        elif isinstance(node, ast.Import):
+            modules.update(
+                alias.asname or alias.name.split(".")[0]
+                for alias in node.names
+                if alias.name.split(".")[0] == "sqlalchemy"
+            )
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in imported:
+            found.append(f"line {node.lineno}: {imported[func.id]}()")
+        elif (
+            isinstance(func, ast.Attribute)
+            and func.attr in builders
+            and isinstance(func.value, ast.Name)
+            and func.value.id in modules
+        ):
+            found.append(f"line {node.lineno}: {func.value.id}.{func.attr}()")
+    return sorted(found, key=_line_number)
+
+
+def _module_statement_builds(path: Path) -> list[str]:
+    allowed = frozenset({"text"}) if path.stem == "models" else frozenset()
+    return statement_builds(path.read_text(encoding="utf-8"), allowed=allowed)
 
 
 def float_uses(source: str) -> list[str]:
@@ -193,6 +302,31 @@ def test_every_raw_limiter_owner_still_calls_it() -> None:
         or not raw_limiter_calls((SRC / name).read_text(encoding="utf-8"))
     ]
     assert not stale, f"remove these RAW_LIMITER_OWNERS entries, the call is gone: {stale}"
+
+
+def test_statements_are_built_in_repositories() -> None:
+    offenders = {
+        _relative(path): found
+        for path in _module_files_outside_repositories()
+        if _relative(path) not in SQL_OUTSIDE_REPOSITORIES
+        and (found := _module_statement_builds(path))
+    }
+    assert not offenders, (
+        "Build the statement in the module's repository (a BaseRepository method, so "
+        "the tenant filter and the lock order are written once) and call that from "
+        f"the service: {offenders}"
+    )
+
+
+def test_every_sql_allowance_is_still_needed() -> None:
+    stale = [
+        name
+        for name in SQL_OUTSIDE_REPOSITORIES
+        if not (SRC / name).is_file() or not _module_statement_builds(SRC / name)
+    ]
+    assert not stale, (
+        f"remove these SQL_OUTSIDE_REPOSITORIES entries, the statements are gone: {stale}"
+    )
 
 
 def test_business_modules_hold_no_float() -> None:
@@ -262,6 +396,36 @@ def test_the_limiter_rule_rejects_a_literal_budget_and_passes_a_named_one() -> N
         "line 3: enforce_rate_limit()",
         "line 4: check_rate_limit()",
     ]
+
+
+def test_the_statement_rule_rejects_builders_by_name_and_through_the_module() -> None:
+    source = (
+        "import sqlalchemy as sa\n"
+        "from sqlalchemy import func, select, text as sql\n"
+        "from sqlalchemy.dialects.postgresql import insert\n"
+        "async def f(session, repo, stmt):\n"
+        "    await session.execute(select(Item).where(func.lower(Item.code) == 'x'))\n"
+        "    await session.execute(sql('select 1'))\n"
+        "    insert(Item).values(code='x')\n"
+        "    sa.update(Item)\n"
+        "    stmt.exists()\n"
+        "    await repo.select()\n"
+    )
+    assert statement_builds(source) == [
+        "line 5: select()",
+        "line 6: text()",
+        "line 7: insert()",
+        "line 8: sa.update()",
+    ]
+
+
+def test_the_statement_rule_lets_a_model_state_a_constraint_in_text() -> None:
+    source = (
+        "from sqlalchemy import CheckConstraint, select, text\n"
+        "CheckConstraint(text('quantity >= 0'), name='quantity_non_negative')\n"
+        "subquery = select(Item.id)\n"
+    )
+    assert statement_builds(source, allowed=frozenset({"text"})) == ["line 3: select()"]
 
 
 def test_the_float_rule_rejects_annotations_and_conversions() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -65,6 +65,31 @@ class SalesInvoiceRepository(BaseRepository[SalesInvoice]):
         if not rows:
             raise NotFoundError(SALES_INVOICE_ENTITY, invoice_id)
         return rows[0]
+
+    async def lock_lines(
+        self, invoice_id: uuid.UUID, line_ids: Iterable[uuid.UUID]
+    ) -> list[SalesInvoiceLine]:
+        """Row-lock the named lines of one invoice, in id order, and re-read them.
+
+        Taken after :meth:`lock_header`. A line of another invoice is absent
+        from the answer, which is how a credit note learns it named one.
+        Nothing named, nothing read.
+        """
+        wanted = list(dict.fromkeys(line_ids))
+        if not wanted:
+            return []
+        stmt = (
+            select(SalesInvoiceLine)
+            .where(
+                SalesInvoiceLine.company_id == self.tenant.company_id,
+                SalesInvoiceLine.sales_invoice_id == invoice_id,
+                SalesInvoiceLine.id.in_(wanted),
+            )
+            .order_by(SalesInvoiceLine.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
     async def list_filtered(
         self, filters: SalesInvoiceFilters, params: PageParams, sort: SortParams

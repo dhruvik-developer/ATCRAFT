@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Protocol
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -22,13 +21,14 @@ from src.core.types import ZERO, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.customers.models import Customer
-from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
+from src.modules.dispatch.models import Dispatch, DispatchStatus, DispatchType
 from src.modules.inventory.models import (
     SerialStatus,
     StockSerial,
     StockState,
     TransactionType,
 )
+from src.modules.inventory.repository import StockSerialRepository
 from src.modules.inventory.service import (
     MovementRequest,
     post_movements,
@@ -36,7 +36,8 @@ from src.modules.inventory.service import (
     state_change_type,
 )
 from src.modules.products.models import Item
-from src.modules.quality.models import InspectionResult, QcInspection, QcStage
+from src.modules.quality.models import QcStage
+from src.modules.quality.repository import QcInspectionRepository
 from src.modules.quality.schemas import InspectionCreate
 from src.modules.quality.service import create_inspection
 from src.modules.sales_returns.costing import return_cost_plans
@@ -50,7 +51,6 @@ from src.modules.sales_returns.schemas import (
     SalesReturnSummary,
     SalesReturnUnits,
 )
-from src.modules.warehouses.models import Warehouse
 
 SALES_RETURN_REFERENCE = "sales_return"
 
@@ -148,6 +148,14 @@ async def _detail(
     return SalesReturnDetail(**summary.model_dump(), lines=reads)
 
 
+async def _lock_source_dispatch(repo: SalesReturnRepository, dispatch_id: uuid.UUID) -> Dispatch:
+    """Row-lock the dispatch a return comes back from, or answer 404 Dispatch."""
+    dispatch = await repo.lock_dispatch(dispatch_id)
+    if dispatch is None:
+        raise NotFoundError("Dispatch", dispatch_id)
+    return dispatch
+
+
 async def list_returns(
     session: AsyncSession, tenant: TenantContext, params: PageParams
 ) -> tuple[list[SalesReturnSummary], object]:
@@ -166,19 +174,8 @@ async def get_return(
 async def create_return(
     session: AsyncSession, tenant: TenantContext, payload: SalesReturnCreate
 ) -> SalesReturnDetail:
-    dispatch = (
-        await session.execute(
-            select(Dispatch)
-            .where(
-                Dispatch.company_id == tenant.company_id,
-                Dispatch.id == payload.dispatch_id,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if dispatch is None:
-        raise NotFoundError("Dispatch", payload.dispatch_id)
+    returns = SalesReturnRepository(session, tenant)
+    dispatch = await _lock_source_dispatch(returns, payload.dispatch_id)
     if dispatch.dispatch_type != DispatchType.SALES:
         raise BusinessRuleError("Only sales dispatches can be returned.")
     allowed = {
@@ -192,16 +189,10 @@ async def create_return(
     }
     if dispatch.status not in allowed:
         raise BusinessRuleError("A return is allowed only after the dispatch has left.")
-    if payload.return_warehouse_id is not None:
-        warehouse_exists = await session.scalar(
-            select(Warehouse.id).where(
-                Warehouse.company_id == tenant.company_id,
-                Warehouse.id == payload.return_warehouse_id,
-                Warehouse.is_active.is_(True),
-            )
-        )
-        if warehouse_exists is None:
-            raise NotFoundError("Warehouse", payload.return_warehouse_id)
+    if payload.return_warehouse_id is not None and not await returns.active_warehouse_exists(
+        payload.return_warehouse_id
+    ):
+        raise NotFoundError("Warehouse", payload.return_warehouse_id)
     line_ids = [line.dispatch_line_id for line in payload.lines]
     if len(set(line_ids)) != len(line_ids):
         # The table allows one line per dispatch line in a return
@@ -211,63 +202,19 @@ async def create_return(
             "Each dispatch line can appear only once on a sales return; enter its whole "
             "quantity on one line."
         )
-    dispatch_lines = list(
-        (
-            await session.execute(
-                select(DispatchLine)
-                .where(
-                    DispatchLine.company_id == tenant.company_id,
-                    DispatchLine.dispatch_id == dispatch.id,
-                    DispatchLine.id.in_(line_ids),
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    dispatch_lines = await returns.lock_dispatch_lines(dispatch.id, line_ids)
     by_id = {line.id: line for line in dispatch_lines}
     if len(by_id) != len(set(line_ids)):
         raise BusinessRuleError("Every return line must belong to the selected dispatch.")
-    items = {
-        item.id: item
-        for item in (
-            await session.execute(
-                select(Item).where(
-                    Item.company_id == tenant.company_id,
-                    Item.id.in_([line.item_id for line in dispatch_lines]),
-                )
-            )
-        ).scalars()
-    }
+    items = await returns.items(line.item_id for line in dispatch_lines)
     all_serial_ids = [serial_id for line in payload.lines for serial_id in line.serial_ids]
     if len(all_serial_ids) != len(set(all_serial_ids)):
         raise BusinessRuleError("A serial can appear only once on a sales return.")
-    serials = (
-        {
-            serial.id: serial
-            for serial in (
-                await session.execute(
-                    select(StockSerial)
-                    .where(
-                        StockSerial.company_id == tenant.company_id,
-                        StockSerial.id.in_(all_serial_ids),
-                    )
-                    .with_for_update()
-                )
-            )
-            .scalars()
-            .all()
-        }
-        if all_serial_ids
-        else {}
-    )
+    serials = await StockSerialRepository(session, tenant).lock_serials(all_serial_ids)
     # What earlier open returns already claim, for every named dispatch line in
     # two statements rather than two per line. Read under the dispatch-line
     # locks above, so a concurrent request for the same lines waits for this
     # one rather than reading the same pool.
-    returns = SalesReturnRepository(session, tenant)
     claimed = await returns.claimed_quantities(list(by_id))
     serial_line_ids = [
         line.id
@@ -388,35 +335,12 @@ async def transition_return(
     if target == SalesReturnStatus.CANCELLED and not reason:
         raise BusinessRuleError("A cancellation reason is required.")
     async with transaction(session):
-        locked_row = (
-            await session.execute(
-                select(SalesReturn)
-                .where(
-                    SalesReturn.company_id == tenant.company_id,
-                    SalesReturn.id == return_id,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        locked_row = await repo.lock_for_update(return_id)
         if locked_row is None:
             raise NotFoundError("Sales return", return_id)
         row = locked_row
         SALES_RETURN_LIFECYCLE.assert_transition(row.status, target)
-        lines = list(
-            (
-                await session.execute(
-                    select(SalesReturnLine)
-                    .where(
-                        SalesReturnLine.company_id == tenant.company_id,
-                        SalesReturnLine.sales_return_id == row.id,
-                    )
-                    .with_for_update()
-                )
-            )
-            .scalars()
-            .all()
-        )
+        lines = await repo.lock_lines(row.id)
         if target == SalesReturnStatus.CLOSED:
             for line in lines:
                 if line.serial_ids:
@@ -431,48 +355,16 @@ async def transition_return(
                             "has a disposition."
                         )
             inspection_ids = [line.qc_inspection_id for line in lines if line.qc_inspection_id]
-            if inspection_ids:
-                settled_count = await session.scalar(
-                    select(func.count(QcInspection.id)).where(
-                        QcInspection.company_id == tenant.company_id,
-                        QcInspection.id.in_(inspection_ids),
-                        QcInspection.result != InspectionResult.PENDING,
-                        QcInspection.rework_quantity == 0,
-                        QcInspection.hold_quantity == 0,
-                    )
-                )
-                if settled_count != len(inspection_ids):
-                    raise BusinessRuleError(
-                        "A return with pending QC inspections cannot be closed."
-                    )
+            if inspection_ids and not await QcInspectionRepository(session, tenant).all_settled(
+                inspection_ids
+            ):
+                raise BusinessRuleError("A return with pending QC inspections cannot be closed.")
             await _issue_return_credit_note(session, tenant, row.id, lines)
         if target == SalesReturnStatus.RECEIVED:
-            dispatch = (
-                await session.execute(
-                    select(Dispatch)
-                    .where(
-                        Dispatch.company_id == tenant.company_id,
-                        Dispatch.id == row.dispatch_id,
-                    )
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).scalar_one()
+            dispatch = await _lock_source_dispatch(repo, row.dispatch_id)
             warehouse_id = row.return_warehouse_id or dispatch.warehouse_id
-            dispatch_lines = list(
-                (
-                    await session.execute(
-                        select(DispatchLine)
-                        .where(
-                            DispatchLine.company_id == tenant.company_id,
-                            DispatchLine.id.in_([line.dispatch_line_id for line in lines]),
-                        )
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
+            dispatch_lines = await repo.lock_dispatch_lines(
+                dispatch.id, [line.dispatch_line_id for line in lines]
             )
             dispatch_by_id = {line.id: line for line in dispatch_lines}
             ordinary_costs, serial_costs = await return_cost_plans(
@@ -639,36 +531,15 @@ async def dispose_return_units(
     payload: SalesReturnUnits,
 ) -> SalesReturnDetail:
     """Settle named serials on a received return and post each stock-state move."""
+    repo = SalesReturnRepository(session, tenant)
     async with transaction(session):
-        row = (
-            await session.execute(
-                select(SalesReturn)
-                .where(
-                    SalesReturn.company_id == tenant.company_id,
-                    SalesReturn.id == return_id,
-                )
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        row = await repo.lock_for_update(return_id)
         if row is None:
             raise NotFoundError("Sales return", return_id)
         if SalesReturnStatus(row.status) is not SalesReturnStatus.RECEIVED:
             raise BusinessRuleError("Serial units can be dispositioned only on a received return.")
 
-        lines = list(
-            (
-                await session.execute(
-                    select(SalesReturnLine)
-                    .where(
-                        SalesReturnLine.company_id == tenant.company_id,
-                        SalesReturnLine.sales_return_id == row.id,
-                    )
-                    .with_for_update()
-                )
-            )
-            .scalars()
-            .all()
-        )
+        lines = await repo.lock_lines(row.id)
         lines_by_serial: dict[uuid.UUID, SalesReturnLine] = {}
         disposed_serials: set[uuid.UUID] = set()
         for line in lines:
@@ -689,31 +560,9 @@ async def dispose_return_units(
         if requested_ids.intersection(disposed_serials):
             raise BusinessRuleError("A serial unit on this return has already been dispositioned.")
 
-        dispatch = (
-            await session.execute(
-                select(Dispatch)
-                .where(
-                    Dispatch.company_id == tenant.company_id,
-                    Dispatch.id == row.dispatch_id,
-                )
-                .with_for_update()
-            )
-        ).scalar_one()
-        dispatch_line_ids = {line.dispatch_line_id for line in lines}
-        dispatch_lines = list(
-            (
-                await session.execute(
-                    select(DispatchLine)
-                    .where(
-                        DispatchLine.company_id == tenant.company_id,
-                        DispatchLine.dispatch_id == dispatch.id,
-                        DispatchLine.id.in_(dispatch_line_ids),
-                    )
-                    .with_for_update()
-                )
-            )
-            .scalars()
-            .all()
+        dispatch = await _lock_source_dispatch(repo, row.dispatch_id)
+        dispatch_lines = await repo.lock_dispatch_lines(
+            dispatch.id, (line.dispatch_line_id for line in lines)
         )
         dispatch_lines_by_id = {line.id: line for line in dispatch_lines}
         warehouse_id = row.return_warehouse_id or dispatch.warehouse_id
@@ -785,14 +634,7 @@ async def lock_for_quality_verdict(
     session: AsyncSession, tenant: TenantContext, reference_id: uuid.UUID
 ) -> None:
     """Lock the return before quality decides the stock it owns."""
-    await session.execute(
-        select(SalesReturn.id)
-        .where(
-            SalesReturn.company_id == tenant.company_id,
-            SalesReturn.id == reference_id,
-        )
-        .with_for_update()
-    )
+    await SalesReturnRepository(session, tenant).lock_for_update(reference_id)
 
 
 async def record_quality_verdict(
@@ -807,50 +649,19 @@ async def record_quality_verdict(
     if verdict.reference_id is None or not verdict.is_settled:
         return False
 
+    repo = SalesReturnRepository(session, tenant)
     async with transaction(session):
-        return_row = (
-            await session.execute(
-                select(SalesReturn)
-                .where(
-                    SalesReturn.company_id == tenant.company_id,
-                    SalesReturn.id == verdict.reference_id,
-                )
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        return_row = await repo.lock_for_update(verdict.reference_id)
         if return_row is None or (
             SalesReturnStatus(return_row.status) is not SalesReturnStatus.RECEIVED
         ):
             return False
 
-        lines = list(
-            (
-                await session.execute(
-                    select(SalesReturnLine)
-                    .where(
-                        SalesReturnLine.company_id == tenant.company_id,
-                        SalesReturnLine.sales_return_id == return_row.id,
-                    )
-                    .with_for_update()
-                )
-            )
-            .scalars()
-            .all()
-        )
+        lines = await repo.lock_lines(return_row.id)
         inspection_ids = [line.qc_inspection_id for line in lines if line.qc_inspection_id]
         if not inspection_ids or verdict.inspection_id not in inspection_ids:
             return False
-
-        settled_count = await session.scalar(
-            select(func.count(QcInspection.id)).where(
-                QcInspection.company_id == tenant.company_id,
-                QcInspection.id.in_(inspection_ids),
-                QcInspection.result != InspectionResult.PENDING,
-                QcInspection.rework_quantity == 0,
-                QcInspection.hold_quantity == 0,
-            )
-        )
-        if settled_count != len(inspection_ids):
+        if not await QcInspectionRepository(session, tenant).all_settled(inspection_ids):
             return False
 
         await _issue_return_credit_note(session, tenant, return_row.id, lines)
@@ -901,77 +712,26 @@ async def _issue_return_credit_note(
     Returns without an invoice have no receivable to reverse and remain
     operationally complete without creating a financial document.
     """
+    from src.modules.finance.credit_note_repository import CreditNoteRepository
     from src.modules.finance.credit_note_schemas import CreditNoteCreate, CreditNoteLineIn
     from src.modules.finance.credit_note_service import issue_credit_note
-    from src.modules.finance.models import (
-        CreditNote,
-        CreditNoteLine,
-        CreditNoteReason,
-        SalesInvoice,
-        SalesInvoiceLine,
-        SalesInvoiceStatus,
-    )
+    from src.modules.finance.models import CreditNoteReason
 
     # QC and serial disposition update their rows before this owner callback.
     # Flush that accepted evidence before finance re-locks and validates it.
     await session.flush()
-    dispatch_line_ids = [line.dispatch_line_id for line in lines]
-    invoice_lines = list(
-        (
-            await session.execute(
-                select(SalesInvoiceLine)
-                .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
-                .join(SalesReturn, SalesReturn.dispatch_id == SalesInvoice.dispatch_id)
-                .where(
-                    SalesInvoiceLine.company_id == tenant.company_id,
-                    SalesInvoiceLine.dispatch_line_id.in_(dispatch_line_ids),
-                    SalesInvoice.company_id == tenant.company_id,
-                    SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
-                    SalesReturn.company_id == tenant.company_id,
-                    SalesReturn.id == return_id,
-                    # Earlier receipts were already removed from billed
-                    # quantity when this invoice was issued.
-                    SalesReturn.received_at >= SalesInvoice.issued_at,
-                )
-            )
-        )
-        .scalars()
-        .all()
+    credit_notes = CreditNoteRepository(session, tenant)
+    invoice_lines = await credit_notes.creditable_invoice_lines(
+        return_id, [line.dispatch_line_id for line in lines]
     )
     by_dispatch_line = {line.dispatch_line_id: line for line in invoice_lines}
-    existing_lines = list(
-        (
-            await session.execute(
-                select(CreditNoteLine)
-                .join(CreditNote, CreditNote.id == CreditNoteLine.credit_note_id)
-                .where(
-                    CreditNote.company_id == tenant.company_id,
-                    CreditNote.sales_return_id == return_id,
-                    CreditNote.status != "CANCELLED",
-                )
-            )
+    credited_by_invoice_line = await credit_notes.return_credited_by_invoice_line(return_id)
+    inspections_by_id = {
+        inspection.id: inspection
+        for inspection in await QcInspectionRepository(session, tenant).get_many(
+            [line.qc_inspection_id for line in lines if line.qc_inspection_id is not None]
         )
-        .scalars()
-        .all()
-    )
-    credited_by_invoice_line: dict[uuid.UUID, Decimal] = {}
-    for existing_line in existing_lines:
-        credited_by_invoice_line[existing_line.sales_invoice_line_id] = (
-            credited_by_invoice_line.get(existing_line.sales_invoice_line_id, ZERO)
-            + Decimal(existing_line.quantity or ZERO)
-        )
-    inspection_ids = {line.qc_inspection_id for line in lines if line.qc_inspection_id is not None}
-    inspections_by_id = {}
-    if inspection_ids:
-        inspections = (
-            await session.execute(
-                select(QcInspection).where(
-                    QcInspection.company_id == tenant.company_id,
-                    QcInspection.id.in_(inspection_ids),
-                )
-            )
-        ).scalars()
-        inspections_by_id = {inspection.id: inspection for inspection in inspections}
+    }
     credit_lines = []
     for return_line in lines:
         invoice_line = by_dispatch_line.get(return_line.dispatch_line_id)
@@ -1022,19 +782,7 @@ async def awaiting_quality_verdicts(
     limit: int,
 ) -> list[tuple[str, uuid.UUID]]:
     """Return received returns that still await a quality owner callback."""
-    stmt = (
-        select(SalesReturn.id)
-        .join(SalesReturnLine, SalesReturnLine.sales_return_id == SalesReturn.id)
-        .where(
-            SalesReturn.company_id == tenant.company_id,
-            SalesReturn.status == SalesReturnStatus.RECEIVED,
-            SalesReturnLine.qc_inspection_id.is_not(None),
-        )
-        .distinct()
-        .order_by(SalesReturn.id)
-        .limit(limit)
+    ids = await SalesReturnRepository(session, tenant).awaiting_quality_verdict_ids(
+        after=after, limit=limit
     )
-    if after is not None:
-        stmt = stmt.where(SalesReturn.id > after)
-    ids = list((await session.execute(stmt)).scalars().all())
     return [(SALES_RETURN_REFERENCE, return_id) for return_id in ids]

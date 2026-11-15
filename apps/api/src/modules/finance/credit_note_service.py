@@ -4,7 +4,6 @@ import uuid
 from collections.abc import Sequence
 from decimal import Decimal
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -47,6 +46,7 @@ from src.modules.finance.models import (
     SalesInvoiceStatus,
     SystemAccount,
 )
+from src.modules.finance.sales_invoice_repository import SalesInvoiceRepository
 from src.modules.finance.sales_invoice_service import (
     issued_credit_total,
     sales_invoice_status_after_payment,
@@ -60,9 +60,10 @@ from src.modules.finance.service import (
     reverse_journal,
 )
 from src.modules.products.models import Item
-from src.modules.quality.models import QcInspection
+from src.modules.quality.repository import QcInspectionRepository
 from src.modules.sales_returns.crediting import accepted_return_quantity
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
+from src.modules.sales_returns.repository import SalesReturnRepository
 
 CREDIT_NOTE_LIFECYCLE: StateMachine[CreditNoteStatus] = StateMachine(
     entity="Credit note",
@@ -118,25 +119,12 @@ async def _detail(
     return CreditNoteDetail(**summary.model_dump(), lines=reads)
 
 
-async def _lines(
-    session: AsyncSession, tenant: TenantContext, note_id: uuid.UUID
-) -> list[CreditNoteLine]:
-    stmt = (
-        select(CreditNoteLine)
-        .where(
-            CreditNoteLine.company_id == tenant.company_id,
-            CreditNoteLine.credit_note_id == note_id,
-        )
-        .order_by(CreditNoteLine.created_at, CreditNoteLine.id)
-    )
-    return list((await session.execute(stmt)).scalars().all())
-
-
 async def get_credit_note(
     session: AsyncSession, tenant: TenantContext, note_id: uuid.UUID
 ) -> CreditNoteDetail:
-    row = await CreditNoteRepository(session, tenant).get_or_404(note_id)
-    return await _detail(session, tenant, row, await _lines(session, tenant, row.id))
+    repo = CreditNoteRepository(session, tenant)
+    row = await repo.get_or_404(note_id)
+    return await _detail(session, tenant, row, await repo.lines(row.id))
 
 
 async def queue_credit_note_pdf(
@@ -203,48 +191,13 @@ async def _lock_return(
     session: AsyncSession, tenant: TenantContext, return_id: uuid.UUID
 ) -> tuple[SalesReturn, list[SalesReturnLine]]:
     # The return owner locks its document before its invoice. Finance must use
-    # the same order so a manual credit cannot deadlock a simultaneous receipt.
-    row = await session.scalar(
-        select(SalesReturn)
-        .where(SalesReturn.company_id == tenant.company_id, SalesReturn.id == return_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    # the same order - through the owner's own lock reads - so a manual credit
+    # cannot deadlock a simultaneous receipt.
+    returns = SalesReturnRepository(session, tenant)
+    row = await returns.lock_for_update(return_id)
     if row is None:
         raise NotFoundError("Sales return", return_id)
-    lines = list(
-        (
-            await session.scalars(
-                select(SalesReturnLine)
-                .where(
-                    SalesReturnLine.company_id == tenant.company_id,
-                    SalesReturnLine.sales_return_id == return_id,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).all()
-    )
-    return row, lines
-
-
-async def _issued_return_quantities(
-    session: AsyncSession, tenant: TenantContext, return_id: uuid.UUID
-) -> dict[uuid.UUID, Decimal]:
-    rows = await session.execute(
-        select(SalesInvoiceLine.dispatch_line_id, func.sum(CreditNoteLine.quantity))
-        .join(CreditNoteLine, CreditNoteLine.sales_invoice_line_id == SalesInvoiceLine.id)
-        .join(CreditNote, CreditNote.id == CreditNoteLine.credit_note_id)
-        .where(
-            CreditNote.company_id == tenant.company_id,
-            CreditNoteLine.company_id == tenant.company_id,
-            SalesInvoiceLine.company_id == tenant.company_id,
-            CreditNote.sales_return_id == return_id,
-            CreditNote.status == CreditNoteStatus.ISSUED,
-        )
-        .group_by(SalesInvoiceLine.dispatch_line_id)
-    )
-    return {dispatch_line_id: Decimal(quantity or ZERO) for dispatch_line_id, quantity in rows}
+    return row, await returns.lock_lines(return_id)
 
 
 async def _validate_return_credit(
@@ -272,21 +225,13 @@ async def _validate_return_credit(
             "Only goods returned after invoice issue can receive a return credit."
         )
     by_dispatch = {line.dispatch_line_id: line for line in return_lines}
-    inspection_ids = {line.qc_inspection_id for line in return_lines if line.qc_inspection_id}
-    inspections = (
-        (
-            await session.scalars(
-                select(QcInspection).where(
-                    QcInspection.company_id == tenant.company_id,
-                    QcInspection.id.in_(inspection_ids),
-                )
-            )
-        ).all()
-        if inspection_ids
-        else []
-    )
-    inspections_by_id = {inspection.id: inspection for inspection in inspections}
-    credited = await _issued_return_quantities(session, tenant, return_row.id)
+    inspections_by_id = {
+        inspection.id: inspection
+        for inspection in await QcInspectionRepository(session, tenant).get_many(
+            [line.qc_inspection_id for line in return_lines if line.qc_inspection_id]
+        )
+    }
+    credited = await CreditNoteRepository(session, tenant).issued_return_quantities(return_row.id)
     for requested in payload.lines:
         source = source_by_id[requested.sales_invoice_line_id]
         return_line = by_dispatch.get(source.dispatch_line_id)
@@ -314,19 +259,8 @@ async def issue_credit_note(
         return_lines: list[SalesReturnLine] = []
         if payload.sales_return_id is not None:
             return_row, return_lines = await _lock_return(session, tenant, payload.sales_return_id)
-        invoice = (
-            await session.execute(
-                select(SalesInvoice)
-                .where(
-                    SalesInvoice.company_id == tenant.company_id,
-                    SalesInvoice.id == payload.sales_invoice_id,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
-        if invoice is None:
-            raise NotFoundError("Sales invoice", payload.sales_invoice_id)
+        invoices = SalesInvoiceRepository(session, tenant)
+        invoice = await invoices.lock_header(payload.sales_invoice_id)
         if invoice.status in (SalesInvoiceStatus.CANCELLED, SalesInvoiceStatus.CREDITED):
             raise BusinessRuleError(
                 "Credit notes are not supported for cancelled or fully credited invoices."
@@ -341,22 +275,7 @@ async def issue_credit_note(
             raise BusinessRuleError("The invoice currency does not match the company currency.")
 
         line_ids = [line.sales_invoice_line_id for line in payload.lines]
-        source_lines = list(
-            (
-                await session.execute(
-                    select(SalesInvoiceLine)
-                    .where(
-                        SalesInvoiceLine.company_id == tenant.company_id,
-                        SalesInvoiceLine.sales_invoice_id == invoice.id,
-                        SalesInvoiceLine.id.in_(line_ids),
-                    )
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            )
-            .scalars()
-            .all()
-        )
+        source_lines = await invoices.lock_lines(invoice.id, line_ids)
         by_id = {line.id: line for line in source_lines}
         if len(by_id) != len(set(line_ids)):
             raise BusinessRuleError("Every credit-note line must belong to the selected invoice.")
@@ -592,65 +511,27 @@ async def issue_credit_note(
 async def cancel_credit_note(
     session: AsyncSession, tenant: TenantContext, note_id: uuid.UUID, reason: str
 ) -> CreditNoteDetail:
+    notes = CreditNoteRepository(session, tenant)
     async with transaction(session):
-        existing = await session.scalar(
-            select(CreditNote).where(
-                CreditNote.company_id == tenant.company_id, CreditNote.id == note_id
-            )
-        )
-        if existing is None:
-            raise NotFoundError("Credit note", note_id)
+        existing = await notes.get_or_404(note_id)
         return_lines: list[SalesReturnLine] = []
         if existing.sales_return_id is not None:
             _, return_lines = await _lock_return(session, tenant, existing.sales_return_id)
-        row = (
-            await session.execute(
-                select(CreditNote)
-                .where(
-                    CreditNote.company_id == tenant.company_id,
-                    CreditNote.id == note_id,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        row = await notes.lock_for_update(note_id)
         if row is None:
             raise NotFoundError("Credit note", note_id)
         CREDIT_NOTE_LIFECYCLE.assert_transition(row.status, CreditNoteStatus.CANCELLED)
-        invoice = (
-            await session.execute(
-                select(SalesInvoice)
-                .where(
-                    SalesInvoice.company_id == tenant.company_id,
-                    SalesInvoice.id == row.sales_invoice_id,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one()
+        invoices = SalesInvoiceRepository(session, tenant)
+        invoice = await invoices.lock_header(row.sales_invoice_id)
         await reverse_journal(
             session,
             tenant,
             row.journal_id,
             reason=reason,
         )
-        note_lines = await _lines(session, tenant, row.id)
-        source_lines = list(
-            (
-                await session.execute(
-                    select(SalesInvoiceLine)
-                    .where(
-                        SalesInvoiceLine.company_id == tenant.company_id,
-                        SalesInvoiceLine.id.in_(
-                            [line.sales_invoice_line_id for line in note_lines]
-                        ),
-                    )
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            )
-            .scalars()
-            .all()
+        note_lines = await notes.lines(row.id)
+        source_lines = await invoices.lock_lines(
+            invoice.id, [line.sales_invoice_line_id for line in note_lines]
         )
         source_by_id = {line.id: line for line in source_lines}
         for line in note_lines:
@@ -664,9 +545,7 @@ async def cancel_credit_note(
         row.cancelled_by_id = tenant.user_id
         await session.flush()
         if row.sales_return_id is not None:
-            credited_quantities = await _issued_return_quantities(
-                session, tenant, row.sales_return_id
-            )
+            credited_quantities = await notes.issued_return_quantities(row.sales_return_id)
             for return_line in return_lines:
                 return_line.credited_quantity = credited_quantities.get(
                     return_line.dispatch_line_id, ZERO
