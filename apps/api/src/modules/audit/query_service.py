@@ -3,10 +3,12 @@
 Why this lives beside ``service.py`` rather than inside it: ``service.py`` is the
 *recording* half of the module - ``record_audit`` and ``record_status_change`` -
 which every other module imports and which must stay exactly as it is. This file
-is the *reading* half. Routes must stay thin (section 74), so the rules below
-cannot live in ``router.py``; keeping them in their own module leaves the write
-path untouched while still putting a service layer between the routes and the
-repositories.
+holds everything else: reading the trail, and the approval queue, whose
+:func:`open_approval` and :func:`close_approval` write approval requests and
+their decisions (not audit rows). Routes must stay thin (section 74), so the
+rules below cannot live in ``router.py``; keeping them in their own module leaves
+the recording path untouched while still putting a service layer between the
+routes and the repositories.
 
 Three rules are enforced here and nowhere else.
 
