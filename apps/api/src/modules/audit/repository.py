@@ -35,7 +35,7 @@ from sqlalchemy import Select
 from sqlalchemy.orm import load_only
 
 from src.common.repository import BaseRepository
-from src.core.pagination import CursorParams, PageParams
+from src.core.pagination import CursorParams, PageParams, empty_page
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.audit.models import ApprovalRequest, AuditLog, CompanyApprovalSettings
 from src.modules.audit.schemas import (
@@ -233,14 +233,7 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
         definition, and approvers page through it by number.
         """
         if decidable_actions is not None and not decidable_actions:
-            return [], OffsetPagination(
-                page=params.page,
-                limit=params.limit,
-                total=0,
-                total_pages=1,
-                has_next=False,
-                has_previous=params.page > 1,
-            )
+            return [], empty_page(params)
 
         stmt = self._scoped().where(ApprovalRequest.status == ApprovalStatus.PENDING.value)
         if decidable_actions is not None:

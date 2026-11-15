@@ -55,7 +55,7 @@ from src.common.repository import BaseRepository
 from src.common.warehouse_scope import warehouse_scope
 from src.core.database import affected_rows
 from src.core.models import Base
-from src.core.pagination import PageParams, SortParams, paginate_rows
+from src.core.pagination import PageParams, SortParams, empty_page, paginate_rows
 from src.core.responses import OffsetPagination
 from src.core.types import GUID, Money, to_quantity
 from src.modules.inventory.models import StockBatch
@@ -1830,9 +1830,7 @@ class PendingApprovalRepository(BaseRepository[PurchaseOrder]):
         if stmt is None:
             # The caller can approve neither document type: an empty queue, not
             # an error, so the UI can still render the (empty) page.
-            return [], OffsetPagination(
-                page=params.page, limit=params.limit, total=0, total_pages=1
-            )
+            return [], empty_page(params)
 
         rows, pagination = await paginate_rows(self.session, stmt, params)
         items = [

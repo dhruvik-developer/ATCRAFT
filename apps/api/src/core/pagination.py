@@ -335,6 +335,18 @@ def _offset_page(params: PageParams, *, total: int | None, has_next: bool) -> Of
     )
 
 
+def empty_page(params: PageParams) -> OffsetPagination:
+    """The pagination block of a list that answers empty without a query.
+
+    For a caller who may see nothing - no right that could match a row, no run
+    to read - so no statement is worth running. It says what a counted empty
+    set says: ``total`` 0 and one empty page when a total was asked for,
+    ``None`` for both when it was not, and ``has_previous`` from the page number
+    as on any other page.
+    """
+    return _offset_page(params, total=0 if params.with_total else None, has_next=False)
+
+
 async def paginate(
     session: AsyncSession,
     stmt: Select[Any],
@@ -555,6 +567,7 @@ __all__ = [
     "cursor_paginated",
     "cursor_params",
     "date_cursor_params",
+    "empty_page",
     "page_params",
     "paginate",
     "paginate_keyset",

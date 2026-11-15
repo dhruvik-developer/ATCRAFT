@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql
 
-from src.core.pagination import COUNT_CEILING, PageParams, paginate_rows
+from src.core.pagination import COUNT_CEILING, PageParams, empty_page, paginate_rows
 from src.modules.users.models import Role
 
 pytestmark = pytest.mark.unit
@@ -103,6 +103,36 @@ async def test_an_empty_set_is_one_empty_page() -> None:
     assert page.total_pages == 1
     assert page.has_next is False
     assert page.has_previous is False
+
+
+@pytest.mark.parametrize(
+    "params",
+    [PageParams(), PageParams(page=3, limit=20), PageParams(page=2, with_total=False)],
+    ids=["first-page", "later-page", "uncounted"],
+)
+async def test_a_list_empty_without_a_query_says_what_a_counted_empty_set_says(
+    params: PageParams,
+) -> None:
+    """``empty_page`` is for a caller who may see nothing, so no statement runs.
+
+    Hand-built, the pending-approvals queue answered ``total=0, total_pages=1``
+    to a request that asked for no total, and ``has_previous=False`` on page 3.
+    """
+    session = _Session([], counted=0 if params.with_total else None)
+    _, counted = await paginate_rows(session, _stmt(), params)  # type: ignore[arg-type]
+
+    assert empty_page(params) == counted
+
+
+def test_an_uncounted_empty_page_leaves_its_total_unknown() -> None:
+    page = empty_page(PageParams(page=2, limit=10, with_total=False))
+
+    assert (page.total, page.total_pages, page.has_next, page.has_previous) == (
+        None,
+        None,
+        False,
+        True,
+    )
 
 
 async def test_the_fence_post_row_decides_has_next_and_is_not_returned() -> None:

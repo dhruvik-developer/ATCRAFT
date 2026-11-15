@@ -70,7 +70,7 @@ from src.core.errors import (
 from src.core.logging import get_logger
 from src.core.messages import plural
 from src.core.observability import mrp_run_duration, mrp_runs_total
-from src.core.pagination import PageParams, SortParams
+from src.core.pagination import PageParams, SortParams, empty_page
 from src.core.ratelimit import RateLimitPolicy, enforce_policy
 from src.core.responses import OffsetPagination, api_path
 from src.core.state_machine import StateMachine, Transition
@@ -1365,7 +1365,7 @@ async def shortage_report(
     runs = MrpRunRepository(session, tenant)
     run = await runs.get_or_404(filters.run_id) if filters.run_id else await runs.latest_completed()
     if run is None:
-        return [], OffsetPagination(page=params.page, limit=params.limit, total=0, total_pages=1)
+        return [], empty_page(params)
 
     rows, pagination = await MrpRequirementRepository(session, tenant).list_page_filtered(
         run.id,

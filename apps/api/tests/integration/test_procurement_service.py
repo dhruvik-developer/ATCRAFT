@@ -1826,7 +1826,7 @@ async def test_the_queue_only_shows_what_the_caller_can_approve(
         db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
     )
 
-    rows, _ = await service.pending_approvals(
+    rows, pagination = await service.pending_approvals(
         db,
         tenant,
         buyer_without_approval,
@@ -1834,6 +1834,23 @@ async def test_the_queue_only_shows_what_the_caller_can_approve(
         PageParams(page=1, limit=50),
     )
     assert rows == []
+    assert (pagination.total, pagination.total_pages) == (0, 1)
+
+    # The page metadata every other list gives an uncounted later page - not a
+    # total of 0 nobody asked for, and not "no previous page" on page 2.
+    _, later = await service.pending_approvals(
+        db,
+        tenant,
+        buyer_without_approval,
+        PendingApprovalFilters(),
+        PageParams(page=2, limit=50, with_total=False),
+    )
+    assert (later.total, later.total_pages, later.has_next, later.has_previous) == (
+        None,
+        None,
+        False,
+        True,
+    )
 
 
 async def test_another_tenant_cannot_see_or_fetch_this_company_s_orders(
