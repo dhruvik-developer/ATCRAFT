@@ -10,6 +10,29 @@ rather than left to discipline:
 * **No implicit lazy loading.** Relationships are declared ``lazy="raise"`` on
   the models, so an accidental N+1 raises during development instead of quietly
   issuing 100 queries in production (section 32).
+
+Cross-module reads are a decision, not an accident. A module that needs a few
+facts from another module's table - an item's code and flags, whether a
+warehouse is active - reads them through a small ``*LookupRepository`` of its
+own rather than through the owner's repository. The owner's repository answers
+who may see the owner's records on the owner's screens - the warehouse
+assignments in ``WarehouseRepository._scoped``, the vendor-portal restriction in
+``VendorRepository._scoped`` - while a document checking a reference applies its
+own policy: docs/security.md names the lookups that take the warehouse scope,
+and the movement engine re-checks every movement. Importing the owner's
+repository would also bring everything it imports - its schemas, the models it
+joins - into the reader's import graph, where the model alone is enough. The
+cost is duplication: some forty-five lookup classes, the commonest name defined
+in nine modules, each holding only the methods its documents need and each
+fixed on its own. Two limits keep that cost from growing:
+
+* A lookup identical in two modules belongs to the owner, once:
+  :class:`~src.modules.warehouses.repository.WarehouseLookupRepository` serves
+  assembly, job work, packing and quality, and
+  ``tests/unit/test_repository_copies.py`` fails the build on the next copy.
+* A reference governed by a rule of its own goes through the owner's service
+  seam, never a copy of its query: a stored document reference is checked by
+  ``DocumentService.require_live``, which refuses an expired file.
 """
 
 from __future__ import annotations

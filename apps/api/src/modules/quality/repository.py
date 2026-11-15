@@ -66,7 +66,6 @@ from src.modules.quality.models import (
 )
 from src.modules.quality.schemas import InspectionFilters, ReworkFilters, TemplateFilters
 from src.modules.vendors.models import Vendor
-from src.modules.warehouses.models import Warehouse
 
 #: "Settled", as every owner of an inspected document tests it before completing
 #: the document: a verdict exists and nothing is left in rework or on hold. Both
@@ -156,25 +155,6 @@ class ItemLookupRepository(BaseRepository[Item]):
                 is_serial_tracked=row.is_serial_tracked,
             )
             for row in (await self.session.execute(stmt)).all()
-        }
-
-
-class WarehouseLookupRepository(BaseRepository[Warehouse]):
-    """Existence and activity checks for the position being inspected."""
-
-    model = Warehouse
-
-    async def load(self, warehouse_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, bool]]:
-        """Batched id -> (code, is_active)."""
-        if not warehouse_ids:
-            return {}
-        stmt = select(Warehouse.id, Warehouse.code, Warehouse.is_active).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.deleted_at.is_(None),
-            Warehouse.id.in_(list(dict.fromkeys(warehouse_ids))),
-        )
-        return {
-            row.id: (row.code, row.is_active) for row in (await self.session.execute(stmt)).all()
         }
 
 
@@ -915,7 +895,6 @@ __all__ = [
     "QualityTotals",
     "VendorItemTotals",
     "VendorLookupRepository",
-    "WarehouseLookupRepository",
     "decided_inspection_companies",
     "open_inspection_count",
 ]

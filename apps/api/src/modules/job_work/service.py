@@ -226,7 +226,6 @@ from src.modules.job_work.repository import (
     JobWorkReceiptRepository,
     TransporterLookupRepository,
     VendorLookupRepository,
-    WarehouseLookupRepository,
 )
 from src.modules.job_work.schemas import (
     PENDING_AT_VENDOR_MAX,
@@ -270,6 +269,7 @@ from src.modules.production.repository import ProductionOrderRepository
 from src.modules.products.models import Item, UnitOfMeasure
 from src.modules.sales.repository import SalesOrderRepository
 from src.modules.vendors.models import Transporter, Vendor
+from src.modules.warehouses.repository import WarehouseLookupRepository
 
 log = get_logger(__name__)
 

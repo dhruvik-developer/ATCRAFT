@@ -158,7 +158,6 @@ from src.modules.quality.repository import (
     QualityTotals,
     SerialLabelRepository,
     VendorLookupRepository,
-    WarehouseLookupRepository,
     decided_inspection_companies,
 )
 from src.modules.quality.schemas import (
@@ -199,6 +198,7 @@ from src.modules.quality.serial_tracking import (
     validate_serial_decision,
 )
 from src.modules.warehouses.models import Warehouse
+from src.modules.warehouses.repository import WarehouseLookupRepository
 
 log = get_logger(__name__)
 
