@@ -15,9 +15,6 @@ from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit
 from src.modules.procurement.models import PurchaseReturnStatus
 from src.modules.procurement.repository import PurchaseReturnRepository
-from src.modules.reports import service as reports_service
-from src.modules.reports.models import ReportKey
-from src.modules.reports.repository import ReportSnapshotRepository
 
 
 async def queue_purchase_return_debit_note_pdf(
@@ -37,6 +34,12 @@ async def queue_purchase_return_debit_note_pdf(
 
     from src.modules.finance.repository import LedgerEntryRepository
     from src.modules.finance.service import REFERENCE_PURCHASE_RETURN
+
+    # Deferred: reports sits below planning in the module dependency order
+    # (docs/architecture.md); its job lifecycle loads when a PDF is queued.
+    from src.modules.reports import service as reports_service
+    from src.modules.reports.models import ReportKey
+    from src.modules.reports.repository import ReportSnapshotRepository
 
     debit_entries = await LedgerEntryRepository(session, tenant).entries_for_reference(
         REFERENCE_PURCHASE_RETURN, purchase_return.id

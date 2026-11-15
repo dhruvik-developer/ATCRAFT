@@ -12,14 +12,17 @@ from src.core.responses import AcceptedJobResponse, api_path
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit
 from src.modules.procurement.repository import PurchaseOrderRepository
-from src.modules.reports import service as reports
-from src.modules.reports.models import ReportKey
-from src.modules.reports.repository import ReportSnapshotRepository
 
 
 async def queue_purchase_order_pdf(
     session: Any, tenant: TenantContext, order_id: uuid.UUID, *, portal: bool = False
 ) -> AcceptedJobResponse:
+    # Deferred: reports sits below planning in the module dependency order
+    # (docs/architecture.md); its job lifecycle loads when a PDF is queued.
+    from src.modules.reports import service as reports
+    from src.modules.reports.models import ReportKey
+    from src.modules.reports.repository import ReportSnapshotRepository
+
     order = await PurchaseOrderRepository(session, tenant).get_or_404(order_id)
     async with transaction(session):
         snapshot = reports.new_job_snapshot(

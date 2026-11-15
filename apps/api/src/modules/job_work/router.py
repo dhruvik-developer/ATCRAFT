@@ -65,7 +65,6 @@ from src.modules.job_work.schemas import (
     VendorChargeRow,
     VendorLedgerReport,
 )
-from src.modules.reports import service as reports_service
 
 router = APIRouter(prefix="/job-work", tags=["Job Work"], responses=COMMON_ERROR_RESPONSES)
 
@@ -292,6 +291,10 @@ async def vendor_ledger(
 async def challan_pdf(
     challan_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> AcceptedJobResponse:
+    # Deferred: reports sits below execution in the module dependency order
+    # (docs/architecture.md); its job lifecycle loads when a PDF is queued.
+    from src.modules.reports import service as reports_service
+
     job_id = await service.queue_job_work_challan(session, tenant, challan_id)
     return AcceptedJobResponse.create(
         job_id=job_id,

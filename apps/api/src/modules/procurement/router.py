@@ -125,7 +125,6 @@ from src.modules.procurement.schemas import (
     SendRequest,
     ShipmentUpdate,
 )
-from src.modules.reports import service as reports_service
 
 router = APIRouter(prefix="/procurement", tags=["Procurement"], responses=COMMON_ERROR_RESPONSES)
 
@@ -1828,6 +1827,10 @@ async def get_purchase_return(
 async def purchase_return_debit_note_pdf(
     return_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> AcceptedJobResponse:
+    # Deferred: reports sits below planning in the module dependency order
+    # (docs/architecture.md); its job lifecycle loads when a PDF is queued.
+    from src.modules.reports import service as reports_service
+
     job_id = await queue_purchase_return_debit_note_pdf(session, tenant, return_id)
     return AcceptedJobResponse.create(
         job_id=job_id,

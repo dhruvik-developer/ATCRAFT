@@ -127,7 +127,6 @@ from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money, to_quantity, to_unit_price
 from src.core.validation import require_changes
-from src.modules.allocation.repository import ReallocationRequestRepository
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
@@ -253,7 +252,6 @@ from src.modules.inventory.serial_labels_pdf import render_serial_labels_pdf
 from src.modules.notifications.alerts import AlertCandidate
 from src.modules.organization.service import require_cost_centre, require_department
 from src.modules.products.models import Item
-from src.modules.sales.repository import SalesOrderLineRepository, SalesOrderRepository
 from src.modules.warehouses.models import Warehouse
 
 log = get_logger(__name__)
@@ -5732,6 +5730,15 @@ class StockTransferService:
         not a line of this source: the same 404 production answers for each.
         docs/assumptions.md §REF-1.
         """
+        # Deferred: allocation and sales sit below inventory in the module
+        # dependency order (docs/architecture.md), so they load when a transfer
+        # names a source, never when inventory is imported.
+        from src.modules.allocation.repository import ReallocationRequestRepository
+        from src.modules.sales.repository import (
+            SalesOrderLineRepository,
+            SalesOrderRepository,
+        )
+
         source_id = payload.source_id
         if source_id is not None:
             if payload.source_type is TransferSourceType.SALES_ORDER:

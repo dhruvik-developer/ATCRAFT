@@ -105,12 +105,6 @@ from src.modules.mrp.models import (
     MrpSuggestionType,
 )
 from src.modules.organization.models import Company
-from src.modules.packing.models import (
-    ItemPackingSpec,
-    PackingOrder,
-    PackingOrderLine,
-    PackingOrderStatus,
-)
 from src.modules.products.models import Item, ItemVendorLink
 from src.modules.routing import service as routing_service
 from src.modules.sales.models import (
@@ -278,6 +272,15 @@ class PackingDemandRepository:
         horizon_end: date,
         warehouse_ids: Sequence[uuid.UUID] | None = None,
     ) -> list[DemandLine]:
+        # Deferred: packing sits below planning in the module dependency order
+        # (docs/architecture.md), so it loads when this read runs.
+        from src.modules.packing.models import (
+            ItemPackingSpec,
+            PackingOrder,
+            PackingOrderLine,
+            PackingOrderStatus,
+        )
+
         if not lines:
             return []
         item_ids = list({line.item_id for line in lines})
@@ -414,6 +417,15 @@ class PackingDemandRepository:
         limit: int = MAX_DEMAND_LINES + 1,
     ) -> list[DemandLine]:
         """One bounded query for the remaining quantities on open packing orders."""
+        # Deferred: packing sits below planning in the module dependency order
+        # (docs/architecture.md), so it loads when this read runs.
+        from src.modules.packing.models import (
+            ItemPackingSpec,
+            PackingOrder,
+            PackingOrderLine,
+            PackingOrderStatus,
+        )
+
         stmt = (
             select(
                 ItemPackingSpec.packing_material_item_id,

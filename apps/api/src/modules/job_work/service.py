@@ -267,9 +267,6 @@ from src.modules.organization.models import Company
 from src.modules.organization.service import require_cost_centre
 from src.modules.production.repository import ProductionOrderRepository
 from src.modules.products.models import Item, UnitOfMeasure
-from src.modules.reports import service as reports_service
-from src.modules.reports.models import ReportKey
-from src.modules.reports.repository import ReportSnapshotRepository
 from src.modules.sales.repository import SalesOrderRepository
 from src.modules.vendors.models import Transporter, Vendor
 
@@ -4100,6 +4097,10 @@ def challan_pdf_parameters(challan: JobWorkChallan) -> dict[str, Any]:
     The challan is immutable once issued, but the row still names the document
     so a support conversation can say which PDF a job produced.
     """
+    # Deferred: reports sits below execution in the module dependency order
+    # (docs/architecture.md); its job lifecycle loads when a PDF is queued.
+    from src.modules.reports.models import ReportKey
+
     return {
         "report_key": str(ReportKey.JOB_WORK_CHALLAN),
         "job_work_challan_id": str(challan.id),
@@ -4120,6 +4121,12 @@ async def queue_job_work_challan(
     rather than leave the client polling a job that never existed.
     """
     challan = await JobWorkChallanRepository(session, tenant).get_or_404(challan_id)
+
+    # Deferred: reports sits below execution in the module dependency order
+    # (docs/architecture.md); its job lifecycle loads when a PDF is queued.
+    from src.modules.reports import service as reports_service
+    from src.modules.reports.models import ReportKey
+    from src.modules.reports.repository import ReportSnapshotRepository
 
     snapshots = ReportSnapshotRepository(session, tenant)
     async with transaction(session):
