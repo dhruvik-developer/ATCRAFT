@@ -323,13 +323,13 @@ NOT_DUE_LABEL = "NOT_DUE"
 #: response rather than the arithmetic.
 MAX_AGEING_PARTIES = 500
 
-#: ASSUMPTION: an ageing report returns detailed party rows for at most this
-#: many denominations - the one it is drawn in, then the busiest by open
-#: document count. Not "the largest by outstanding": that ranks a dollar total
-#: against a rupee one, which is the comparison this module refuses to make.
-#: Every denomination with an open item still reports its totals and its party
-#: count, so nothing is hidden; what is bounded is the size of the response. A
-#: book with a dozen live currencies is not a case this business has, and
+#: ASSUMPTION (docs/assumptions.md §27): an ageing report returns detailed party
+#: rows for at most this many denominations - the one it is drawn in, then the
+#: busiest by open document count. Not "the largest by outstanding": that ranks a
+#: dollar total against a rupee one, which is the comparison this module refuses
+#: to make. Every denomination with an open item still reports its totals and its
+#: party count, so nothing is hidden; what is bounded is the size of the response.
+#: A book with a dozen live currencies is not a case this business has, and
 #: ``limit`` x "however many currencies happen to be in the data" is not a bound
 #: at all. Raise it if a real company ever needs more.
 MAX_AGEING_ROW_CURRENCIES = 5
@@ -5118,11 +5118,10 @@ async def post_customer_adjustment(
     because a credit note is money the company agrees not to collect, and the
     person who agreed is recorded on the audit row.
 
-    ASSUMPTION: the posting is denominated in the company's own currency - the
-    same default an invoice and a receipt take when none is named. Receivable
-    ageing nets per (party, currency), so a note in a currency nobody chose
-    could never be settled by the receipt that follows it. Recorded in
-    ``docs/assumptions.md``.
+    ASSUMPTION (docs/assumptions.md §38): the posting is denominated in the
+    company's own currency - the same default an invoice and a receipt take when
+    none is named. Receivable ageing nets per (party, currency), so a note in a
+    currency nobody chose could never be settled by the receipt that follows it.
     """
     entry_date = payload.entry_date or today()
     amount = to_money(payload.amount)
@@ -5287,7 +5286,7 @@ def primary_report_currency(
 ) -> str:
     """Which denomination an ageing report restates at its top level.
 
-    ASSUMPTION, in three steps, most specific first:
+    ASSUMPTION (docs/assumptions.md §27), in three steps, most specific first:
 
     1. **What the caller asked for**, if they asked. An explicit choice is
        honoured even when nothing is outstanding in it - "we owe nothing in

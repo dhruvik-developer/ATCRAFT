@@ -1990,11 +1990,11 @@ async def update_quotation(
                 details={"status": str(quotation.status)},
             )
         if current in REQUOTABLE_QUOTATION_STATUSES:
-            # ASSUMPTION: a rejected or lapsed offer is reopened by the revised
-            # one rather than refused - the buyer asked the vendor to requote,
-            # and the RFQ still holds one row per vendor. The reopening is a
-            # status change on the state machine with its own audit row, in the
-            # same transaction as the revision (docs/assumptions.md).
+            # ASSUMPTION (docs/assumptions.md §34): a rejected or lapsed offer is
+            # reopened by the revised one rather than refused - the buyer asked
+            # the vendor to requote, and the RFQ still holds one row per vendor.
+            # The reopening is a status change on the state machine with its own
+            # audit row, in the same transaction as the revision.
             rfq = await _load_rfq_for_quoting(session, tenant, quotation.rfq_id)
             await _transition(
                 session,

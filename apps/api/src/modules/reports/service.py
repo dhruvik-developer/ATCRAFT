@@ -343,7 +343,7 @@ def available_minutes(working_hours_per_day: Decimal, days: int) -> Decimal:
     The historical denominator of utilisation uses calendar days. Rostered
     minutes are a separate denominator, so adding staffing plans does not
     silently redefine historical capacity or invent weekend assumptions.
-    ASSUMPTION recorded in the module notes.
+    ASSUMPTION recorded in docs/assumptions.md §B2-7.
     """
     return (Decimal(working_hours_per_day) * 60 * days).quantize(
         QUANTITY_QUANTUM, rounding=ROUND_HALF_UP

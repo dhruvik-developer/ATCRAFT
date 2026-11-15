@@ -973,11 +973,11 @@ instead — which strands the goods rather than the traceability.
 every currency with an open item; the `currency` argument chooses which block is
 restated at the top level, not which blocks exist. `currencies[0]` always matches
 `report.currency`, zeroed if nothing is outstanding in it. Detailed party rows are
-returned for at most five denominations — the primary, then the largest by
-outstanding — while every denomination still reports its totals. Receivable FIFO
-netting is per `(party, currency)`: a receipt in one denomination never settles a
-debt in another. Within a denomination, parties rank by outstanding descending
-with the party code as tiebreaker.
+returned for at most five denominations — the primary, then the others by open
+documents, parties and code, never by amount — while every denomination still
+reports its totals. Receivable FIFO netting is per `(party, currency)`: a receipt
+in one denomination never settles a debt in another. Within a denomination,
+parties rank by outstanding descending with the party code as tiebreaker.
 
 Where no currency is asked for and nothing is open in the company's own, the
 headline denomination is the one with the most open **documents**, then the most
@@ -990,7 +990,8 @@ magnitude is the same mixing in a different place: it would put 1,000 USD below
 
 **Where.** `src/modules/finance/service.py` — `primary_report_currency`,
 `company_currency`, `normalise_currency`, `MAX_AGEING_ROW_CURRENCIES`;
-`src/modules/finance/repository.py` — `_open_receivable_items`.
+`src/modules/finance/repository.py` — `_open_receivable_items` and
+`ageing_totals_by_currency`, which orders the denominations.
 
 **Impact if wrong.** If Atcraft transacts in more than one currency and needs a
 consolidated figure, this becomes a real FX feature — rate table, rate date policy,
