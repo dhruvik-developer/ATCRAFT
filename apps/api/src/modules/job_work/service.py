@@ -302,11 +302,12 @@ MOVEMENT_REFERENCE_JOB_WORK = "job_work_order"
 QC_REFERENCE_RECEIPT = "job_work_receipt"
 QC_REFERENCE_KEYS: tuple[str, ...] = (QC_REFERENCE_RECEIPT, MOVEMENT_REFERENCE_JOB_WORK)
 
-# ASSUMPTION: a vendor may return up to 2% more output than the order expected
-# before the receipt is refused. Job work overages are real - a plating line runs
-# a few extra pieces to fill a rack - but an unbounded one is a mis-keyed
-# quantity or another customer's goods, and either needs a person rather than a
-# silent adjustment. Named so raising it is a one-line, reviewable change.
+# ASSUMPTION (docs/assumptions.md §JW-1): a vendor may return up to 2% more output
+# than the order expected before the receipt is refused. Job work overages are
+# real - a plating line runs a few extra pieces to fill a rack - but an unbounded
+# one is a mis-keyed quantity or another customer's goods, and either needs a
+# person rather than a silent adjustment. Named so raising it is a one-line,
+# reviewable change.
 EXCESS_RECEIPT_TOLERANCE_PERCENT = Decimal("2")
 
 #: The largest ``pending-at-vendor`` page a service caller may ask for.
@@ -2256,10 +2257,11 @@ async def approve_order(
             if line.reservation_id is not None:
                 continue
             if JobWorkSourceType(order.source_type) is JobWorkSourceType.REWORK:
-                # ASSUMPTION: physically returned rejects are not available
-                # inventory and must not enter the ordinary reservation pool.
-                # The issue path locks the receipt line and verifies both its
-                # remaining reject quantity and the DAMAGED balance atomically.
+                # ASSUMPTION (docs/assumptions.md §E7b-4): physically returned
+                # rejects are not available inventory and must not enter the
+                # ordinary reservation pool. The issue path locks the receipt
+                # line and verifies both its remaining reject quantity and the
+                # DAMAGED balance atomically.
                 continue
             reservation = await port.reserve(
                 session,
