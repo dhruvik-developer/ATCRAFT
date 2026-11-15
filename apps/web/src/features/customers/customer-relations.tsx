@@ -25,6 +25,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
 import { EmptyState, FieldError, LoadError, PanelSkeleton, ReasonDialog } from '@/components/shared'
+import { DefaultBadge } from '@/components/default-badge'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -289,7 +290,7 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
                     {address.label ?? humanise(address.address_type)}
                   </span>
                   <Badge variant="secondary">{humanise(address.address_type)}</Badge>
-                  {address.is_default && <Badge variant="success">Default</Badge>}
+                  {address.is_default && <DefaultBadge />}
                   {!address.is_active && <Badge variant="muted">Inactive</Badge>}
                 </div>
                 <p className="mt-0.5 text-sm text-muted-foreground">{addressSummary(address)}</p>

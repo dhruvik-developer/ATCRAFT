@@ -93,8 +93,11 @@ describe('a new bill', () => {
     const { user } = renderDialog()
     const dialog = await screen.findByRole('dialog')
 
-    expect(within(dialog).getByRole('combobox', { name: 'Base unit' })).toHaveTextContent(
-      'Select a unit',
+    // Once the units have loaded: until then the placeholder says so instead.
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox', { name: 'Base unit' })).toHaveTextContent(
+        'Select a unit',
+      ),
     )
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Produced item' }))

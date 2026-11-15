@@ -17,6 +17,7 @@ import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
+import { DefaultBadge } from '@/components/default-badge'
 import {
   ConfirmDialog,
   DescriptionList,
@@ -719,7 +720,7 @@ function WhereUsedPanel({ itemId }: { itemId: string }) {
           <span className="flex items-center gap-1.5">
             {row.original.bom_code}
             <span className="text-muted-foreground">v{row.original.bom_version}</span>
-            {row.original.is_default && <Badge variant="secondary">Default</Badge>}
+            {row.original.is_default && <DefaultBadge />}
           </span>
         ),
       },

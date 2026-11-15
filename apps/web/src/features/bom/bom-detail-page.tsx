@@ -40,6 +40,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
+import { DefaultBadge } from '@/components/default-badge'
 import {
   ConfirmDialog,
   DescriptionList,
@@ -865,7 +866,7 @@ function WhereUsedPanel({ itemId }: { itemId: string }) {
         cell: ({ row }) => (
           <span className="flex items-center gap-1.5">
             <StatusBadge status={row.original.bom_status} />
-            {row.original.is_default && <Badge variant="success">Default</Badge>}
+            {row.original.is_default && <DefaultBadge />}
           </span>
         ),
       },
@@ -1093,7 +1094,7 @@ export default function BomDetailPage() {
         status={
           <span className="flex items-center gap-2">
             <StatusBadge status={bom.status} />
-            {bom.is_default && <Badge variant="success">Default</Badge>}
+            {bom.is_default && <DefaultBadge />}
           </span>
         }
         actions={

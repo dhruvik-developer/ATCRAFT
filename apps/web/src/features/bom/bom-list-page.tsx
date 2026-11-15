@@ -9,11 +9,12 @@
  */
 
 import { type ColumnDef } from '@tanstack/react-table'
-import { Plus, Star, X } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
+import { DefaultBadge } from '@/components/default-badge'
 import { PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -124,10 +125,7 @@ export default function BomListPage() {
         enableSorting: false,
         cell: ({ row }) =>
           row.original.is_default ? (
-            <Badge variant="success">
-              <Star className="h-3 w-3" aria-hidden />
-              Default
-            </Badge>
+            <DefaultBadge />
           ) : (
             <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),

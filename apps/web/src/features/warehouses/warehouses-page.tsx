@@ -25,6 +25,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
+import { DefaultBadge } from '@/components/default-badge'
 import { PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -289,12 +290,7 @@ export default function WarehousesPage() {
         cell: ({ row }) => (
           <span className="flex items-center gap-2 font-medium">
             {row.original.code}
-            {row.original.is_default && (
-              <Badge variant="default" className="gap-1">
-                <Star className="h-3 w-3" aria-hidden />
-                Default
-              </Badge>
-            )}
+            {row.original.is_default && <DefaultBadge />}
           </span>
         ),
       },

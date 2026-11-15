@@ -12,11 +12,12 @@
  */
 
 import { type ColumnDef } from '@tanstack/react-table'
-import { Cpu, Factory, Pencil, Plus, Route, Star, Wrench, X } from 'lucide-react'
+import { Cpu, Factory, Pencil, Plus, Route, Wrench, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { CellButton, DataTable } from '@/components/data-table'
+import { DefaultBadge } from '@/components/default-badge'
 import { EmptyState, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -140,10 +141,7 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
         enableSorting: false,
         cell: ({ row }) =>
           row.original.is_default ? (
-            <Badge variant="success">
-              <Star className="h-3 w-3" aria-hidden />
-              Default
-            </Badge>
+            <DefaultBadge />
           ) : (
             <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
