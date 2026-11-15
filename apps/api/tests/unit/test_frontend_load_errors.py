@@ -31,9 +31,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC, _in_comment, _line
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 SHARED = WEB_SRC / "components" / "shared.tsx"
 MESSAGES = WEB_SRC / "lib" / "messages.ts"
 
@@ -56,21 +57,12 @@ _RAW_MESSAGE = re.compile(r"\.error\.message\b|\.error\s+as\s+Error\s*\)\.messag
 _PARAGRAPH = re.compile(r'<p\b[^>]*?className="(?P<classes>[^"]*)"[^>]*>(?P<body>.*?)</p>', re.S)
 
 
-def _line(source: str, offset: int) -> int:
-    return source.count("\n", 0, offset) + 1
-
-
 def definitions(source: str) -> list[str]:
     """``line N: Name`` for every definition of LoadError or PanelDenied."""
     return [
         f"line {_line(source, match.start())}: {match.group('fn') or match.group('bound')}"
         for match in _DEFINITION.finditer(source)
     ]
-
-
-def _in_comment(source: str, offset: int) -> bool:
-    line_start = source.rfind("\n", 0, offset) + 1
-    return source[line_start:].lstrip().startswith(("//", "*", "/*"))
 
 
 def retry_labels(source: str) -> list[str]:

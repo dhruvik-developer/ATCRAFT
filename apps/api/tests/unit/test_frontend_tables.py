@@ -26,9 +26,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 COMPONENTS = WEB_SRC / "components"
 
 #: Screens whose table is a layout of its own rather than rows of figures.

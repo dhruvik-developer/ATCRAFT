@@ -19,17 +19,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC, _line
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 _ARIA_RADIO = re.compile(r"""role=(?:"radio"|'radio'|\{\s*['"]radio['"]\s*\})""")
 _RADIOGROUP = re.compile(r"""role=(?:"radiogroup"|'radiogroup'|\{\s*['"]radiogroup['"]\s*\})""")
 _NATIVE_RADIO = re.compile(r"""type=(?:"radio"|'radio'|\{\s*['"]radio['"]\s*\})""")
-
-
-def _line(text: str, offset: int) -> int:
-    return text.count("\n", 0, offset) + 1
 
 
 def radio_role_violations(source: str) -> list[str]:

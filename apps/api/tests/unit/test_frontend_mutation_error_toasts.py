@@ -31,91 +31,15 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC, _expression_end, _indent, _line
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 QUERY_CLIENT = WEB_SRC / "lib" / "query-client.ts"
 
 _ON_ERROR = re.compile(r"(?<![\w$.])onError\s*:\s*")
 _ERROR_TOAST = re.compile(r"\btoast\.(?:error|failure)\s*\(")
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
-_CLOSERS = {")": "(", "]": "[", "}": "{"}
-
-
-def _line(source: str, offset: int) -> int:
-    return source.count("\n", 0, offset) + 1
-
-
-def _skip_string(source: str, start: int) -> int:
-    """The offset just past the quoted literal that opens at ``start``."""
-    quote = source[start]
-    index = start + 1
-    while index < len(source):
-        char = source[index]
-        if char == "\\":
-            index += 2
-            continue
-        if char == quote:
-            return index + 1
-        if quote == "`" and source.startswith("${", index):
-            index = _expression_end(source, index + 2, stop_at_comma=False) + 1
-            continue
-        index += 1
-    return index
-
-
-def _indent(source: str, offset: int) -> int:
-    line_start = source.rfind("\n", 0, offset) + 1
-    line = source[line_start:]
-    return len(line) - len(line.lstrip(" "))
-
-
-def _expression_end(
-    source: str, start: int, *, stop_at_comma: bool, statement_indent: int | None = None
-) -> int:
-    """Where the expression starting at ``start`` ends.
-
-    That is the first ``,`` at its own depth (for a property value) or the
-    bracket that closes the one it sits in - so an object property's value is
-    read whole however many lines its arrow body spans. A statement outside
-    any bracket (``const reportFailure = (error) =>`` and its indented body)
-    ends instead at the first line indented no deeper than it, which is how
-    Prettier lays out a continuation.
-    """
-    stack: list[str] = []
-    index = start
-    while index < len(source):
-        if (
-            statement_indent is not None
-            and not stack
-            and source[index] == "\n"
-            and index + 1 < len(source)
-            and source[index + 1 :].strip()
-            and _indent(source, index + 1) <= statement_indent
-        ):
-            return index
-        char = source[index]
-        if char in "'\"`":
-            index = _skip_string(source, index)
-            continue
-        if source.startswith("//", index):
-            newline = source.find("\n", index)
-            index = len(source) if newline == -1 else newline
-            continue
-        if source.startswith("/*", index):
-            close = source.find("*/", index + 2)
-            index = len(source) if close == -1 else close + 2
-            continue
-        if char in "([{":
-            stack.append(char)
-        elif char in _CLOSERS:
-            if not stack:
-                return index
-            stack.pop()
-        elif char == "," and stop_at_comma and not stack:
-            return index
-        index += 1
-    return index
 
 
 def _definition_body(source: str, name: str) -> str | None:

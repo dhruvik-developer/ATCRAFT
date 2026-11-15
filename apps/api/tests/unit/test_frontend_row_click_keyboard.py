@@ -29,9 +29,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC, _line
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 #: First arguments that close or clear rather than open a record.
 _EMPTY_ARGUMENTS = frozenset({"", "null", "undefined", "false", "''", '""'})
@@ -113,10 +114,6 @@ def _opens_with(expression: str, handler: str) -> bool:
         if _first_argument(expression, call.end() - 1) not in _EMPTY_ARGUMENTS:
             return True
     return False
-
-
-def _line(text: str, offset: int) -> int:
-    return text.count("\n", 0, offset) + 1
 
 
 def keyboardless_row_clicks(source: str) -> list[str]:

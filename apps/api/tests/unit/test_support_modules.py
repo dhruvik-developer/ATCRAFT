@@ -30,14 +30,6 @@ pytestmark = pytest.mark.unit
 
 TESTS = Path(__file__).resolve().parents[1]
 
-#: The frontend guards (``tests/unit/test_frontend_*.py``) still share their
-#: source-scanning helpers - ``WEB_SRC``, ``_line``, ``_skip_string`` and the
-#: rest - by importing them from one another. Moving those into a support module
-#: is outstanding; until then that family importing from itself is let through,
-#: and nothing else is: a frontend guard importing any other test module, or any
-#: other file importing a frontend guard, is still refused.
-FRONTEND_GUARDS = "tests.unit.test_frontend_"
-
 
 def _python_files() -> list[Path]:
     return sorted(path for path in TESTS.rglob("*.py") if "__pycache__" not in path.parts)
@@ -84,24 +76,21 @@ def imported_test_modules(source: str, *, package: str = "tests") -> list[tuple[
     return found
 
 
-def exempt(importer: str, imported: str) -> bool:
-    """Whether a frontend guard is importing another frontend guard."""
-    return importer.startswith(FRONTEND_GUARDS) and imported.startswith(FRONTEND_GUARDS)
+def violations() -> list[str]:
+    """Every import of a test module across ``tests/``.
 
-
-def violations() -> tuple[list[str], list[str]]:
-    """``(refused, exempted)`` imports of a test module across ``tests/``."""
+    The frontend guards were the last family let through: they shared their
+    source readers by importing one another, until those moved into
+    ``tests/frontend_scan_support.py``.
+    """
     refused: list[str] = []
-    exempted: list[str] = []
     for path in _python_files():
-        importer = _dotted(path)
-        package = importer.rpartition(".")[0]
+        package = _dotted(path).rpartition(".")[0]
         for line, imported in imported_test_modules(
             path.read_text(encoding="utf-8"), package=package
         ):
-            where = f"{path.relative_to(TESTS.parent).as_posix()}:{line} imports {imported}"
-            (exempted if exempt(importer, imported) else refused).append(where)
-    return refused, exempted
+            refused.append(f"{path.relative_to(TESTS.parent).as_posix()}:{line} imports {imported}")
+    return refused
 
 
 # -----------------------------------------------------------------------------
@@ -145,28 +134,13 @@ def test_the_scanner_lets_support_modules_and_conftest_through() -> None:
     assert imported_test_modules(source, package="tests.api") == []
 
 
-def test_only_a_frontend_guard_importing_a_frontend_guard_is_exempt() -> None:
-    assert exempt("tests.unit.test_frontend_plurals", "tests.unit.test_frontend_load_errors")
-    assert not exempt("tests.unit.test_frontend_plurals", "tests.unit.test_mrp_engine_merge")
-    assert not exempt("tests.api.test_sales_routes_http", "tests.unit.test_frontend_plurals")
-    assert not exempt("tests.procurement_support", "tests.unit.test_frontend_plurals")
-
-
 def test_no_test_module_imports_another() -> None:
-    refused, _ = violations()
+    refused = violations()
     assert not refused, (
         "A test module is imported as a library. Move what is shared into a support "
         "module beside its peers (tests/<topic>_support.py), import it from there in "
         "the original file and in every importer - a fixture with the explicit "
         "`name as name` re-export - and keep its behaviour unchanged:\n  " + "\n  ".join(refused)
-    )
-
-
-def test_the_frontend_exemption_is_still_needed() -> None:
-    _, exempted = violations()
-    assert exempted, (
-        "No frontend guard imports another any more: delete FRONTEND_GUARDS and exempt() "
-        "from this file, so the family is held to the rule like every other test module"
     )
 
 

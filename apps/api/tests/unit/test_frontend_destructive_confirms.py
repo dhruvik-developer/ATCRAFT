@@ -19,19 +19,17 @@ a typed ``destructive`` field instead.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import CONFIRM_COMPONENTS, WEB_SRC, _line, tsx_sources
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 #: Verbs whose confirmation ends something for good.
 DESTRUCTIVE_VERB = re.compile(r"^(?:Cancel|Reject|Retire|Delete|Remove|Revoke)\b")
 
-#: Components whose confirm button follows ``destructive``.
-CONFIRM_COMPONENTS = ("ConfirmDialog", "ReasonDialog")
 
 _DESTRUCTIVE_ATTRIBUTE = re.compile(r"(?<![\w-])destructive(?![\w-])")
 _STRING_LITERAL = re.compile(r"'([^']*)'|\"([^\"]*)\"|`([^`$]*)")
@@ -80,10 +78,6 @@ def _attribute(tag: str, name: str) -> list[str]:
     return [part for found in _STRING_LITERAL.findall(expression) for part in found if part]
 
 
-def _line(text: str, offset: int) -> int:
-    return text.count("\n", 0, offset) + 1
-
-
 def missing_destructive(source: str) -> list[str]:
     """``line N: <Tag> label`` for each destructive-sounding confirmation left primary."""
     found: list[str] = []
@@ -108,19 +102,11 @@ def missing_destructive(source: str) -> list[str]:
     return found
 
 
-def _sources() -> list[Path]:
-    return sorted(
-        path
-        for path in WEB_SRC.rglob("*.tsx")
-        if "node_modules" not in path.parts and ".test." not in path.name
-    )
-
-
 def test_the_scan_reaches_the_confirmations_it_polices() -> None:
     """A rename of the components would otherwise leave this passing on nothing."""
     confirms = sum(
         len(re.findall(rf"<(?:{'|'.join(CONFIRM_COMPONENTS)})[\s>]", path.read_text("utf-8")))
-        for path in _sources()
+        for path in tsx_sources()
     )
     assert confirms > 50, (
         f"found only {confirms} confirmation dialogs; is the scan looking elsewhere?"
@@ -130,7 +116,7 @@ def test_the_scan_reaches_the_confirmations_it_polices() -> None:
 def test_every_destructive_confirmation_is_marked_destructive() -> None:
     offenders = {
         path.relative_to(WEB_SRC).as_posix(): found
-        for path in _sources()
+        for path in tsx_sources()
         if (found := missing_destructive(path.read_text(encoding="utf-8")))
     }
     assert not offenders, (

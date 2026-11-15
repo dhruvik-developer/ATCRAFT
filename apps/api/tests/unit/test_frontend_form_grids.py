@@ -24,9 +24,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 _QUOTED = re.compile(r"""(['"`])([^'"`\n]*?)\1""")
 #: Two or more columns at every width: no breakpoint prefix.

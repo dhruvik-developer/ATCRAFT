@@ -25,31 +25,19 @@ import re
 
 import pytest
 
-from tests.unit.test_frontend_destructive_confirms import (
+from tests.frontend_scan_support import (
     CONFIRM_COMPONENTS,
     WEB_SRC,
     _line,
-    _sources,
+    _past_comment,
+    _shown_literals,
+    _skip_string,
+    tsx_sources,
 )
-from tests.unit.test_frontend_mutation_error_toasts import _skip_string
 
 pytestmark = pytest.mark.unit
 
 _TITLE = re.compile(r"(?<![\w-])title=(?:\"([^\"]*)\"|\{)")
-_COMPARED = re.compile(r"(?:===|!==|==|!=)\s*$")
-_ARGUMENT = re.compile(r"[(,]\s*$")
-_CONCATENATED = re.compile(r"^\s*\+")
-
-
-def _past_comment(text: str, index: int) -> int:
-    """The offset after a comment opening at ``index``, or ``index`` if none opens there."""
-    if text.startswith("//", index):
-        newline = text.find("\n", index)
-        return len(text) if newline == -1 else newline
-    if text.startswith("/*", index):
-        close = text.find("*/", index + 2)
-        return len(text) if close == -1 else close + 2
-    return index
 
 
 def _opening_tag_end(text: str, start: int) -> int:
@@ -100,30 +88,6 @@ def _title_expression(tag: str) -> str | None:
     return tag[match.end() : index - 1]
 
 
-def _shown_literals(expression: str) -> list[str]:
-    """The literals of ``expression`` that can end up as the title's text."""
-    shown = []
-    index = 0
-    while index < len(expression):
-        if (skipped := _past_comment(expression, index)) != index:
-            index = skipped
-            continue
-        if expression[index] not in "'\"`":
-            index += 1
-            continue
-        end = _skip_string(expression, index)
-        text = expression[index + 1 : end - 1]
-        if (
-            text.strip()
-            and not _COMPARED.search(expression[:index])
-            and not _ARGUMENT.search(expression[:index])
-            and not _CONCATENATED.match(expression[end:])
-        ):
-            shown.append(text)
-        index = end
-    return shown
-
-
 def unquestioned_titles(source: str) -> list[str]:
     """``line N: <Tag> 'title'`` for each confirmation titled with a statement."""
     found = []
@@ -144,7 +108,7 @@ def unquestioned_titles(source: str) -> list[str]:
 def test_the_scan_reads_the_titles_it_polices() -> None:
     """A change to the attribute or the components would otherwise pass on nothing."""
     titled = 0
-    for path in _sources():
+    for path in tsx_sources():
         source = path.read_text(encoding="utf-8")
         for component in CONFIRM_COMPONENTS:
             for match in re.finditer(rf"<{component}(?=[\s>/])", source):
@@ -157,7 +121,7 @@ def test_the_scan_reads_the_titles_it_polices() -> None:
 def test_every_confirmation_title_is_a_question() -> None:
     offenders = {
         path.relative_to(WEB_SRC).as_posix(): found
-        for path in _sources()
+        for path in tsx_sources()
         if (found := unquestioned_titles(path.read_text(encoding="utf-8")))
     }
     assert not offenders, (

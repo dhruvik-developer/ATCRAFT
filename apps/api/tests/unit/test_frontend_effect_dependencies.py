@@ -24,11 +24,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_frontend_copy_internals import GENERATED
+from tests.frontend_scan_support import GENERATED, WEB_SRC
 
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 SEED_HOOK = WEB_SRC / "hooks" / "use-form-seed.ts"
 
 _DISABLE = re.compile(

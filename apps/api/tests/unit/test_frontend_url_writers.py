@@ -38,11 +38,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_frontend_copy_internals import GENERATED, blank_comments
+from tests.frontend_scan_support import GENERATED, WEB_SRC, _line, blank_comments
 
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 WRITER = WEB_SRC / "hooks" / "use-filter-writer.ts"
 
 #: Where the one-navigation updaters live.
@@ -56,10 +55,6 @@ _PAGE_KEY = (
 _PAGE_KEY_WRITE = re.compile(r"\.(?:delete|set)\(\s*" + _PAGE_KEY + r"\s*[,)]")
 _PAGE_KEY_NAMED = re.compile(_PAGE_KEY)
 _SET_SEARCH_PARAMS = re.compile(r"\bsetSearchParams\(")
-
-
-def _line(code: str, offset: int) -> int:
-    return code.count("\n", 0, offset) + 1
 
 
 def _call_end(code: str, open_paren: int) -> int:

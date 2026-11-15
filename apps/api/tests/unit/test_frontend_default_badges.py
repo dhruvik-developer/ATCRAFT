@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from tests.unit.test_frontend_mutation_error_toasts import WEB_SRC, _line
+from tests.frontend_scan_support import WEB_SRC, _line
 
 pytestmark = pytest.mark.unit
 

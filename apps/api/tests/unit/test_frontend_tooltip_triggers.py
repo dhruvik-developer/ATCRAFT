@@ -20,9 +20,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC, _line
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 #: Elements and components that are focusable without a tabIndex.
 FOCUSABLE = frozenset({"button", "a", "input", "select", "textarea", "Button", "Link", "NavLink"})
@@ -30,10 +31,6 @@ FOCUSABLE = frozenset({"button", "a", "input", "select", "textarea", "Button", "
 _TRIGGER = re.compile(r"<TooltipTrigger\b([^>]*)>")
 _JSX_COMMENT = re.compile(r"\{/\*.*?\*/\}", re.S)
 _CHILD = re.compile(r"<([A-Za-z][\w.]*)\b")
-
-
-def _line(text: str, offset: int) -> int:
-    return text.count("\n", 0, offset) + 1
 
 
 def unfocusable_triggers(source: str) -> list[str]:

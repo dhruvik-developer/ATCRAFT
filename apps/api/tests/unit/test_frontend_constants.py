@@ -31,11 +31,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_frontend_load_errors import _in_comment
+from tests.frontend_scan_support import WEB_SRC, _in_comment, _line
 
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 CONSTANTS = WEB_SRC / "lib" / "constants.ts"
 
 _SET_TIMEOUT = re.compile(r"\bsetTimeout\s*\(")
@@ -78,10 +77,6 @@ def _sources() -> list[Path]:
     ]
 
 
-def _line_of(text: str, index: int) -> int:
-    return text.count("\n", 0, index) + 1
-
-
 def test_the_constants_file_still_holds_the_values_this_guard_polices() -> None:
     assert _constant("SEARCH_DEBOUNCE_MS") > 0
     assert _constant("PICKER_PAGE_SIZE") > 0
@@ -101,13 +96,13 @@ def test_no_screen_respells_the_debounce_or_a_page_size() -> None:
         for call in _SET_TIMEOUT.finditer(text):
             if literal_debounce.search(_parenthesised(text, call.end())):
                 failures.append(
-                    f"  {where}:{_line_of(text, call.start())} setTimeout with a literal "
+                    f"  {where}:{_line(text, call.start())} setTimeout with a literal "
                     f"{debounce}; use SEARCH_DEBOUNCE_MS"
                 )
         for found in literal_limit.finditer(text):
             if int(found.group(1)) in limits:
                 failures.append(
-                    f"  {where}:{_line_of(text, found.start())} `{found.group(0)}`; use "
+                    f"  {where}:{_line(text, found.start())} `{found.group(0)}`; use "
                     "PICKER_PAGE_SIZE or LOOKUP_LIST_LIMIT"
                 )
 
@@ -126,7 +121,7 @@ def spelled_reason_minimums(text: str, minimum: int) -> list[str]:
         spellings.append(_NUMBER_WORDS[minimum])
     pattern = re.compile(rf"\bat least (?:{'|'.join(spellings)}) characters\b", re.IGNORECASE)
     return [
-        f"line {_line_of(text, found.start())}"
+        f"line {_line(text, found.start())}"
         for found in pattern.finditer(text)
         if not _in_comment(text, found.start())
     ]

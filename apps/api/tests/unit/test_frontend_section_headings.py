@@ -19,9 +19,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 FEATURES = WEB_SRC / "features"
 
 #: (screen, the heading's content) -> why it keeps a size of its own.

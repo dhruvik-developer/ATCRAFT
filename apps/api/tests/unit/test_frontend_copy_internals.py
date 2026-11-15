@@ -27,11 +27,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import GENERATED, WEB_SRC, blank_comments
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
-#: Generated from the API's OpenAPI document; its descriptions are not screens.
-GENERATED = WEB_SRC / "types" / "openapi.ts"
 
 _INTERNALS = re.compile(
     r"\b(?:[Tt]he|[Aa]n|[Tt]his|[Tt]hat) API\b"
@@ -43,77 +42,6 @@ _INTERNALS = re.compile(
     r"|\bcode default"
     r"|docs/[\w./-]+\.md"
 )
-
-
-def blank_comments(source: str) -> str:
-    """``source`` with every comment blanked to spaces; strings and newlines kept.
-
-    A quoted string cannot span lines, so one ends at a newline: an apostrophe
-    in JSX text ("Don't") then costs the scan the rest of that line rather than
-    the rest of the file. ``${...}`` inside a template is read as code, comments
-    and all.
-    """
-    out = list(source)
-    length = len(source)
-
-    def blank(start: int, end: int) -> None:
-        for index in range(start, end):
-            if out[index] != "\n":
-                out[index] = " "
-
-    def comment_end(index: int) -> int | None:
-        """Where the comment opening at ``index`` ends, blanking it; None if none opens."""
-        if source.startswith("//", index):
-            end = source.find("\n", index)
-            end = length if end == -1 else end
-        elif source.startswith("/*", index):
-            end = source.find("*/", index + 2)
-            end = length if end == -1 else end + 2
-        else:
-            return None
-        blank(index, end)
-        return end
-
-    def string_end(index: int) -> int:
-        quote = source[index]
-        index += 1
-        while index < length:
-            char = source[index]
-            if char == "\\":
-                index += 2
-                continue
-            if char == quote:
-                return index + 1
-            if char == "\n" and quote != "`":
-                return index
-            if quote == "`" and source.startswith("${", index):
-                index = code_end(index + 2, closing_brace=True)
-                continue
-            index += 1
-        return length
-
-    def code_end(index: int, *, closing_brace: bool) -> int:
-        depth = 0
-        while index < length:
-            end = comment_end(index)
-            if end is not None:
-                index = end
-                continue
-            char = source[index]
-            if char in "'\"`":
-                index = string_end(index)
-                continue
-            if closing_brace and char == "{":
-                depth += 1
-            elif closing_brace and char == "}":
-                if depth == 0:
-                    return index + 1
-                depth -= 1
-            index += 1
-        return length
-
-    code_end(0, closing_brace=False)
-    return "".join(out)
 
 
 def internal_words(source: str) -> list[str]:

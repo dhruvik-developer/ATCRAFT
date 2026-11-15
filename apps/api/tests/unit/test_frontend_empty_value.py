@@ -33,14 +33,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_frontend_copy_internals import blank_comments
+from tests.frontend_scan_support import GENERATED, WEB_SRC, _in_comment, _line, blank_comments
 
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 FORMAT = WEB_SRC / "lib" / "format.ts"
-#: Generated from the API's OpenAPI document; its descriptions are not screens.
-GENERATED = WEB_SRC / "types" / "openapi.ts"
 
 _EM_DASH = "—"
 #: A quoted literal - single, double or backtick quotes - that is nothing but the dash.
@@ -64,23 +61,14 @@ _UNION_NEXT = re.compile(r"^\s*\|(?!\|)")
 _JSX_HYPHEN = re.compile(r">\s*-\s*<")
 
 
-def _on_comment_line(source: str, offset: int) -> bool:
-    line_start = source.rfind("\n", 0, offset) + 1
-    return source[line_start:].lstrip().startswith(("//", "*", "/*"))
-
-
-def _line_of(source: str, offset: int) -> int:
-    return source.count("\n", 0, offset) + 1
-
-
 def em_dash_placeholders(source: str) -> list[str]:
     """``line N`` for every em-dash placeholder outside a comment line."""
     found: set[int] = set()
     for pattern in (_QUOTED, _JSX_TEXT):
         for match in pattern.finditer(source):
-            if _on_comment_line(source, match.start()):
+            if _in_comment(source, match.start()):
                 continue
-            found.add(_line_of(source, match.start()))
+            found.add(_line(source, match.start()))
     return [f"line {number}" for number in sorted(found)]
 
 
@@ -94,7 +82,7 @@ def hyphen_placeholder_spans(source: str) -> Iterator[tuple[int, int, str]]:
     code = blank_comments(source)
     for match in _HYPHEN_LITERAL.finditer(code):
         start, end = match.span()
-        if _on_comment_line(code, start):
+        if _in_comment(code, start):
             continue
         # A lead and its sign partner sit within a few lines of the mark.
         before, after = code[max(0, start - 240) : start], code[end : end + 240]
@@ -112,7 +100,7 @@ def hyphen_placeholder_spans(source: str) -> Iterator[tuple[int, int, str]]:
             continue
         yield start, end, "literal"
     for match in _JSX_HYPHEN.finditer(code):
-        if _on_comment_line(code, match.start()):
+        if _in_comment(code, match.start()):
             continue
         tag_start = code.rfind("<", 0, match.start() + 1)
         if "aria-hidden" in code[tag_start : match.start() + 1]:
@@ -122,7 +110,7 @@ def hyphen_placeholder_spans(source: str) -> Iterator[tuple[int, int, str]]:
 
 def hyphen_placeholders(source: str) -> list[str]:
     """``line N`` for every lone hyphen a screen shows as a blank value."""
-    lines = {_line_of(source, start) for start, _end, _kind in hyphen_placeholder_spans(source)}
+    lines = {_line(source, start) for start, _end, _kind in hyphen_placeholder_spans(source)}
     return [f"line {number}" for number in sorted(lines)]
 
 

@@ -23,9 +23,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 MESSAGES = WEB_SRC / "lib" / "messages.ts"
 
 _OBJECT = re.compile(r"^export const (?P<name>\w+) = \{\n(?P<body>.*?)^\}", re.S | re.M)

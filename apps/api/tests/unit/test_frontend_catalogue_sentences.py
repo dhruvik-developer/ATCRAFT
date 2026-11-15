@@ -23,8 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_frontend_copy_internals import GENERATED, blank_comments
-from tests.unit.test_frontend_mutation_error_toasts import WEB_SRC, _line, _skip_string
+from tests.frontend_scan_support import GENERATED, WEB_SRC, _line, _skip_string, blank_comments
 
 pytestmark = pytest.mark.unit
 

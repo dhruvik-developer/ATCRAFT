@@ -20,9 +20,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 CANONICAL = WEB_SRC / "lib" / "form-errors.ts"
 
 #: A function declaration or a bound arrow/function expression by that name.

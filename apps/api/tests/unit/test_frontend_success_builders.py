@@ -25,11 +25,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_frontend_mutation_error_toasts import _expression_end, _skip_string
+from tests.frontend_scan_support import WEB_SRC, _expression_end, _line, _skip_string
 
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 MESSAGES = WEB_SRC / "lib" / "messages.ts"
 
 _BUILDER = re.compile(r"^\s+\w+: \(noun: string\) => `\$\{noun\} (?P<verb>[a-z]+)`", re.M)
@@ -72,10 +71,6 @@ def _literals(text: str) -> list[str]:
             continue
         index += 1
     return found
-
-
-def _line(source: str, offset: int) -> int:
-    return source.count("\n", 0, offset) + 1
 
 
 def _in_comment(source: str, offset: int) -> bool:

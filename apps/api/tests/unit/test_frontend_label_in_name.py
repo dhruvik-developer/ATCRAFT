@@ -23,9 +23,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC, _line
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 _OPENING = re.compile(r"<([A-Za-z][\w.]*)(?=[\s>/])")
 _HINT = re.compile(r"\s*\([^()]*\)$")
@@ -164,10 +165,6 @@ def _tags(source: str) -> list[tuple[int, str, str, int]]:
         end = _tag_end(source, match.end())
         found.append((match.start(), match.group(1), source[match.start() : end + 1], end))
     return found
-
-
-def _line(text: str, offset: int) -> int:
-    return text.count("\n", 0, offset) + 1
 
 
 def label_name_mismatches(source: str) -> list[str]:

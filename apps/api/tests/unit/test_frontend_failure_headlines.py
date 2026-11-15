@@ -33,11 +33,11 @@ import re
 
 import pytest
 
-from tests.unit.test_frontend_confirm_titles import _shown_literals
-from tests.unit.test_frontend_mutation_error_toasts import (
+from tests.frontend_scan_support import (
     WEB_SRC,
     _expression_end,
     _line,
+    _shown_literals,
     _skip_string,
 )
 

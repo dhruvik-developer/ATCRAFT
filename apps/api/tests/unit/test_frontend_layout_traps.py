@@ -20,9 +20,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 #: Utilities that stop a flex item shrinking below its max-content width.
 _NO_SHRINK = frozenset({"shrink-0", "flex-none"})

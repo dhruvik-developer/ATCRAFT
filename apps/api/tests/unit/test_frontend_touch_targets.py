@@ -25,9 +25,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.frontend_scan_support import WEB_SRC
+
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
 #: WCAG 2.2 SC 2.5.8 (Target Size, Minimum), in CSS pixels.
 MIN_TARGET_PX = 24

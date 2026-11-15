@@ -35,11 +35,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_frontend_copy_internals import GENERATED, blank_comments
+from tests.frontend_scan_support import GENERATED, WEB_SRC, _line, blank_comments
 
 pytestmark = pytest.mark.unit
 
-WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 FORM_VALUES = WEB_SRC / "lib" / "form-values.ts"
 UTILS = WEB_SRC / "lib" / "utils.ts"
 FORMAT = WEB_SRC / "lib" / "format.ts"
@@ -77,10 +76,6 @@ def lib_names() -> set[str]:
         for path in (FORM_VALUES, UTILS, FORMAT)
         for name in _EXPORT.findall(path.read_text(encoding="utf-8"))
     }
-
-
-def _line(code: str, offset: int) -> int:
-    return code.count("\n", 0, offset) + 1
 
 
 def inline_copies(source: str) -> list[str]:
