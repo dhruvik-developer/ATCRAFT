@@ -19,7 +19,7 @@ import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { ROUNDED_MONEY_INPUT } from '@/lib/decimal-input'
-import { formatDate, formatMoney, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
@@ -31,9 +31,11 @@ import {
   MAX_ALLOCATIONS,
   paymentKeys,
   proposeAllocation,
+  releasedAllocations,
   sumAmounts,
   type PaymentDetail,
 } from './payment-model'
+import { ReleasedAllocations } from './released-allocations'
 import { salesInvoiceKeys, type SalesInvoiceSummary } from './sales-invoice-types'
 
 interface ReceiptAllocationDraft {
@@ -42,6 +44,18 @@ interface ReceiptAllocationDraft {
   notes: string | null
   /** Existing settlements have no balance in PaymentAllocationRead. */
   ceiling: string | null
+}
+
+type SavedAllocation = NonNullable<PaymentDetail['allocations']>[number]
+
+/** A line as the receipt carried it when it was read. */
+function savedLine(row: SavedAllocation, invoiceId: string): ReceiptAllocationDraft {
+  return {
+    code: row.invoice_code ?? invoiceId,
+    amount: row.amount,
+    notes: row.notes ?? null,
+    ceiling: null,
+  }
 }
 
 export function SalesReceiptAllocationDialog({
@@ -55,17 +69,9 @@ export function SalesReceiptAllocationDialog({
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Record<string, ReceiptAllocationDraft>>(() =>
     Object.fromEntries(
-      (payment.allocations ?? [])
-        .filter((row) => row.sales_invoice_id)
-        .map((row) => [
-          row.sales_invoice_id!,
-          {
-            code: row.invoice_code ?? row.sales_invoice_id!,
-            amount: row.amount,
-            notes: row.notes ?? null,
-            ceiling: null,
-          },
-        ]),
+      (payment.allocations ?? []).flatMap((row) =>
+        row.sales_invoice_id ? [[row.sales_invoice_id, savedLine(row, row.sales_invoice_id)]] : [],
+      ),
     ),
   )
   const [page, setPage] = useState(1)
@@ -151,6 +157,19 @@ export function SalesReceiptAllocationDialog({
   // Ids and one flag, not the draft: they change when a line joins, leaves or
   // fills the receipt, not on every keystroke.
   const draftIds = useKeySet(draft)
+  // What the receipt settled that the draft has taken out: an invoice it paid
+  // in full is not an open one, so the table below never offers it again.
+  const released = useMemo(
+    () => releasedAllocations(payment.allocations, draftIds),
+    [payment.allocations, draftIds],
+  )
+  const putBack = (invoiceId: string) => {
+    const saved = released.find((row) => row.sales_invoice_id === invoiceId)
+    if (!saved) return
+    setDraft((current) =>
+      current[invoiceId] ? current : { ...current, [invoiceId]: savedLine(saved, invoiceId) },
+    )
+  }
   const receiptFull = total.greaterThanOrEqualTo(toDecimal(payment.amount))
   const columns = useMemo<ColumnDef<SalesInvoiceSummary, unknown>[]>(
     () => [
@@ -250,6 +269,22 @@ export function SalesReceiptAllocationDialog({
               </Button>
             </div>
           ))}
+          <ReleasedAllocations
+            rows={released.flatMap((row) =>
+              row.sales_invoice_id
+                ? [
+                    {
+                      invoiceId: row.sales_invoice_id,
+                      label: row.invoice_code ?? EMPTY_VALUE,
+                      amount: row.amount,
+                    },
+                  ]
+                : [],
+            )}
+            currency={payment.currency}
+            document="receipt"
+            onPutBack={putBack}
+          />
           {can(P.SALES_INVOICE_VIEW) && (
             <DataTable
               columns={columns}

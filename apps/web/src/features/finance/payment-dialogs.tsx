@@ -19,6 +19,7 @@
  * omitted them would silently wipe what somebody wrote against a settlement.
  */
 
+import { ReleasedAllocations } from './released-allocations'
 import { SalesReceiptAllocationDialog } from './sales-receipt-allocation-dialog'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -108,6 +109,7 @@ import {
   PAYMENT_TYPE_SHORT,
   PAYMENT_TYPES,
   proposeAllocation,
+  releasedAllocations,
   sumAmounts,
   unallocatedAfter,
   usesInstrument,
@@ -910,21 +912,27 @@ type Draft = Record<string, DraftLine>
  */
 const INVOICE_PICK_PAGE_SIZE = 25
 
+type SavedAllocation = NonNullable<PaymentDetail['allocations']>[number]
+
+/** A line as the payment carried it when it was read. */
+function seededLine(allocation: SavedAllocation): DraftLine {
+  return {
+    amount: allocation.amount,
+    // Carried back on save: an amended row's notes are rewritten from the
+    // request, so dropping them here would erase them there.
+    notes: allocation.notes ?? '',
+    code: allocation.invoice_code ?? null,
+    number: allocation.vendor_invoice_number ?? null,
+    outstanding: null,
+    settled: allocation.amount,
+    currency: null,
+  }
+}
+
 function seedDraft(payment: PaymentDetail): Draft {
   const seeded: Draft = {}
   for (const allocation of payment.allocations ?? []) {
-    if (!allocation.vendor_invoice_id) continue
-    seeded[allocation.vendor_invoice_id] = {
-      amount: allocation.amount,
-      // Carried back on save: an amended row's notes are rewritten from the
-      // request, so dropping them here would erase them there.
-      notes: allocation.notes ?? '',
-      code: allocation.invoice_code ?? null,
-      number: allocation.vendor_invoice_number ?? null,
-      outstanding: null,
-      settled: allocation.amount,
-      currency: null,
-    }
+    if (allocation.vendor_invoice_id) seeded[allocation.vendor_invoice_id] = seededLine(allocation)
   }
   return seeded
 }
@@ -1076,6 +1084,22 @@ export function PaymentAllocationDialog({
   }, [])
 
   const draftIds = useKeySet(draft)
+  // What the payment settled that the draft has taken out: an invoice it paid
+  // in full is not an open one, so the table below never offers it again.
+  const released = useMemo(
+    () => releasedAllocations(payment?.allocations, draftIds),
+    [payment?.allocations, draftIds],
+  )
+  const putBack = useCallback(
+    (invoiceId: string) => {
+      const saved = released.find((row) => row.vendor_invoice_id === invoiceId)
+      if (!saved) return
+      setDraft((current) =>
+        current[invoiceId] ? current : { ...current, [invoiceId]: seededLine(saved) },
+      )
+    },
+    [released],
+  )
   const draftEntries = Object.entries(draft)
   const payableEntries = draftEntries.filter(([, line]) => toDecimal(line.amount).greaterThan(0))
   const draftTotal = sumAmounts(draftEntries.map(([, line]) => line.amount))
@@ -1418,6 +1442,23 @@ export function PaymentAllocationDialog({
                   </TableScroller>
                 )}
               </section>
+
+              <ReleasedAllocations
+                rows={released.flatMap((row) =>
+                  row.vendor_invoice_id
+                    ? [
+                        {
+                          invoiceId: row.vendor_invoice_id,
+                          label: row.vendor_invoice_number ?? row.invoice_code ?? EMPTY_VALUE,
+                          amount: row.amount,
+                        },
+                      ]
+                    : [],
+                )}
+                currency={currency}
+                document="payment"
+                onPutBack={putBack}
+              />
 
               {problems.length > 0 && (
                 <Alert variant="warning">

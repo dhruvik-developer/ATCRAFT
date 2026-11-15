@@ -24,7 +24,9 @@ import {
   allocatedByInvoice,
   allocationCeiling,
   proposeAllocation,
+  releasedAllocations,
 } from '@/features/finance/payment-model'
+import { ReleasedAllocations } from '@/features/finance/released-allocations'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
@@ -47,6 +49,19 @@ type DraftLine = {
   notes: string | null
   invoice_code: string
   vendor_invoice_number: string
+}
+
+type SavedAllocation = NonNullable<PurchaseReturnDebitAllocationResult['allocations']>[number]
+
+/** A line as the debit note carried it when it was read. */
+function savedLine(row: SavedAllocation): DraftLine {
+  return {
+    vendor_invoice_id: row.vendor_invoice_id,
+    amount: String(row.amount),
+    notes: row.notes,
+    invoice_code: row.invoice_code,
+    vendor_invoice_number: row.vendor_invoice_number,
+  }
 }
 
 export function PurchaseReturnDebitAllocation({
@@ -96,17 +111,7 @@ export function PurchaseReturnDebitAllocation({
   })
 
   useEffect(() => {
-    if (allocations.data) {
-      setDraft(
-        (allocations.data.allocations ?? []).map((row) => ({
-          vendor_invoice_id: row.vendor_invoice_id,
-          amount: String(row.amount),
-          notes: row.notes,
-          invoice_code: row.invoice_code,
-          vendor_invoice_number: row.vendor_invoice_number,
-        })),
-      )
-    }
+    if (allocations.data) setDraft((allocations.data.allocations ?? []).map(savedLine))
   }, [allocations.data])
 
   const draftTotal = draft.reduce(
@@ -126,6 +131,24 @@ export function PurchaseReturnDebitAllocation({
     () => allocatedByInvoice(allocations.data?.allocations),
     [allocations.data],
   )
+
+  // What the debit note settled that the draft has taken out. An invoice it
+  // settled in full is not an open one, so the picker below never offers it
+  // again - and this panel, unlike the payment dialog, has no reopening.
+  const draftedIds = useMemo(() => new Set(draft.map((row) => row.vendor_invoice_id)), [draft])
+  const released = useMemo(
+    () => releasedAllocations(allocations.data?.allocations, draftedIds),
+    [allocations.data, draftedIds],
+  )
+  const putBack = (invoiceId: string) => {
+    const saved = released.find((row) => row.vendor_invoice_id === invoiceId)
+    if (!saved) return
+    setDraft((current) =>
+      current.some((row) => row.vendor_invoice_id === invoiceId)
+        ? current
+        : [...current, savedLine(saved)],
+    )
+  }
 
   const addInvoice = () => {
     const invoice = invoices.data?.data.find((row) => row.id === selectedInvoiceId)
@@ -248,6 +271,17 @@ export function PurchaseReturnDebitAllocation({
           </Button>
         </div>
       ))}
+
+      <ReleasedAllocations
+        rows={released.map((row) => ({
+          invoiceId: row.vendor_invoice_id,
+          label: `${row.vendor_invoice_number} - ${row.invoice_code}`,
+          amount: String(row.amount),
+        }))}
+        currency={purchaseReturn.currency}
+        document="debit note"
+        onPutBack={putBack}
+      />
 
       <div className="grid gap-2 sm:grid-cols-[minmax(10rem,1fr)_minmax(14rem,2fr)_auto]">
         <Input

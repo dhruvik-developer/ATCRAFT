@@ -48,6 +48,7 @@ import type { VendorInvoiceSummary } from './finance-types'
 import { PaymentCommandDialog, PaymentFormDialog } from './payment-dialogs'
 import type { PaymentDetail, PaymentRow } from './payment-model'
 import PaymentsPage from './payments-page'
+import { SalesReceiptAllocationDialog } from './sales-receipt-allocation-dialog'
 
 const PAYMENT_ID = 'pm000000-0000-7000-8000-000000000001'
 const DETAIL_PATH = `/finance/payments/${PAYMENT_ID}`
@@ -248,6 +249,53 @@ describe('a receipt settles customer invoices', () => {
 
     await screen.findByText(RECEIPT_CODE)
     expect(within(rowFor(RECEIPT_CODE)).queryByText('n/a')).not.toBeInTheDocument()
+  })
+
+  it('puts back an invoice the open list no longer offers, as the receipt carried it', async () => {
+    const allocated = detail({
+      ...receipt,
+      party_type: 'CUSTOMER',
+      party_id: CUSTOMER.id,
+      status: 'ALLOCATED',
+      amount: '500.00',
+      allocated_amount: '500.00',
+      unallocated_amount: '0.00',
+      allocations: [
+        {
+          id: 'ra1',
+          sales_invoice_id: 'si1',
+          vendor_invoice_id: null,
+          amount: '500.00',
+          notes: 'paid at the counter',
+          invoice_code: 'SINV-0001',
+          vendor_invoice_number: null,
+        },
+      ],
+    })
+    const { user, fetch } = renderScreen(
+      <SalesReceiptAllocationDialog payment={allocated} onClose={() => {}} />,
+      {
+        permissions: [P.PAYMENT_RECORD, P.SALES_INVOICE_VIEW],
+        routes: {
+          'GET /finance/sales-invoices': page([]),
+          [`POST ${DETAIL_PATH}/allocate`]: ok(allocated),
+        },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }))
+    const released = within(dialog).getByRole('region', { name: 'Taken out of this receipt' })
+    await user.click(within(released).getByRole('button', { name: 'Put back SINV-0001' }))
+
+    expect(within(dialog).getByRole('textbox', { name: 'SINV-0001' })).toHaveValue('500.00')
+    await user.click(within(dialog).getByRole('button', { name: 'Save allocation' }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    expect(fetch.requestFor('POST', `${DETAIL_PATH}/allocate`)).toEqual({
+      replace: true,
+      allocations: [{ sales_invoice_id: 'si1', amount: '500.00', notes: 'paid at the counter' }],
+    })
   })
 
   it('offers receipt settlement from the payment reader', async () => {
@@ -768,6 +816,45 @@ describe('settling an approved payment', () => {
       '+ ₹6,534.59 already from this payment',
     )
     expect(within(dialog).queryByText('Not ready to save')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Save settlement' }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    const body = fetch.requestFor('POST', `${DETAIL_PATH}/allocate`) as {
+      allocations: { vendor_invoice_id: string; amount: string; notes: string | null }[]
+    }
+    expect(body.allocations).toEqual([
+      { vendor_invoice_id: 'vi1', amount: '6408.52', notes: null },
+      { vendor_invoice_id: 'vi3', amount: '3594.81', notes: 'part settlement' },
+      { vendor_invoice_id: 'vi2', amount: '6534.59', notes: null },
+    ])
+  })
+
+  it('puts back an invoice the open list no longer offers, as the payment carried it', async () => {
+    // SBW/4412 owes nothing while this payment settles it, so the API's
+    // open-invoice list leaves it out: released from the draft, it could only
+    // come back by closing the dialog and opening it again.
+    const { user, fetch } = renderScreen(<PaymentsPage />, {
+      permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD, P.VENDOR_INVOICE_VIEW],
+      routes: {
+        'GET /finance/payments': page([settledRow]),
+        [`GET ${DETAIL_PATH}`]: ok(settled()),
+        'GET /finance/vendor-invoices': page([]),
+        [`POST ${DETAIL_PATH}/allocate`]: ok(settled()),
+      },
+    })
+
+    const dialog = await openSettlement(user)
+    await user.click(
+      await within(dialog).findByRole('button', { name: 'Release SBW/4412 from this payment' }),
+    )
+    const released = within(dialog).getByRole('region', { name: 'Taken out of this payment' })
+    expect(released).toHaveTextContent('SBW/4412 ₹6,534.59')
+    await user.click(within(released).getByRole('button', { name: 'Put back SBW/4412' }))
+
+    expect(
+      within(dialog).getByRole('textbox', { name: 'Amount settled against SBW/4412' }),
+    ).toHaveValue('6534.59')
+    expect(within(dialog).queryByRole('region', { name: 'Taken out of this payment' })).toBeNull()
     await user.click(within(dialog).getByRole('button', { name: 'Save settlement' }))
 
     await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)

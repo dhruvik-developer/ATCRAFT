@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { toDecimal } from '@/lib/format'
@@ -102,6 +102,45 @@ describe('purchase-return debit allocation', () => {
       replace: true,
     })
     expect(await screen.findByText(/30\.00 applied of/)).toBeVisible()
+  })
+
+  it('puts back an invoice the open list no longer offers, as the debit note carried it', async () => {
+    // The panel has no reopening: an invoice this note settled that is not an
+    // open one could not come back once its line was removed.
+    const carried: PurchaseReturnDebitAllocationResult = {
+      ...existing,
+      allocations: [{ ...existing.allocations![0]!, notes: 'agreed with the supplier' }],
+    }
+    const { user, fetch } = renderScreen(
+      <PurchaseReturnDebitAllocation purchaseReturn={purchaseReturn} />,
+      {
+        routes: {
+          [`GET ${ALLOCATIONS_PATH}`]: ok(carried),
+          'GET /finance/vendor-invoices': page([]),
+          [`POST ${ALLOCATIONS_PATH}`]: ok(carried),
+        },
+      },
+    )
+
+    await screen.findByRole('textbox', { name: `Amount for ${invoice.code}` })
+    await user.click(screen.getByRole('button', { name: `Remove ${invoice.code} allocation` }))
+    const released = screen.getByRole('region', { name: 'Taken out of this debit note' })
+    await user.click(
+      within(released).getByRole('button', {
+        name: `Put back ${invoice.vendor_invoice_number} - ${invoice.code}`,
+      }),
+    )
+
+    expect(screen.getByRole('textbox', { name: `Amount for ${invoice.code}` })).toHaveValue('40.00')
+    expect(screen.queryByRole('region', { name: 'Taken out of this debit note' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Save allocation' }))
+    await waitFor(() => fetch.requestFor('POST', ALLOCATIONS_PATH))
+    expect(fetch.requestFor('POST', ALLOCATIONS_PATH)).toEqual({
+      allocations: [
+        { vendor_invoice_id: INVOICE_ID, amount: '40.00', notes: 'agreed with the supplier' },
+      ],
+      replace: true,
+    })
   })
 
   it('gives a removed invoice its own amount back when it is added again', async () => {

@@ -333,6 +333,25 @@ export function allocatedByInvoice(
 }
 
 /**
+ * The rows of a document's saved allocation set that its draft no longer names.
+ *
+ * Every allocation editor offers its candidates from the API's `open_only`
+ * invoices, and an invoice this document settled in full owes nothing else, so
+ * it is not among them: once its line was taken out it could not be added back
+ * short of reopening the dialog - and the debit-note editor, a panel, has no
+ * reopening. These are what the editors offer back, as they were saved.
+ */
+export function releasedAllocations<Row extends InvoiceAllocationRow>(
+  saved: readonly Row[] | null | undefined,
+  drafted: ReadonlySet<string>,
+): Row[] {
+  return (saved ?? []).filter((row) => {
+    const invoiceId = row.vendor_invoice_id ?? row.sales_invoice_id
+    return Boolean(invoiceId) && !drafted.has(invoiceId as string)
+  })
+}
+
+/**
  * The most one invoice can take when a document's allocation set is replaced.
  *
  * The invoice's outstanding - `outstanding_amount` on a vendor invoice,
