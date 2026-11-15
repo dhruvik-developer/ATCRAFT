@@ -73,6 +73,7 @@ import type { VendorRow } from '@/features/vendors/vendor-types'
 import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText, asUpperText } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -127,8 +128,6 @@ import {
  * kept.
  */
 const MONEY = /^\d{1,14}(\.\d{1,2})?$/
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 /** A `z.enum` built from a contract-derived list, so the two cannot drift. */
 function enumOf<T extends string>(values: readonly T[]) {
@@ -337,10 +336,10 @@ export function PaymentFormDialog({
           payment_date: values.payment_date,
           amount: values.amount.trim(),
           payment_method: values.payment_method,
-          reference_number: orNull(values.reference_number),
-          bank_name: orNull(values.bank_name),
-          instrument_date: orNull(values.instrument_date),
-          notes: orNull(values.notes),
+          reference_number: asText(values.reference_number),
+          bank_name: asText(values.bank_name),
+          instrument_date: asText(values.instrument_date),
+          notes: asText(values.notes),
         }
         return api.patch<PaymentDetail>(`/finance/payments/${paymentId}`, body)
       }
@@ -352,13 +351,13 @@ export function PaymentFormDialog({
         // A decimal string all the way to the wire; never parsed into a double.
         amount: values.amount.trim(),
         payment_method: values.payment_method,
-        reference_number: orNull(values.reference_number),
-        bank_name: orNull(values.bank_name),
-        instrument_date: orNull(values.instrument_date),
-        notes: orNull(values.notes),
+        reference_number: asText(values.reference_number),
+        bank_name: asText(values.bank_name),
+        instrument_date: asText(values.instrument_date),
+        notes: asText(values.notes),
         // Absent means the company's own currency, defaulted server-side so it
         // matches the invoices this payment will later be allowed to settle.
-        currency: orNull(values.currency)?.toUpperCase() ?? null,
+        currency: asUpperText(values.currency),
       }
       return api.post<PaymentDetail>('/finance/payments', body)
     },
@@ -1124,7 +1123,7 @@ export function PaymentAllocationDialog({
         allocations: payableEntries.map(([invoiceId, line]) => ({
           vendor_invoice_id: invoiceId,
           amount: line.amount.trim(),
-          notes: orNull(line.notes),
+          notes: asText(line.notes),
         })),
         // The draft is the complete set - see the note at the top of this file.
         replace: true,

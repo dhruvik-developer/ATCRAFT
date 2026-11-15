@@ -48,6 +48,7 @@ import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { humanise, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -198,15 +199,15 @@ export function RaiseInspectionDialog({
         warehouse_id: values.warehouse_id,
         qc_stage: values.qc_stage,
         inspected_quantity: values.inspected_quantity.trim(),
-        batch_id: values.batch_id.trim() === '' ? null : values.batch_id.trim(),
+        batch_id: asText(values.batch_id),
         ...(serialTracked ? { serial_ids: values.serial_ids } : {}),
         hold_stock: values.hold_stock,
         template_id: values.template_id === SELECT_NONE ? null : values.template_id,
         reference_type: values.reference_type,
-        reference_code: values.reference_code.trim() === '' ? null : values.reference_code.trim(),
-        reference_id: values.reference_id.trim() === '' ? null : values.reference_id.trim(),
+        reference_code: asText(values.reference_code),
+        reference_id: asText(values.reference_id),
         reason: values.reason.trim(),
-        remarks: values.remarks.trim() === '' ? null : values.remarks.trim(),
+        remarks: asText(values.remarks),
       }),
     onSuccess: (inspection) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })

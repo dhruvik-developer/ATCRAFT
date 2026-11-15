@@ -85,13 +85,13 @@ import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, humanise } from '
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
+import { indexById } from '@/lib/utils'
 
 import { ATTRIBUTE_KINDS, ItemAttributeFormDialog } from './attribute-dialogs'
 import { CategoryFormDialog, CategoryRetireDialog } from './category-dialogs'
 import {
   conversionStatement,
   formatFactor,
-  indexById,
   inverseFactor,
   levelLabel,
   mastersKeys,

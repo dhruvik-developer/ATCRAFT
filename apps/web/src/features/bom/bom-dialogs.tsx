@@ -40,6 +40,7 @@ import { optionLabel, useWorkCentreOptions } from '@/features/production/work-or
 import { ApiError, api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { humanise, toDateInput } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -106,11 +107,6 @@ const createSchema = z
 
 type CreateValues = z.infer<typeof createSchema>
 
-/** Today on the local calendar - the UTC date is still yesterday in India until 05:30. */
-function todayInput(): string {
-  return toDateInput(new Date())
-}
-
 function emptyLine(): z.infer<typeof lineSchema> {
   return { component_item_id: '', quantity_per: '1', scrap_percentage: '0', is_optional: false }
 }
@@ -123,7 +119,7 @@ function emptyCreateValues(): CreateValues {
     revision: 'A',
     output_quantity: '1',
     base_uom_id: '',
-    effective_from: todayInput(),
+    effective_from: toDateInput(new Date()),
     effective_to: '',
     is_default: false,
     notes: '',
@@ -193,14 +189,14 @@ export function BomFormDialog({
         item_id: values.item_id,
         bom_type: values.bom_type,
         parent_bom_id: values.bom_type === 'ALTERNATE' ? values.parent_bom_id : null,
-        revision: values.revision.trim() || null,
+        revision: asText(values.revision),
         // Quantities stay decimal strings all the way to the wire.
         output_quantity: values.output_quantity.trim(),
         base_uom_id: values.base_uom_id,
         effective_from: values.effective_from,
         effective_to: values.effective_to || null,
         is_default: values.is_default,
-        notes: values.notes.trim() || null,
+        notes: asText(values.notes),
         // Line numbers are the API's key for a line, and a substitute points at
         // one, so they are assigned here in display order rather than left out.
         lines: values.lines.map((line, index) => ({
@@ -806,7 +802,7 @@ export function BomEditDialog({
           cost_per_hour: operation.cost_per_hour.trim(),
           fixed_cost: operation.fixed_cost.trim(),
           is_outsourced: operation.is_outsourced,
-          notes: operation.notes.trim() || null,
+          notes: asText(operation.notes),
         }
       })
       return api.patch<BomDetail>(`/bom/${bom?.id}`, {
@@ -820,7 +816,7 @@ export function BomEditDialog({
             line.substitute_for_index == null ? null : line.substitute_for_index + 1,
           operation_sequence:
             line.operation_sequence === '' ? null : Number(line.operation_sequence),
-          notes: line.notes.trim() || null,
+          notes: asText(line.notes),
         })),
         operations,
       })
@@ -1240,7 +1236,7 @@ type CopyValues = z.infer<typeof copySchema>
 function copyDefaults(): CopyValues {
   return {
     revision: '',
-    effective_from: todayInput(),
+    effective_from: toDateInput(new Date()),
     effective_to: '',
     copy_operations: true,
     reason: '',
@@ -1288,11 +1284,11 @@ export function CopyBomDialog({
       // every copy from this dialog was a 404.
       api.post<BomDetail>(`/bom/${bom.id}/copy-as-new-version`, {
         reason: values.reason.trim(),
-        revision: values.revision.trim() || null,
+        revision: asText(values.revision),
         effective_from: values.effective_from || null,
         effective_to: values.effective_to || null,
         copy_operations: values.copy_operations,
-        notes: values.notes.trim() || null,
+        notes: asText(values.notes),
       }),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bom.all })

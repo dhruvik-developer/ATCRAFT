@@ -45,7 +45,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
-import { addDaysISO } from '@/lib/format'
+import { addDaysISO, toDateInput } from '@/lib/format'
 import { ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 
 import { WorkOrderAssignDialog } from './work-order-dialogs'
@@ -54,7 +54,6 @@ import {
   clashingWorkOrders,
   columnLabel,
   groupCapacityByCentre,
-  localTodayISO,
   touchedColumns,
   useBoardMachines,
   useBoardWorkOrders,
@@ -179,7 +178,8 @@ export default function PlanningPage() {
   const { can } = useAuth()
   const canManage = can(P.WORK_ORDER_MANAGE)
 
-  const [weekStart, setWeekStart] = useState(localTodayISO)
+  // Today's local date is the board's default first column.
+  const [weekStart, setWeekStart] = useState(() => toDateInput(new Date()))
   const [workCentreId, setWorkCentreId] = useState('')
   const [view, setView] = useState<BoardView>('centre')
   const [assigning, setAssigning] = useState<WorkOrder | null>(null)
@@ -251,7 +251,7 @@ export default function PlanningPage() {
           >
             <ChevronLeft />
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setWeekStart(localTodayISO())}>
+          <Button variant="outline" size="sm" onClick={() => setWeekStart(toDateInput(new Date()))}>
             This week
           </Button>
           <Button

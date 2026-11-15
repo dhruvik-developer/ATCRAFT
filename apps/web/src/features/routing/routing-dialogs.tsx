@@ -66,6 +66,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -866,8 +867,8 @@ export function RoutingFormDialog({
       }))
 
       const payload = {
-        name: values.name.trim() || null,
-        notes: values.notes.trim() || null,
+        name: asText(values.name),
+        notes: asText(values.notes),
         effective_from: values.effective_from || null,
         effective_to: values.effective_to || null,
         is_default: values.is_default,
@@ -1396,7 +1397,7 @@ export function WorkCenterFormDialog({
     mutationFn: (values: WorkCenterValues) => {
       const payload = {
         name: values.name.trim(),
-        description: values.description.trim() || null,
+        description: asText(values.description),
         // Rates stay decimal strings all the way to the wire.
         capacity_per_hour: values.capacity_per_hour.trim(),
         cost_per_hour: values.cost_per_hour.trim(),
@@ -1639,7 +1640,7 @@ export function MachineFormDialog({
       const payload = {
         name: values.name.trim(),
         work_center_id: values.work_center_id,
-        machine_type: values.machine_type.trim() || null,
+        machine_type: asText(values.machine_type),
         capacity_per_hour: values.capacity_per_hour.trim(),
         cost_per_hour: values.cost_per_hour.trim(),
         last_maintenance_date: values.last_maintenance_date || null,

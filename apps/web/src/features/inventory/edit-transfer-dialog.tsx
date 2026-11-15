@@ -15,6 +15,7 @@ import {
 import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
+import { asText } from '@/lib/form-values'
 import { toDateInput } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
@@ -39,7 +40,7 @@ export default function EditTransferDialog({
       api.patch<StockTransferRow>(`/inventory/transfers/${transfer.id}`, {
         reason: reason.trim(),
         expected_date: expected || null,
-        notes: notes.trim() || null,
+        notes: asText(notes),
       }),
     onSuccess: () => {
       toast.success(success.updated('Transfer'), transfer.code)

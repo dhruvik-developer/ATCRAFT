@@ -51,6 +51,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -154,7 +155,7 @@ export function CategoryFormDialog({
       return api.post<CategoryRow>('/products/categories', {
         code: values.code.trim(),
         name: values.name.trim(),
-        description: values.description.trim() === '' ? null : values.description.trim(),
+        description: asText(values.description),
         parent_id: parentId,
         is_active: values.is_active,
       })

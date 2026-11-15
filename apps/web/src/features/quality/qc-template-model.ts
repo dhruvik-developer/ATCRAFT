@@ -32,6 +32,7 @@
  * the API, which is precisely how a screen comes to render nothing.
  */
 
+import { asText } from '@/lib/form-values'
 import { formatNumber, formatQuantity, toDecimal } from '@/lib/format'
 import { queryKeys } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
@@ -339,16 +340,15 @@ export function draftToWire(draft: QcParameterDraft, sequence: number): QcTempla
   const hasValueList = draft.parameter_type === 'SELECT' || draft.parameter_type === 'TEXT'
   const values = hasValueList ? splitAllowedValues(draft.allowed_values) : []
   const unit = draft.unit.trim()
-  const bound = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
   return {
     sequence,
     parameter_name: draft.parameter_name.trim(),
     parameter_type: draft.parameter_type,
     unit: unit === '' ? null : unit,
-    min_value: isNumeric ? bound(draft.min_value) : null,
-    max_value: isNumeric ? bound(draft.max_value) : null,
-    target_value: isNumeric ? bound(draft.target_value) : null,
+    min_value: isNumeric ? asText(draft.min_value) : null,
+    max_value: isNumeric ? asText(draft.max_value) : null,
+    target_value: isNumeric ? asText(draft.target_value) : null,
     allowed_values: values.length > 0 ? values : null,
     is_critical: draft.is_critical,
     is_mandatory: draft.is_critical || draft.is_mandatory,

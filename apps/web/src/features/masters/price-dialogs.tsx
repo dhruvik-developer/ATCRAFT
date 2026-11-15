@@ -58,7 +58,8 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { formatDate, formatMoney, humanise } from '@/lib/format'
+import { asText, zeroIfBlank } from '@/lib/form-values'
+import { formatDate, formatMoney, humanise, toDateInput } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -104,14 +105,6 @@ const priceSchema = z
 
 type PriceFormValues = z.infer<typeof priceSchema>
 
-/** Today in the yyyy-MM-dd shape `<input type="date">` and the API both use. */
-function today(): string {
-  const now = new Date()
-  const month = `${now.getMonth() + 1}`.padStart(2, '0')
-  const day = `${now.getDate()}`.padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
-}
-
 function emptyValues(): PriceFormValues {
   return {
     price_type: 'SALE',
@@ -121,7 +114,7 @@ function emptyValues(): PriceFormValues {
     currency: DEFAULT_CURRENCY,
     price: '',
     min_quantity: '0',
-    valid_from: today(),
+    valid_from: toDateInput(new Date()),
     valid_to: '',
     is_active: true,
     notes: '',
@@ -184,7 +177,7 @@ export function PriceFormDialog({
       if (price) {
         return api.patch<PriceRow>(`/products/prices/${price.id}`, {
           price: values.price.trim(),
-          min_quantity: values.min_quantity.trim() === '' ? '0' : values.min_quantity.trim(),
+          min_quantity: zeroIfBlank(values.min_quantity),
           valid_from: values.valid_from,
           // Omitted rather than nulled when empty: a null would be dropped by
           // the service anyway, and sending one would suggest it had cleared.
@@ -200,10 +193,10 @@ export function PriceFormDialog({
         variant_id: values.variant_id === ALL_VARIANTS ? null : values.variant_id,
         currency: values.currency.trim().toUpperCase(),
         price: values.price.trim(),
-        min_quantity: values.min_quantity.trim() === '' ? '0' : values.min_quantity.trim(),
+        min_quantity: zeroIfBlank(values.min_quantity),
         valid_from: values.valid_from,
         valid_to: values.valid_to || null,
-        notes: values.notes.trim() === '' ? null : values.notes.trim(),
+        notes: asText(values.notes),
       })
     },
     onSuccess: (saved) => {

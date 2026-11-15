@@ -31,11 +31,11 @@ import {
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { asId, asText } from '@/lib/utils'
 
 import type { ItemVariant } from './item-model'
 
@@ -95,9 +95,6 @@ function valuesFrom(variant: ItemVariant): VariantFormValues {
   }
 }
 
-/** Decimal deltas stay strings; an emptied optional delta returns to zero. */
-const asDelta = (value: string): string => (value.trim() === '' ? '0' : value.trim())
-
 function attributeOptions(
   options: ItemAttributeOption[] | undefined,
   selectedId: string,
@@ -154,9 +151,9 @@ export function VariantFormDialog({
         finish_id: asId(values.finish_id),
         size_id: asId(values.size_id),
         colour_id: asId(values.colour_id),
-        price_delta: asDelta(values.price_delta),
+        price_delta: zeroIfBlank(values.price_delta),
         barcode: asText(values.barcode),
-        ...(canViewCost ? { cost_delta: asDelta(values.cost_delta) } : {}),
+        ...(canViewCost ? { cost_delta: zeroIfBlank(values.cost_delta) } : {}),
         is_active: values.is_active,
       }
 

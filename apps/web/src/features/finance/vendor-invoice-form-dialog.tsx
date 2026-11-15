@@ -101,6 +101,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -140,11 +141,6 @@ const MONEY_OR_BLANK = /^$|^\d{1,14}(\.\d{1,4})?$/
 const SIGNED_MONEY_OR_BLANK = /^$|^-?\d{1,14}(\.\d{1,4})?$/
 const RATE_OR_BLANK = /^$|^\d{1,5}(\.\d{1,4})?$/
 const CURRENCY_OR_BLANK = /^$|^[A-Za-z]{3}$/
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
-/** A field the API defaults to zero: blank means zero, not "unset". */
-const zeroIfBlank = (value: string): string => (value.trim() === '' ? '0' : value.trim())
 
 /** `formatMoney` hands the code to `Intl`, which throws on a half-typed one. */
 const usableCurrency = (code: string | undefined): string | undefined =>
@@ -729,11 +725,11 @@ export function VendorInvoiceFormDialog({
           // Omitted when blank: `update_invoice` ignores a null date, so
           // sending one would look like a change and be silently dropped.
           ...(values.due_date ? { due_date: values.due_date } : {}),
-          purchase_order_id: orNull(values.purchase_order_id),
-          goods_receipt_id: orNull(values.goods_receipt_id),
+          purchase_order_id: asText(values.purchase_order_id),
+          goods_receipt_id: asText(values.goods_receipt_id),
           // Null clears the header centre, and the form holds the bill's own
           // value - so an account shown no picker sends back what it found.
-          cost_centre_id: orNull(values.cost_centre_id),
+          cost_centre_id: asText(values.cost_centre_id),
           round_off_amount: zeroIfBlank(values.round_off_amount),
           // An empty string, not null. The service writes whatever is not null,
           // so this is the one spelling that can actually clear a note.
@@ -755,11 +751,11 @@ export function VendorInvoiceFormDialog({
         // the company's own denomination.
         ...(values.due_date ? { due_date: values.due_date } : {}),
         ...(values.currency.trim() ? { currency: values.currency.trim().toUpperCase() } : {}),
-        purchase_order_id: orNull(values.purchase_order_id),
-        goods_receipt_id: orNull(values.goods_receipt_id),
-        cost_centre_id: orNull(values.cost_centre_id),
+        purchase_order_id: asText(values.purchase_order_id),
+        goods_receipt_id: asText(values.goods_receipt_id),
+        cost_centre_id: asText(values.cost_centre_id),
         round_off_amount: zeroIfBlank(values.round_off_amount),
-        notes: orNull(values.notes),
+        notes: asText(values.notes),
         lines: payload,
       }
       return api.post<VendorInvoiceDetail>('/finance/vendor-invoices', create)
@@ -1388,21 +1384,21 @@ export function VendorInvoiceFormDialog({
  */
 function buildLines(values: InvoiceFormValues): VendorInvoiceLinePayload[] {
   return values.lines.map((line) => ({
-    item_id: orNull(line.item_id),
-    uom_id: orNull(line.uom_id),
-    description: orNull(line.description),
-    hsn_code: orNull(line.hsn_code),
+    item_id: asText(line.item_id),
+    uom_id: asText(line.uom_id),
+    description: asText(line.description),
+    hsn_code: asText(line.hsn_code),
     // Quantities and prices stay strings on the wire; the API parses Decimals.
     quantity: line.quantity.trim(),
     unit_price: line.unit_price.trim(),
     discount_amount: zeroIfBlank(line.discount_amount),
     tax_rate: zeroIfBlank(line.tax_rate),
     is_interstate: line.is_interstate,
-    purchase_order_line_id: orNull(line.purchase_order_line_id),
-    goods_receipt_line_id: orNull(line.goods_receipt_line_id),
+    purchase_order_line_id: asText(line.purchase_order_line_id),
+    goods_receipt_line_id: asText(line.goods_receipt_line_id),
     // Null is "as the invoice": the expense is split by each line's effective
     // centre at approval - its own, else the header's, else none.
-    cost_centre_id: orNull(line.cost_centre_id),
-    notes: orNull(line.notes),
+    cost_centre_id: asText(line.cost_centre_id),
+    notes: asText(line.notes),
   }))
 }

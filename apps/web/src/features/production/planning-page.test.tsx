@@ -9,14 +9,14 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
-import { localTodayISO } from './planning-model'
 import PlanningPage from './planning-page'
 import type { WorkOrder } from './work-order-model'
 
-const TODAY = localTodayISO()
+const TODAY = toDateInput(new Date())
 
 const CENTRE = { id: 'wc-1', code: 'MILL-01', name: 'CNC milling' }
 

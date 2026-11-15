@@ -437,7 +437,7 @@ describe('vendor order action payloads', () => {
     )
     const modal = within(screen.getByRole('dialog'))
     expect(modal.getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'INVOICE',
+      'Invoice',
       'Whole order',
     ])
     await view.user.upload(

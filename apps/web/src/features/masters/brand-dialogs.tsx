@@ -48,10 +48,10 @@ import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asId, asText } from '@/lib/form-values'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { toast } from '@/lib/toast'
-import { asId, asText } from '@/lib/utils'
 
 import { mastersKeys, type BrandRow } from './masters-model'
 

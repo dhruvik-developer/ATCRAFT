@@ -50,11 +50,11 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { EMPTY_VALUE } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { IFSC_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
-import { asText } from '@/lib/utils'
 
 import { orgKeys, type CompanyRecord } from './admin-types'
 

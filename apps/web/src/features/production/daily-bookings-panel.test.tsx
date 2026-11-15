@@ -6,13 +6,13 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
 import { DailyBookingsPanel } from './daily-bookings-panel'
-import { localTodayISO } from './planning-model'
 
-const TODAY = localTodayISO()
+const TODAY = toDateInput(new Date())
 
 const ORDER = {
   id: 'po-1',

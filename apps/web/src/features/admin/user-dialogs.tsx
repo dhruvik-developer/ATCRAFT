@@ -71,12 +71,12 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asId, asText } from '@/lib/form-values'
 import { plural } from '@/lib/format'
 import { describeError, empty, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { asId, asText } from '@/lib/utils'
 
 import {
   useBranchOptions,

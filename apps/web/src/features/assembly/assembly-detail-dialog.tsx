@@ -51,6 +51,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { zeroIfBlank } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -97,9 +98,6 @@ import { AssemblyOrderFormDialog } from './assembly-order-dialog'
 
 const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
-
-/** Decimals stay strings all the way to the wire - never parsed into a double. */
-const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
 
 // -------------------------------------------------------- issue components --
 
@@ -195,7 +193,7 @@ function IssueComponentsDialog({
         reason: values.reason.trim(),
         lines: values.lines.map((line) => ({
           line_number: line.line_number,
-          issued_quantity: asDecimal(line.quantity),
+          issued_quantity: zeroIfBlank(line.quantity),
           ...(line.batch_id ? { batch_id: line.batch_id } : {}),
         })),
       }),
@@ -696,8 +694,8 @@ function CompleteAssemblyDialog({
       // `CompletionResult`, not the order: the endpoint answers with what the
       // posting did and nests the order inside it.
       api.post<AssemblyCompletionResult>(`/assembly/${orderId}/complete`, {
-        assembled_quantity: asDecimal(values.assembled_quantity),
-        rejected_quantity: asDecimal(values.rejected_quantity),
+        assembled_quantity: zeroIfBlank(values.assembled_quantity),
+        rejected_quantity: zeroIfBlank(values.rejected_quantity),
         reason: values.reason.trim(),
         output_batch_id: values.output_batch_id || null,
         output_serial_numbers: splitSerialNumbers(values.output_serial_numbers),

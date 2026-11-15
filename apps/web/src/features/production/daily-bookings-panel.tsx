@@ -25,7 +25,7 @@ import { ShiftSelect } from '@/features/shifts/shift-select'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import { EMPTY_VALUE, formatDate, formatQuantity, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -36,7 +36,6 @@ import {
   type ProductionEntryRow,
   type ProductionOrderRow,
 } from './production-model'
-import { localTodayISO } from './planning-model'
 
 /** One page of `GET /production/entries` is 200 rows; past that the tab says so. */
 const DAY_BOOKING_LIMIT = 200
@@ -64,7 +63,7 @@ function DayCell({ total }: { total: DayTotal | undefined }) {
 export function DailyBookingsPanel() {
   const { can } = useAuth()
   const canRecord = can(P.PRODUCTION_ENTRY_CREATE)
-  const [date, setDate] = useState(localTodayISO)
+  const [date, setDate] = useState(() => toDateInput(new Date()))
   const [shiftId, setShiftId] = useState<string | null>(null)
   const [recording, setRecording] = useState<ProductionOrderRow | null>(null)
 
@@ -124,7 +123,7 @@ export function DailyBookingsPanel() {
             id="daily-bookings-date"
             type="date"
             value={date}
-            max={localTodayISO()}
+            max={toDateInput(new Date())}
             onChange={(event) => event.target.value && setDate(event.target.value)}
             className="mt-1 w-auto"
           />

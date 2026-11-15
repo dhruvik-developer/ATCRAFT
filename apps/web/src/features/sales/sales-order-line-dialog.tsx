@@ -41,6 +41,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions, type ItemVariant } from '@/features/items/item-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
+import { asText } from '@/lib/form-values'
 import { validation } from '@/lib/messages'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
@@ -106,8 +107,6 @@ function valuesFrom(line: SalesOrderLineIn): LineFormValues {
     notes: line.notes ?? '',
   }
 }
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 export function SalesOrderLineDialog({
   open,
@@ -181,14 +180,14 @@ export function SalesOrderLineDialog({
       line_number: lineNumber,
       item_id: values.item_id,
       item_variant_id: values.item_variant_id === SELECT_NONE ? null : values.item_variant_id,
-      description: orNull(values.description),
+      description: asText(values.description),
       // Decimals stay strings all the way to the wire - never parsed to a double.
       quantity: values.quantity.trim(),
       uom_id: values.uom_id === ITEM_DEFAULT_UOM ? null : values.uom_id,
-      unit_price: orNull(values.unit_price),
-      discount_percentage: orNull(values.discount_percentage),
-      required_date: orNull(values.required_date),
-      notes: orNull(values.notes),
+      unit_price: asText(values.unit_price),
+      discount_percentage: asText(values.discount_percentage),
+      required_date: asText(values.required_date),
+      notes: asText(values.notes),
     })
     onOpenChange(false)
   }

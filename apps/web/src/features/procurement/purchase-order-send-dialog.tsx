@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, SELECT_NONE } from '@/lib/constants'
+import { asText } from '@/lib/form-values'
 import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -134,7 +135,7 @@ export function PurchaseOrderSendDialog({
     mutationFn: () => {
       const body: SendOrderPayload = {
         assigned_vendor_user_id: choice === SELECT_NONE ? null : choice,
-        reason: note.trim() === '' ? null : note.trim(),
+        reason: asText(note),
       }
       return api.post<PurchaseOrderRow>(`/procurement/purchase-orders/${order.id}/send`, body)
     },

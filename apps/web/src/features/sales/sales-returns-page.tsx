@@ -37,6 +37,7 @@ import {
   TableScroller,
 } from '@/components/ui/table'
 import { useListQuery } from '@/hooks/use-list-query'
+import { asText } from '@/lib/form-values'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { useAuth } from '@/features/auth/auth-context'
@@ -176,7 +177,7 @@ function NewSalesReturnDialog({
       api.post<SalesReturnDetail>('/sales-returns', {
         dispatch_id: dispatchId,
         return_warehouse_id: warehouseId || null,
-        notes: notes.trim() || null,
+        notes: asText(notes),
         lines: lines
           .filter(({ line }) => quantities[line.id])
           .map(({ line, named }) => ({

@@ -66,6 +66,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { formatMoney, formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -128,10 +129,6 @@ const JOB_WORK_OUTPUT_FILTERS = {
   is_batch_tracked: false,
   is_serial_tracked: false,
 }
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
-const today = (): string => toDateInput(new Date())
 
 // ------------------------------------------------------------------ form ----
 
@@ -316,10 +313,10 @@ function buildLines(values: JobWorkFormValues): JobWorkOrderLineCreate[] {
     // Decimals stay strings all the way to the wire - never parsed into a double.
     quantity_to_issue: line.quantity_to_issue.trim(),
     expected_output_item_id: line.expected_output_item_id || null,
-    expected_output_quantity: line.expected_output_quantity.trim() || null,
+    expected_output_quantity: asText(line.expected_output_quantity),
     expected_loss_percentage: line.expected_loss_percentage.trim(),
     source_receipt_line_id: line.source_receipt_line_id || null,
-    notes: orNull(line.notes),
+    notes: asText(line.notes),
   }))
 }
 
@@ -338,26 +335,26 @@ function buildCreate(values: JobWorkFormValues, rework?: ReworkPrefill | null): 
   return {
     vendor_id: values.vendor_id,
     process_type: values.process_type,
-    process_description: orNull(values.process_description),
+    process_description: asText(values.process_description),
     expected_return_date: values.expected_return_date,
     warehouse_id: values.warehouse_id,
     return_warehouse_id: returnWarehouse(values),
     // Explicit or absent: a job-work order inherits no centre from anything it
     // was raised against (docs/assumptions.md §42).
-    cost_centre_id: orNull(values.cost_centre_id),
+    cost_centre_id: asText(values.cost_centre_id),
     rate_per_unit: values.rate_per_unit.trim(),
     rate_basis: values.rate_basis,
     // Blank means the documented defaults: the API fills the GST rate and the
     // SAC in when the payload omits them.
-    tax_rate: values.tax_rate.trim() === '' ? null : values.tax_rate.trim(),
-    sac_code: values.sac_code.trim() === '' ? null : values.sac_code.trim(),
+    tax_rate: asText(values.tax_rate),
+    sac_code: asText(values.sac_code),
     requires_qc: values.requires_qc,
     // A rework order names the receipt whose rejected output it reprocesses;
     // anything else is MANUAL with no source. The pairing is the API's:
     // MANUAL must carry no source id, any other source type must carry one.
     source_type: rework ? 'REWORK' : 'MANUAL',
     source_id: rework ? rework.sourceId : null,
-    notes: orNull(values.notes),
+    notes: asText(values.notes),
     lines: buildLines(values),
   }
 }
@@ -366,23 +363,23 @@ function buildCreate(values: JobWorkFormValues, rework?: ReworkPrefill | null): 
 function buildUpdate(values: JobWorkFormValues): JobWorkOrderUpdate {
   return {
     process_type: values.process_type,
-    process_description: orNull(values.process_description),
+    process_description: asText(values.process_description),
     expected_return_date: values.expected_return_date,
     warehouse_id: values.warehouse_id,
     return_warehouse_id: returnWarehouse(values),
     // Always stated. `cost_centre_id` is one of the draft fields an explicit
     // null clears, and the form holds the order's own value - so an account
     // shown no picker sends back exactly what the order already carries.
-    cost_centre_id: orNull(values.cost_centre_id),
+    cost_centre_id: asText(values.cost_centre_id),
     rate_per_unit: values.rate_per_unit.trim(),
     rate_basis: values.rate_basis,
     // Always stated. Both fields are ones an explicit null clears, and the
     // form holds the order's own values - so an account clearing neither sends
     // back exactly what the order already carries.
-    tax_rate: values.tax_rate.trim() === '' ? null : values.tax_rate.trim(),
-    sac_code: values.sac_code.trim() === '' ? null : values.sac_code.trim(),
+    tax_rate: asText(values.tax_rate),
+    sac_code: asText(values.sac_code),
     requires_qc: values.requires_qc,
-    notes: orNull(values.notes),
+    notes: asText(values.notes),
     lines: buildLines(values),
   }
 }
@@ -601,7 +598,7 @@ export function JobWorkOrderFormDialog({
             // since slipped is not a new one, so such a draft stays amendable.
             // A changed date in the past comes back as a 422 naming
             // `expected_return_date`, which `applyFieldErrors` puts under it.
-            if (!amending && formValues.expected_return_date < today()) {
+            if (!amending && formValues.expected_return_date < toDateInput(new Date())) {
               setError('expected_return_date', {
                 type: 'manual',
                 message: 'The material cannot be due back before today',
@@ -703,7 +700,7 @@ export function JobWorkOrderFormDialog({
                     <Input
                       id="job-work-return-date"
                       type="date"
-                      min={amending ? undefined : today()}
+                      min={amending ? undefined : toDateInput(new Date())}
                       {...register('expected_return_date')}
                       className="mt-1.5"
                       aria-invalid={Boolean(errors.expected_return_date)}

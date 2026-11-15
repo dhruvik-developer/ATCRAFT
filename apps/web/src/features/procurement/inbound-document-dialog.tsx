@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/overlays'
 import { Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { humanise } from '@/lib/format'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
@@ -127,7 +128,7 @@ export function InboundDocumentDialog({
               <NativeSelect size="touch" id="upload-kind" {...form.register('kind')}>
                 {kinds.map((kind) => (
                   <option key={kind} value={kind}>
-                    {kind.replaceAll('_', ' ')}
+                    {humanise(kind)}
                   </option>
                 ))}
               </NativeSelect>

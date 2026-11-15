@@ -66,6 +66,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { ApiError, api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatQuantity, plural, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, errorDescription, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -329,8 +330,6 @@ function linesFrom(order: PurchaseOrderDetail): ReceiptFormValues['lines'] {
   )
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
 /**
  * Where an order line's item is put away, as the order line itself names it.
  *
@@ -418,20 +417,20 @@ export function GrnReceiveDialog({
       const payload: GoodsReceiptCreatePayload = {
         purchase_order_id: order.id,
         receipt_date: values.receipt_date,
-        vendor_delivery_note: orNull(values.vendor_delivery_note),
-        vendor_invoice_number: orNull(values.vendor_invoice_number),
-        gate_entry_number: orNull(values.gate_entry_number),
-        vehicle_number: orNull(values.vehicle_number),
-        notes: orNull(values.notes),
+        vendor_delivery_note: asText(values.vendor_delivery_note),
+        vendor_invoice_number: asText(values.vendor_invoice_number),
+        gate_entry_number: asText(values.gate_entry_number),
+        vehicle_number: asText(values.vehicle_number),
+        notes: asText(values.notes),
         lines: received.map((line, index) => ({
           line_number: index + 1,
           purchase_order_line_id: line.purchase_order_line_id,
           // Quantities stay strings on the wire; the API parses Decimals.
           received_quantity: line.received_quantity.trim(),
-          accepted_quantity: line.accepted_quantity.trim() || '0',
-          rejected_quantity: line.rejected_quantity.trim() || '0',
-          batch_number: orNull(line.batch_number),
-          rejection_reason: orNull(line.rejection_reason),
+          accepted_quantity: zeroIfBlank(line.accepted_quantity),
+          rejected_quantity: zeroIfBlank(line.rejected_quantity),
+          batch_number: asText(line.batch_number),
+          rejection_reason: asText(line.rejection_reason),
           ...(splitSerialNumbers(line.serial_numbers).length > 0
             ? { serial_numbers: splitSerialNumbers(line.serial_numbers) }
             : {}),

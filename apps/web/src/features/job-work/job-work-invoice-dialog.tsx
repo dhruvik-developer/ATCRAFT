@@ -48,6 +48,7 @@ import {
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
+import { zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -165,7 +166,7 @@ export function JobWorkInvoiceDialog({
             quantity: edit.quantity.trim() as DecimalString,
             unit_price: edit.unit_price.trim() as DecimalString,
             discount_amount: '0' as DecimalString,
-            tax_rate: (edit.tax_rate.trim() === '' ? '0' : edit.tax_rate.trim()) as DecimalString,
+            tax_rate: zeroIfBlank(edit.tax_rate) as DecimalString,
             is_interstate: isInterstate,
           }),
         }
@@ -232,10 +233,7 @@ export function JobWorkInvoiceDialog({
           quantity: entry.edit.quantity.trim(),
           unit_price: entry.edit.unit_price.trim(),
           discount_amount: '0',
-          tax_rate: (() => {
-            const raw = entry.edit.tax_rate.trim()
-            return raw === '' ? '0' : raw
-          })(),
+          tax_rate: zeroIfBlank(entry.edit.tax_rate),
           is_interstate: isInterstate,
         })),
       }

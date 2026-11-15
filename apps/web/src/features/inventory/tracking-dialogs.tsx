@@ -35,6 +35,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -86,13 +87,13 @@ export function RegisterBatchDialog({ onClose }: { onClose: () => void }) {
       api.post<StockBatchRow>('/inventory/batches', {
         item_id: itemId,
         batch_number: batchNumber.trim(),
-        supplier_batch_number: supplierBatch.trim() || null,
+        supplier_batch_number: asText(supplierBatch),
         manufactured_on: manufacturedOn || null,
         expires_on: expiresOn || null,
         received_on: receivedOn || null,
-        initial_quantity: initialQuantity.trim() || '0',
-        unit_cost: unitCost.trim() || '0',
-        notes: notes.trim() || null,
+        initial_quantity: zeroIfBlank(initialQuantity),
+        unit_cost: zeroIfBlank(unitCost),
+        notes: asText(notes),
       }),
     onSuccess: (batch) => {
       toast.success(success.created('Batch'), batch.batch_number)
@@ -363,7 +364,7 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
         location_id: null,
         received_on: receivedOn || null,
         unit_cost: '0',
-        notes: notes.trim() || null,
+        notes: asText(notes),
       }),
     onSuccess: async (created) => {
       toast.success(success.created('Serials'), plural(created.length, 'unit'))

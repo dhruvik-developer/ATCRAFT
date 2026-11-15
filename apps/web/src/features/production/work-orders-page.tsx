@@ -61,6 +61,7 @@ import { EMPTY_VALUE, formatDateTime, formatQuantity, humanise, toDecimal } from
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
+import { indexById } from '@/lib/utils'
 
 import { WipBoardPanel } from './wip-board-panel'
 import { WipByOrderPanel } from './wip-by-order-panel'
@@ -73,7 +74,6 @@ import {
   WORK_ORDER_STATUSES,
   bookedPercent,
   formatMinutes,
-  indexById,
   isReschedulable,
   optionLabel,
   plannedMinutes,

@@ -34,6 +34,7 @@ import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -104,7 +105,7 @@ export function RoleFormDialog({
 
   const mutation = useMutation({
     mutationFn: (values: RoleFormValues) => {
-      const description = values.description.trim() || null
+      const description = asText(values.description)
       return role
         ? api.patch<RoleDetail>(`/roles/${role.id}`, {
             name: values.name.trim(),

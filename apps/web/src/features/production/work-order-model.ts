@@ -268,11 +268,6 @@ export function formatMinutes(value: DecimalString | Decimal | null | undefined)
   return `${hours.toFixed(0)} h ${minutes.toFixed(0)} m`
 }
 
-/** Index a bounded option list by id, so a row resolves its label without a fetch. */
-export function indexById<T extends { id: string }>(rows: readonly T[]): Map<string, T> {
-  return new Map(rows.map((row) => [row.id, row]))
-}
-
 /** "MILL-01 - CNC milling", the way both the pickers and the grids name a record. */
 export const optionLabel = (option: { code: string; name: string }): string =>
   `${option.code} - ${option.name}`

@@ -63,6 +63,7 @@ import {
   LOOKUP_LIST_LIMIT,
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatQuantity, humanise, plural, toDateInput, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -88,14 +89,6 @@ const WHOLE = /^\d{1,6}$/
 const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
 /** Minutes are a measured value on the wire, so decimals are legitimate. */
 const MINUTES = /^(\d{1,6}(\.\d{1,4})?)?$/
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-/** Decimals stay strings all the way to the wire - never parsed into a double. */
-const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
-
-function today(): string {
-  return toDateInput(new Date())
-}
 
 const completionSchema = z
   .object({
@@ -158,7 +151,7 @@ function completionDefaults(): CompletionFormValues {
     rejected_quantity: '0',
     rejection_reason: '',
     scrap_quantity: '0',
-    actual_end_date: today(),
+    actual_end_date: toDateInput(new Date()),
     shift_id: '',
     output_batch_id: '',
     output_serial_numbers: '',
@@ -205,16 +198,16 @@ export function CompleteProductionDialog({
 
   const submit = (values: CompletionFormValues) => {
     onConfirm({
-      produced_quantity: asDecimal(values.produced_quantity),
-      rejected_quantity: asDecimal(values.rejected_quantity),
-      rejection_reason: orNull(values.rejection_reason),
-      scrap_quantity: asDecimal(values.scrap_quantity),
+      produced_quantity: zeroIfBlank(values.produced_quantity),
+      rejected_quantity: zeroIfBlank(values.rejected_quantity),
+      rejection_reason: asText(values.rejection_reason),
+      scrap_quantity: zeroIfBlank(values.scrap_quantity),
       entry_date: values.actual_end_date,
       actual_end_date: values.actual_end_date,
-      shift_id: orNull(values.shift_id),
-      output_batch_id: orNull(values.output_batch_id),
+      shift_id: asText(values.shift_id),
+      output_batch_id: asText(values.output_batch_id),
       output_serial_numbers: splitSerialNumbers(values.output_serial_numbers),
-      note: orNull(values.note),
+      note: asText(values.note),
     })
   }
 
@@ -411,7 +404,7 @@ export function CloseProductionDialog({
       description="Closing settles the order and its costing. A closed order cannot be reopened."
       confirmLabel="Close order"
       loading={loading}
-      onConfirm={() => onConfirm({ closure_note: orNull(closureNote.trim()) })}
+      onConfirm={() => onConfirm({ closure_note: asText(closureNote.trim()) })}
     >
       <div className="space-y-4">
         <div className="rounded-md border p-3">
@@ -498,8 +491,8 @@ function emptyOrder(): OrderFormValues {
     item_id: '',
     bom_id: '',
     planned_quantity: '1',
-    planned_start_date: today(),
-    planned_end_date: today(),
+    planned_start_date: toDateInput(new Date()),
+    planned_end_date: toDateInput(new Date()),
     priority: String(PRIORITY_DEFAULT),
     warehouse_id: '',
     cost_centre_id: '',
@@ -562,8 +555,8 @@ export function ProductionOrderFormDialog({
     mutationFn: (values: OrderFormValues) =>
       api.post<ProductionOrderRow>('/production', {
         item_id: values.item_id,
-        bom_id: orNull(values.bom_id),
-        planned_quantity: asDecimal(values.planned_quantity),
+        bom_id: asText(values.bom_id),
+        planned_quantity: zeroIfBlank(values.planned_quantity),
         // The API takes both dates and the warehouse as required values; the
         // form now insists on them rather than sending null and earning a 422.
         planned_start_date: values.planned_start_date,
@@ -572,11 +565,11 @@ export function ProductionOrderFormDialog({
         warehouse_id: values.warehouse_id,
         // Explicit or absent: an order inherits no centre from anywhere
         // (docs/assumptions.md §42), and material issued to it inherits this.
-        cost_centre_id: orNull(values.cost_centre_id),
+        cost_centre_id: asText(values.cost_centre_id),
         // `auto` is the server default (item flag or gated routing); the other
         // two post an explicit choice.
         ...(values.qc_mode === 'auto' ? {} : { requires_qc: values.qc_mode === 'hold' }),
-        notes: orNull(values.notes),
+        notes: asText(values.notes),
       }),
     onSuccess: (order) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
@@ -931,14 +924,14 @@ export function IssueMaterialDialog({
       // kit. Stopping after it left the dialog claiming stock had left the store
       // while the ledger was untouched.
       const draft = await api.post<MaterialIssueDetail>(`/production/${orderId}/material-issues`, {
-        warehouse_id: orNull(values.warehouse_id),
+        warehouse_id: asText(values.warehouse_id),
         reason: values.reason.trim(),
         lines: values.lines
           .filter((line) => toDecimal(line.quantity).greaterThan(0))
           .map((line) => ({
             component_id: line.component_id,
             line_number: line.line_number,
-            quantity: asDecimal(line.quantity),
+            quantity: zeroIfBlank(line.quantity),
             ...(line.location_id ? { location_id: line.location_id } : {}),
           })),
       })
@@ -1292,14 +1285,14 @@ export function ReturnMaterialDialog({
       // `/material-issues/{id}/post`, the one endpoint that posts both
       // directions and asks for the right matching the document it loads.
       const payload: SchemaOf<'MaterialIssueCreate'> = {
-        warehouse_id: orNull(values.warehouse_id),
+        warehouse_id: asText(values.warehouse_id),
         reason: values.reason.trim(),
         lines: values.lines
           .filter((line) => toDecimal(line.quantity).greaterThan(0))
           .map((line) => ({
             component_id: line.component_id,
             line_number: line.line_number,
-            quantity: asDecimal(line.quantity),
+            quantity: zeroIfBlank(line.quantity),
           })),
       }
       const draft = await api.post<MaterialIssueDetail>(
@@ -1588,7 +1581,7 @@ type EntryFormValues = z.infer<typeof entrySchema>
 
 function emptyEntry(): EntryFormValues {
   return {
-    entry_date: today(),
+    entry_date: toDateInput(new Date()),
     shift_id: '',
     work_order_id: '',
     operator_user_id: '',
@@ -1693,19 +1686,19 @@ export function RecordProductionDialog({
     mutationFn: (values: EntryFormValues) =>
       api.post<ProductionEntryResult>(`/production/${orderId}/entries`, {
         entry_date: values.entry_date,
-        shift_id: orNull(values.shift_id),
-        work_order_id: orNull(values.work_order_id),
-        operator_user_id: orNull(values.operator_user_id),
-        machine_id: orNull(values.machine_id),
-        produced_quantity: asDecimal(values.produced_quantity),
-        rejected_quantity: asDecimal(values.rejected_quantity),
-        rejection_reason: orNull(values.rejection_reason),
+        shift_id: asText(values.shift_id),
+        work_order_id: asText(values.work_order_id),
+        operator_user_id: asText(values.operator_user_id),
+        machine_id: asText(values.machine_id),
+        produced_quantity: zeroIfBlank(values.produced_quantity),
+        rejected_quantity: zeroIfBlank(values.rejected_quantity),
+        rejection_reason: asText(values.rejection_reason),
         // Downtime is a measured value like everything else here, so it stays a
         // decimal string rather than being parsed into a double.
-        downtime_minutes: asDecimal(values.downtime_minutes),
+        downtime_minutes: zeroIfBlank(values.downtime_minutes),
         ...(booksOutput
           ? {
-              output_batch_id: orNull(values.output_batch_id),
+              output_batch_id: asText(values.output_batch_id),
               output_serial_numbers: splitSerialNumbers(values.output_serial_numbers),
             }
           : {}),

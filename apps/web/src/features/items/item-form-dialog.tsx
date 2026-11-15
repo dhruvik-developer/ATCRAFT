@@ -34,6 +34,7 @@ import { WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import { humanise, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { useBrandOptions } from '@/hooks/use-brand-options'
@@ -43,7 +44,6 @@ import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { asId, asText } from '@/lib/utils'
 
 import {
   ALL_CAPABILITIES,
@@ -223,9 +223,6 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
   }
 }
 
-/** Decimals stay strings all the way to the wire - never parsed into a double. */
-const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
-
 function buildPayload(
   values: ItemFormValues,
   {
@@ -251,12 +248,12 @@ function buildPayload(
     purchase_uom_id: asId(values.purchase_uom_id),
     sale_uom_id: asId(values.sale_uom_id),
     hsn_code: asText(values.hsn_code),
-    gst_rate: asDecimal(values.gst_rate),
+    gst_rate: zeroIfBlank(values.gst_rate),
     production_type: values.production_type,
-    reorder_level: asDecimal(values.reorder_level),
-    reorder_quantity: asDecimal(values.reorder_quantity),
-    min_order_quantity: asDecimal(values.min_order_quantity),
-    safety_stock: asDecimal(values.safety_stock),
+    reorder_level: zeroIfBlank(values.reorder_level),
+    reorder_quantity: zeroIfBlank(values.reorder_quantity),
+    min_order_quantity: zeroIfBlank(values.min_order_quantity),
+    safety_stock: zeroIfBlank(values.safety_stock),
     // An empty shelf life posts null, which clears it; the API refuses a shelf
     // life on an item that is not batch tracked.
     shelf_life_days:
@@ -265,7 +262,7 @@ function buildPayload(
     default_location_id: values.default_location_id || null,
     // Days are a whole count, not a monetary decimal, so an integer is correct.
     lead_time_days: Number.parseInt(values.lead_time_days || '0', 10),
-    ...(includeCost ? { standard_cost: asDecimal(values.standard_cost) } : {}),
+    ...(includeCost ? { standard_cost: zeroIfBlank(values.standard_cost) } : {}),
     // The two channel prices are governed by a second right on top of
     // `item.update`: moving either needs `price.manage`. Posting an unchanged
     // value would be a harmless no-op - the API only fires the gate when the
@@ -273,8 +270,8 @@ function buildPayload(
     // principal who cannot see the field cannot disturb it by accident.
     ...(includePrices
       ? {
-          sale_price: asDecimal(values.sale_price),
-          dealer_price: asDecimal(values.dealer_price),
+          sale_price: zeroIfBlank(values.sale_price),
+          dealer_price: zeroIfBlank(values.dealer_price),
         }
       : {}),
     is_batch_tracked: values.is_batch_tracked,

@@ -25,6 +25,7 @@ import {
   TableScroller,
 } from '@/components/ui/table'
 import { api } from '@/lib/api-client'
+import { asText } from '@/lib/form-values'
 import { formatDate, formatDateTime, formatQuantity, humanise } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
@@ -135,7 +136,7 @@ export function VendorJobWorkDetailPage() {
         update_type: updateType,
         event_time: new Date().toISOString(),
         expected_date: expectedDate || null,
-        note: note.trim() || null,
+        note: asText(note),
       }),
     onSuccess: async () => {
       toast.success(success.recorded('Status update'))

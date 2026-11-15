@@ -64,6 +64,7 @@ import {
   DEFAULT_ASSEMBLY_PRIORITY,
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { formatQuantity, humanise, toDateInput } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -126,8 +127,6 @@ function defaultsFor(order?: AssemblyOrderDetail | null): FormValues {
     notes: order?.notes ?? '',
   }
 }
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 export function AssemblyOrderFormDialog({
   open,
@@ -193,8 +192,8 @@ export function AssemblyOrderFormDialog({
 
   const save = useMutation({
     mutationFn: (values: FormValues) => {
-      const plannedStart = orNull(values.planned_start)
-      const plannedEnd = orNull(values.planned_end)
+      const plannedStart = asText(values.planned_start)
+      const plannedEnd = asText(values.planned_end)
       if (editing && order) {
         // No item and no BOM: changing what is being built is a different
         // order, not an edit. An explicit null clears a nullable column; the
@@ -203,12 +202,12 @@ export function AssemblyOrderFormDialog({
           planned_quantity: values.planned_quantity.trim(),
           warehouse_id: values.warehouse_id,
           output_warehouse_id: values.output_warehouse_id || null,
-          assembly_line: orNull(values.assembly_line),
+          assembly_line: asText(values.assembly_line),
           planned_start: plannedStart,
           planned_end: plannedEnd,
           priority: Number(values.priority),
           requires_qc: values.requires_qc,
-          notes: orNull(values.notes),
+          notes: asText(values.notes),
         })
       }
       return api.post<AssemblyOrderDetail>('/assembly', {
@@ -218,12 +217,12 @@ export function AssemblyOrderFormDialog({
         planned_quantity: values.planned_quantity.trim(),
         warehouse_id: values.warehouse_id,
         ...(values.output_warehouse_id ? { output_warehouse_id: values.output_warehouse_id } : {}),
-        ...(orNull(values.assembly_line) ? { assembly_line: orNull(values.assembly_line) } : {}),
+        ...(asText(values.assembly_line) ? { assembly_line: asText(values.assembly_line) } : {}),
         ...(plannedStart ? { planned_start: plannedStart } : {}),
         ...(plannedEnd ? { planned_end: plannedEnd } : {}),
         priority: Number(values.priority),
         requires_qc: values.requires_qc,
-        ...(orNull(values.notes) ? { notes: orNull(values.notes) } : {}),
+        ...(asText(values.notes) ? { notes: asText(values.notes) } : {}),
       })
     },
     onSuccess: (saved) => {

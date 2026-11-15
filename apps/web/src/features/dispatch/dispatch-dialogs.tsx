@@ -74,6 +74,7 @@ import { useTransporterOptions } from '@/features/transporters/transporter-model
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -91,7 +92,6 @@ import { courierRefresh, describeError, fulfilment, success, validation } from '
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { asId } from '@/lib/utils'
 
 import { BatchSelect, SerialPicker } from './stock-pickers'
 import {
@@ -114,8 +114,6 @@ import {
 
 const MOBILE = /^$|^[0-9+\- ]{7,15}$/
 const BOXES = /^$|^\d{1,6}$/
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 // ----------------------------------------------------------- line editor ----
 
@@ -184,7 +182,7 @@ function LineEditor({
         batch_id: batchId || null,
         serial_ids: item?.is_serial_tracked ? serialIds : [],
         carton_ids: [],
-        notes: orNull(notes),
+        notes: asText(notes),
       },
       item ? `${item.code} - ${item.name}` : itemId,
     )
@@ -751,22 +749,22 @@ export function CreateDispatchDialog({
         customer_id: values.customer_id,
         sales_order_id: againstOrder ? values.sales_order_id : null,
         dispatch_date: values.dispatch_date,
-        expected_delivery_date: orNull(values.expected_delivery_date),
+        expected_delivery_date: asText(values.expected_delivery_date),
         transporter_id: asId(values.transporter_id),
-        courier_name: orNull(values.courier_name),
-        transport_name: orNull(values.transport_name),
-        tracking_id: orNull(values.tracking_id),
-        lr_number: orNull(values.lr_number),
-        vehicle_number: orNull(values.vehicle_number),
-        driver_name: orNull(values.driver_name),
-        driver_mobile: orNull(values.driver_mobile),
-        eway_bill_number: orNull(values.eway_bill_number),
+        courier_name: asText(values.courier_name),
+        transport_name: asText(values.transport_name),
+        tracking_id: asText(values.tracking_id),
+        lr_number: asText(values.lr_number),
+        vehicle_number: asText(values.vehicle_number),
+        driver_name: asText(values.driver_name),
+        driver_mobile: asText(values.driver_mobile),
+        eway_bill_number: asText(values.eway_bill_number),
         total_boxes: values.total_boxes.trim() === '' ? null : Number(values.total_boxes.trim()),
         // Weight and freight stay decimal strings on the wire.
-        total_weight_kg: orNull(values.total_weight_kg),
-        freight_amount: orNull(values.freight_amount),
+        total_weight_kg: asText(values.total_weight_kg),
+        freight_amount: asText(values.freight_amount),
         freight_paid_by: values.freight_paid_by === SELECT_NONE ? null : values.freight_paid_by,
-        notes: orNull(values.notes),
+        notes: asText(values.notes),
         lines: againstOrder
           ? shownOrderLines.map((line, index) => toOrderLineIn(line, orderLineFacts[index]))
           : lines.map((draft) => draft.line),
@@ -1253,8 +1251,8 @@ function AddTrackingEventForm({ dispatchId }: { dispatchId: string }) {
         event_status: values.event_status,
         // The API stores UTC; the picker collects local time.
         event_time: new Date(values.event_time).toISOString(),
-        location: orNull(values.location),
-        remark: orNull(values.remark),
+        location: asText(values.location),
+        remark: asText(values.remark),
         source: 'MANUAL',
       }),
     onSuccess: () => {
@@ -1461,21 +1459,21 @@ export function EditDispatchDialog({
     mutationFn: (values: EditDispatchFormValues) =>
       api.patch<DispatchDetail>(`/dispatch/${dispatchId}`, {
         dispatch_date: values.dispatch_date,
-        expected_delivery_date: orNull(values.expected_delivery_date),
+        expected_delivery_date: asText(values.expected_delivery_date),
         transporter_id: values.transporter_id === SELECT_NONE ? null : values.transporter_id,
-        courier_name: orNull(values.courier_name),
-        transport_name: orNull(values.transport_name),
-        tracking_id: orNull(values.tracking_id),
-        lr_number: orNull(values.lr_number),
-        vehicle_number: orNull(values.vehicle_number),
-        driver_name: orNull(values.driver_name),
-        driver_mobile: orNull(values.driver_mobile),
-        eway_bill_number: orNull(values.eway_bill_number),
+        courier_name: asText(values.courier_name),
+        transport_name: asText(values.transport_name),
+        tracking_id: asText(values.tracking_id),
+        lr_number: asText(values.lr_number),
+        vehicle_number: asText(values.vehicle_number),
+        driver_name: asText(values.driver_name),
+        driver_mobile: asText(values.driver_mobile),
+        eway_bill_number: asText(values.eway_bill_number),
         total_boxes: values.total_boxes.trim() === '' ? 0 : Number(values.total_boxes.trim()),
-        total_weight_kg: values.total_weight_kg.trim() || '0',
-        freight_amount: values.freight_amount.trim() || '0',
+        total_weight_kg: zeroIfBlank(values.total_weight_kg),
+        freight_amount: zeroIfBlank(values.freight_amount),
         freight_paid_by: values.freight_paid_by === SELECT_NONE ? null : values.freight_paid_by,
-        notes: orNull(values.notes),
+        notes: asText(values.notes),
       }),
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })

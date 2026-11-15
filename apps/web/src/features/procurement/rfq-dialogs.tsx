@@ -68,6 +68,7 @@ import {
   REASON_MIN_LENGTH,
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { formatDate, plural, toDateInput, toDecimal } from '@/lib/format'
 import { messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -388,8 +389,6 @@ function valuesFrom(rfq: RfqDetail): RfqFormValues {
   }
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
 function buildLines(lines: RfqFormValues['lines']): RfqLinePayload[] {
   return lines.map((line, index) => ({
     // Renumbered from the form's order, so removing the middle line of three
@@ -398,12 +397,12 @@ function buildLines(lines: RfqFormValues['lines']): RfqLinePayload[] {
     item_id: line.item_id,
     // Stays a string on the wire; the API parses a Decimal from it.
     quantity: line.quantity.trim(),
-    required_date: orNull(line.required_date),
-    specification: orNull(line.specification),
-    description: orNull(line.description),
-    uom_id: orNull(line.uom_id),
-    requisition_line_id: orNull(line.requisition_line_id),
-    notes: orNull(line.notes),
+    required_date: asText(line.required_date),
+    specification: asText(line.specification),
+    description: asText(line.description),
+    uom_id: asText(line.uom_id),
+    requisition_line_id: asText(line.requisition_line_id),
+    notes: asText(line.notes),
   }))
 }
 
@@ -630,12 +629,12 @@ export function RfqFormDialog({
         // wholesale - which is why they are always sent.
         const payload: RfqUpdatePayload = {
           warehouse_id: values.warehouse_id,
-          response_due_date: orNull(values.response_due_date),
-          required_date: orNull(values.required_date),
+          response_due_date: asText(values.response_due_date),
+          required_date: asText(values.required_date),
           currency: values.currency,
           vendor_ids: values.vendor_ids,
-          terms: orNull(values.terms),
-          notes: orNull(values.notes),
+          terms: asText(values.terms),
+          notes: asText(values.notes),
           lines: buildLines(values.lines),
         }
         return api.patch<RfqDetail>(`/procurement/rfqs/${rfqId}`, payload)
@@ -643,12 +642,12 @@ export function RfqFormDialog({
       const payload: RfqCreatePayload = {
         warehouse_id: values.warehouse_id,
         rfq_date: values.rfq_date,
-        response_due_date: orNull(values.response_due_date),
-        required_date: orNull(values.required_date),
+        response_due_date: asText(values.response_due_date),
+        required_date: asText(values.required_date),
         currency: values.currency,
         vendor_ids: values.vendor_ids,
-        terms: orNull(values.terms),
-        notes: orNull(values.notes),
+        terms: asText(values.terms),
+        notes: asText(values.notes),
         ...(values.requisition_id ? { requisition_id: values.requisition_id } : {}),
         // Omitted entirely rather than sent empty when the requisition's own
         // open lines are what is being quoted: `create_rfq` copies them only

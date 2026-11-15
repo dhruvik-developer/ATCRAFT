@@ -37,6 +37,7 @@ import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
+import { asText, asUpperText } from '@/lib/form-values'
 import { humanise } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
@@ -46,8 +47,6 @@ import { toast } from '@/lib/toast'
 import { ADDRESS_TYPES, type CustomerAddress, type CustomerContact } from './customer-types'
 
 const RELATION_LIMIT = 100
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 export function UnsavedCustomerNotice({ what }: { what: string }) {
   return (
@@ -189,19 +188,19 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
   const save = useMutation({
     mutationFn: (values: AddressValues) => {
       const common = {
-        label: orNull(values.label),
+        label: asText(values.label),
         address_line1: values.address_line1.trim(),
-        address_line2: orNull(values.address_line2),
-        landmark: orNull(values.landmark),
+        address_line2: asText(values.address_line2),
+        landmark: asText(values.landmark),
         city: values.city.trim(),
-        state: orNull(values.state),
-        state_code: orNull(values.state_code),
-        postal_code: orNull(values.postal_code),
+        state: asText(values.state),
+        state_code: asText(values.state_code),
+        postal_code: asText(values.postal_code),
         country: values.country.trim(),
-        gstin: orNull(values.gstin)?.toUpperCase() ?? null,
-        contact_person: orNull(values.contact_person),
-        phone: orNull(values.phone),
-        email: orNull(values.email),
+        gstin: asUpperText(values.gstin),
+        contact_person: asText(values.contact_person),
+        phone: asText(values.phone),
+        email: asText(values.email),
       }
       // The update schema carries neither the type nor the default flag: the
       // type is fixed once documents quote the address, and the default is
@@ -671,9 +670,9 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
     mutationFn: (values: ContactValues) => {
       const common = {
         name: values.name.trim(),
-        designation: orNull(values.designation),
-        email: orNull(values.email),
-        phone: orNull(values.phone),
+        designation: asText(values.designation),
+        email: asText(values.email),
+        phone: asText(values.phone),
       }
       // As with addresses, "primary" is promoted through its own endpoint.
       return editingId

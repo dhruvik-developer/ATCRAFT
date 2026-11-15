@@ -1,8 +1,6 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
-import { SELECT_NONE } from './constants'
-
 /**
  * Merge Tailwind classes with later ones winning.
  *
@@ -18,8 +16,12 @@ export function cn(...inputs: ClassValue[]): string {
  *
  * Takes `undefined` because it is nearly always fed a query result that has not
  * arrived yet, and an empty map renders a dash without the caller branching.
+ * Takes a readonly list because option lists are typed that way, and indexing
+ * never writes to its input.
  */
-export function indexById<T extends { id: string }>(rows: T[] | undefined): Map<string, T> {
+export function indexById<T extends { id: string }>(
+  rows: readonly T[] | undefined,
+): Map<string, T> {
   return new Map((rows ?? []).map((row) => [row.id, row]))
 }
 
@@ -31,14 +33,4 @@ export function initials(name: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('')
-}
-
-/** A Radix select value as an id: the "not set" sentinel and the empty string both mean null. */
-export const asId = (value: string): string | null =>
-  value === SELECT_NONE || value === '' ? null : value
-
-/** Trimmed free text as the API stores it: blank becomes null, never "". */
-export const asText = (value: string): string | null => {
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
 }

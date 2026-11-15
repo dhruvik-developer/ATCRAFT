@@ -54,6 +54,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
+import { asText, asUpperText } from '@/lib/form-values'
 import { errors, success, validation } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 import { GSTIN_PATTERN, PAN_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
@@ -209,30 +210,26 @@ function valuesFrom(transporter: Transporter): TransporterFormValues {
   }
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-const upperOrNull = (value: string): string | null =>
-  value.trim() === '' ? null : value.trim().toUpperCase()
-
 /** Everything both payloads carry. Typed against the contract, not by hand. */
 function sharedFields(values: TransporterFormValues) {
   return {
     name: values.name.trim(),
     transporter_type: values.transporter_type,
-    gstin: upperOrNull(values.gstin),
-    pan: upperOrNull(values.pan),
-    contact_person: orNull(values.contact_person),
-    email: orNull(values.email),
-    phone: orNull(values.phone),
-    mobile: orNull(values.mobile),
-    website: orNull(values.website),
-    address_line1: orNull(values.address_line1),
-    city: orNull(values.city),
-    state: orNull(values.state),
-    state_code: upperOrNull(values.state_code),
-    postal_code: orNull(values.postal_code),
+    gstin: asUpperText(values.gstin),
+    pan: asUpperText(values.pan),
+    contact_person: asText(values.contact_person),
+    email: asText(values.email),
+    phone: asText(values.phone),
+    mobile: asText(values.mobile),
+    website: asText(values.website),
+    address_line1: asText(values.address_line1),
+    city: asText(values.city),
+    state: asText(values.state),
+    state_code: asUpperText(values.state_code),
+    postal_code: asText(values.postal_code),
     country: values.country.trim(),
-    tracking_url_template: orNull(values.tracking_url_template),
-    notes: orNull(values.notes),
+    tracking_url_template: asText(values.tracking_url_template),
+    notes: asText(values.notes),
   }
 }
 

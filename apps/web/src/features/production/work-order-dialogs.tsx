@@ -39,6 +39,7 @@ import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui
 import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { ShiftSelect } from '@/features/shifts/shift-select'
 import { useAuth } from '@/features/auth/auth-context'
+import { asText } from '@/lib/form-values'
 import { P } from '@/lib/permissions'
 import type { SchemaOf } from '@/types/api'
 import { api } from '@/lib/api-client'
@@ -64,8 +65,6 @@ import {
   type WorkOrderTransitionPayload,
   type WorkOrderUpdatePayload,
 } from './work-order-model'
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 // ------------------------------------------------- assign and reschedule -----
 
@@ -137,7 +136,7 @@ function buildChanges(workOrder: WorkOrder, values: AssignFormValues): WorkOrder
     changes.planned_end_at = fromDateTimeInput(values.planned_end_at)
   }
 
-  const notes = orNull(values.notes)
+  const notes = asText(values.notes)
   if (notes !== workOrder.notes) changes.notes = notes
 
   return changes
@@ -473,7 +472,7 @@ export function WorkOrderTransitionDialog({
     mutationFn: ({ workOrder, transition: edge }: PendingTransition) => {
       const payload: WorkOrderTransitionPayload = {
         status: edge.target,
-        reason: orNull(reason),
+        reason: asText(reason),
         occurred_at: fromDateTimeInput(occurredAt),
       }
       return api.post<WorkOrder>(`/production/work-orders/${workOrder.id}/status`, payload)

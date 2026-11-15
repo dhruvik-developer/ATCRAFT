@@ -45,6 +45,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asId, asText } from '@/lib/form-values'
 import { formatQuantity, toDateInput } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -127,9 +128,6 @@ function valuesFrom(order: SalesOrderDetail): OrderFormValues {
     notes: order.notes ?? '',
   }
 }
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-const idOrNull = (value: string): string | null => (value === SELECT_NONE ? null : value)
 
 /** 1..9, clamped, because the API rejects anything outside that band outright. */
 function priorityOf(raw: string): number {
@@ -257,13 +255,13 @@ export function SalesOrderFormDialog({
       const header = {
         warehouse_id: values.warehouse_id,
         required_date: values.required_date,
-        promised_date: orNull(values.promised_date),
+        promised_date: asText(values.promised_date),
         priority: priorityOf(values.priority),
         is_urgent: values.is_urgent,
-        customer_po_number: orNull(values.customer_po_number),
-        billing_address_id: idOrNull(values.billing_address_id),
-        shipping_address_id: idOrNull(values.shipping_address_id),
-        notes: orNull(values.notes),
+        customer_po_number: asText(values.customer_po_number),
+        billing_address_id: asId(values.billing_address_id),
+        shipping_address_id: asId(values.shipping_address_id),
+        notes: asText(values.notes),
       }
 
       // `lines` is omitted from the patch entirely: sending it would replace the
@@ -273,7 +271,7 @@ export function SalesOrderFormDialog({
         : api.post<SalesOrderDetail>('/sales', {
             ...header,
             customer_id: values.customer_id,
-            order_date: orNull(values.order_date),
+            order_date: asText(values.order_date),
             lines,
           })
     },

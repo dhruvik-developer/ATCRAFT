@@ -35,6 +35,7 @@ import { useCategoryOptions } from '@/features/items/item-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { humanise } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
@@ -44,8 +45,6 @@ import { VENDOR_CONTACT_ROLES, type VendorCategoryLink, type VendorContact } fro
 
 /** One page covers every contact or qualification a vendor realistically has. */
 const RELATION_LIMIT = 100
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 export function UnsavedVendorNotice({ what }: { what: string }) {
   return (
@@ -148,10 +147,10 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
       const payload = {
         name: values.name.trim(),
         contact_role: values.contact_role,
-        designation: orNull(values.designation),
-        email: orNull(values.email),
-        phone: orNull(values.phone),
-        mobile: orNull(values.mobile),
+        designation: asText(values.designation),
+        email: asText(values.email),
+        phone: asText(values.phone),
+        mobile: asText(values.mobile),
       }
       if (!editingId) {
         return api.post<VendorContact>(`/vendors/${vendorId}/contacts`, {
@@ -483,12 +482,12 @@ export function VendorCategoriesPanel({
       editingId
         ? api.patch<VendorCategoryLink>(`/vendors/categories/${editingId}`, {
             is_preferred: values.is_preferred,
-            notes: orNull(values.notes),
+            notes: asText(values.notes),
           })
         : api.post<VendorCategoryLink>(`/vendors/${vendorId}/categories`, {
             item_category_id: values.item_category_id,
             is_preferred: values.is_preferred,
-            notes: orNull(values.notes),
+            notes: asText(values.notes),
           }),
     onSuccess: (saved) => {
       void invalidate()

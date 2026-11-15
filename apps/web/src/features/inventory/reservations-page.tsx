@@ -60,6 +60,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   daysUntil,
@@ -273,7 +274,7 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
       quantity: values.quantity.trim(),
       demand_type: values.demand_type,
       demand_id: values.demand_id.trim(),
-      demand_code: values.demand_code.trim() || null,
+      demand_code: asText(values.demand_code),
       reservation_type: values.reservation_type,
       // An integer the contract bounds at 9999, so `Number` is exact here in a
       // way it would never be for a quantity.

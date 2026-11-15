@@ -49,6 +49,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -143,8 +144,6 @@ function emptyValues(): PurchaseOrderFormValues {
   }
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
 /**
  * The create payload, exactly as `PurchaseOrderCreate` declares it.
  *
@@ -167,10 +166,10 @@ function buildPayload(values: PurchaseOrderFormValues): SchemaOf<'PurchaseOrderC
     ...(values.payment_terms_days.trim() === ''
       ? {}
       : { payment_terms_days: Number(values.payment_terms_days) }),
-    delivery_address: orNull(values.delivery_address),
-    terms: orNull(values.terms),
-    vendor_reference: orNull(values.vendor_reference),
-    notes: orNull(values.notes),
+    delivery_address: asText(values.delivery_address),
+    terms: asText(values.terms),
+    vendor_reference: asText(values.vendor_reference),
+    notes: asText(values.notes),
     lines: values.lines.map((line, index) => ({
       line_number: index + 1,
       item_id: line.item_id,

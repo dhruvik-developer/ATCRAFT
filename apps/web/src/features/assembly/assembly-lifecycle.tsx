@@ -29,6 +29,7 @@ import {
 import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { zeroIfBlank } from '@/lib/form-values'
 import { formatQuantity } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
@@ -39,8 +40,6 @@ import { assemblyKeys, type AssemblyOrderDetail } from './assembly-model'
 /** `Quantity` is NUMERIC(18,4): at most 14 integer digits and 4 decimals. */
 const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
-
-const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
 
 // ------------------------------------------------------------ verdict --------
 
@@ -105,8 +104,8 @@ export function AssemblyVerdictDialog({
     }
     setComplaint(null)
     record.mutate({
-      accepted_quantity: asDecimal(accepted),
-      rejected_quantity: asDecimal(rejected),
+      accepted_quantity: zeroIfBlank(accepted),
+      rejected_quantity: zeroIfBlank(rejected),
       reason: trimmedReason,
     })
   }

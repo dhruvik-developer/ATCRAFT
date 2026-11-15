@@ -44,6 +44,7 @@ import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -195,8 +196,8 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
         ...(kind === 'scrap-disposals'
           ? {
               disposal_kind: disposalKind,
-              buyer_reference: buyer.trim() || null,
-              realised_amount: realised.trim() || '0',
+              buyer_reference: asText(buyer),
+              realised_amount: zeroIfBlank(realised),
             }
           : {}),
         lines: lines.map((line) => ({

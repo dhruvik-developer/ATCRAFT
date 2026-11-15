@@ -95,8 +95,6 @@ function isNonZeroQuantity(value: string): boolean {
   return SIGNED_QUANTITY_PATTERN.test(trimmed) && !toDecimal(trimmed).isZero()
 }
 
-const today = () => toDateInput(new Date())
-
 // ------------------------------------------------------- line editor -------
 
 interface LineFields {
@@ -420,7 +418,7 @@ export function CreateTransferDialog({
     () => ({
       from_warehouse_id: initial?.fromWarehouseId ?? '',
       to_warehouse_id: initial?.toWarehouseId ?? '',
-      transfer_date: today(),
+      transfer_date: toDateInput(new Date()),
       reason: initial?.reason ?? '',
       lines: [{ item_id: initial?.itemId ?? '', quantity: initial?.quantity ?? '' }],
     }),
@@ -655,7 +653,7 @@ export function CreateAdjustmentDialog({
     resolver: zodResolver(adjustmentSchema),
     defaultValues: {
       warehouse_id: '',
-      adjustment_date: today(),
+      adjustment_date: toDateInput(new Date()),
       reason_code: '',
       reason: '',
       cost_centre_id: '',
@@ -889,7 +887,7 @@ export function CreatePhysicalCountDialog({
   const queryClient = useQueryClient()
   const form = useForm<PhysicalCountForm>({
     resolver: zodResolver(physicalCountSchema),
-    defaultValues: { warehouse_id: '', count_date: today(), reason: '', notes: '' },
+    defaultValues: { warehouse_id: '', count_date: toDateInput(new Date()), reason: '', notes: '' },
   })
 
   const create = useMutation({

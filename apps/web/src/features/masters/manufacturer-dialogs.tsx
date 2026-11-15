@@ -35,9 +35,9 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { manufacturerOptionKeys } from '@/hooks/use-manufacturer-options'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
-import { asText } from '@/lib/utils'
 
 import { mastersKeys, type ManufacturerRow } from './masters-model'
 

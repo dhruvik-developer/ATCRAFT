@@ -35,6 +35,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import type { SalesSettings } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
 import { reportFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -119,18 +120,14 @@ function approvalPayload(values: ApprovalDraft, restoreDefault: boolean) {
   }
 
   // A blank field is "use the built-in default for this one", which is what the
-  // API's explicit null means. Zero is a real threshold the administrator may
-  // choose, so an empty box must never be turned into one.
-  const asDecimal = (value: string) => {
-    const trimmed = value.trim()
-    return trimmed === '' ? null : trimmed
-  }
-
+  // API's explicit null means - so blank becomes null through `asText`, never
+  // "0" through `zeroIfBlank`: zero is a real threshold the administrator may
+  // choose, and an empty box must never be turned into one.
   return {
-    po_dual_approval_amount: asDecimal(values.po_dual_approval_amount),
-    adjustment_approval_threshold: asDecimal(values.adjustment_approval_threshold),
-    internal_issue_approval_threshold: asDecimal(values.internal_issue_approval_threshold),
-    requisition_auto_approve_limit: asDecimal(values.requisition_auto_approve_limit),
+    po_dual_approval_amount: asText(values.po_dual_approval_amount),
+    adjustment_approval_threshold: asText(values.adjustment_approval_threshold),
+    internal_issue_approval_threshold: asText(values.internal_issue_approval_threshold),
+    requisition_auto_approve_limit: asText(values.requisition_auto_approve_limit),
   }
 }
 

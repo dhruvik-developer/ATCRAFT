@@ -65,6 +65,7 @@ import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { formatMoney, plural, toDateInput, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -207,8 +208,6 @@ function valuesFrom(detail: RequisitionDetail): RequisitionFormValues {
   }
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
 /**
  * Lines exactly as `RequisitionLineIn` declares them.
  *
@@ -223,12 +222,12 @@ function buildLines(lines: RequisitionLineValues[]): RequisitionLinePayload[] {
     item_id: line.item_id,
     // Quantities and prices stay strings on the wire; the API parses Decimals.
     quantity: line.quantity.trim(),
-    estimated_unit_price: orNull(line.estimated_unit_price),
-    description: orNull(line.description),
-    uom_id: orNull(line.uom_id),
-    required_date: orNull(line.required_date),
-    suggested_vendor_id: orNull(line.suggested_vendor_id),
-    notes: orNull(line.notes),
+    estimated_unit_price: asText(line.estimated_unit_price),
+    description: asText(line.description),
+    uom_id: asText(line.uom_id),
+    required_date: asText(line.required_date),
+    suggested_vendor_id: asText(line.suggested_vendor_id),
+    notes: asText(line.notes),
   }))
 }
 
@@ -306,10 +305,10 @@ export function RequisitionFormDialog({
         const payload: RequisitionUpdatePayload = {
           warehouse_id: values.warehouse_id,
           required_date: values.required_date,
-          department_id: orNull(values.department_id),
+          department_id: asText(values.department_id),
           priority: values.priority,
-          purpose: orNull(values.purpose),
-          notes: orNull(values.notes),
+          purpose: asText(values.purpose),
+          notes: asText(values.notes),
           lines: buildLines(values.lines),
         }
         return api.patch<RequisitionDetail>(
@@ -321,10 +320,10 @@ export function RequisitionFormDialog({
         warehouse_id: values.warehouse_id,
         requisition_date: values.requisition_date,
         required_date: values.required_date,
-        department_id: orNull(values.department_id),
+        department_id: asText(values.department_id),
         priority: values.priority,
-        purpose: orNull(values.purpose),
-        notes: orNull(values.notes),
+        purpose: asText(values.purpose),
+        notes: asText(values.notes),
         // Stated rather than left to the default: this screen only ever raises
         // demand by hand. A converted MRP suggestion arrives through the planner
         // and carries its own source type and source id.

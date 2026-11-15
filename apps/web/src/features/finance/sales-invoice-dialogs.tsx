@@ -33,6 +33,7 @@ import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { asText } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -271,7 +272,7 @@ export function RaiseSalesInvoiceDialog({
       api.post<SalesInvoiceDetail>('/finance/sales-invoices', {
         dispatch_id: dispatchId,
         ...(date ? { invoice_date: date } : {}),
-        notes: notes.trim() || null,
+        notes: asText(notes),
       }),
     onSuccess: (invoice) => {
       void queryClient.invalidateQueries({ queryKey: salesInvoiceKeys.all })

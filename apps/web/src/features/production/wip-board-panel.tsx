@@ -47,11 +47,11 @@ import { api } from '@/lib/api-client'
 import { EMPTY_VALUE, formatNumber, formatQuantity } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
+import { indexById } from '@/lib/utils'
 import type { PaginatedEnvelope } from '@/types/api'
 
 import {
   formatMinutes,
-  indexById,
   loadShare,
   optionLabel,
   peakRemainingMinutes,

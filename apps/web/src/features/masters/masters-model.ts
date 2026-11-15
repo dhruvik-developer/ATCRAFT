@@ -228,11 +228,6 @@ export function useVariantOptions(itemId: string, enabled: boolean) {
 
 // -------------------------------------------------------------- derived -----
 
-/** `id -> row`, for resolving the bare ids a conversion row carries. */
-export function indexById<T extends { id: string }>(rows: readonly T[] | undefined) {
-  return new Map((rows ?? []).map((row) => [row.id, row]))
-}
-
 /**
  * A factor with its trailing zeros trimmed.
  *

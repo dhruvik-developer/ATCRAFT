@@ -40,6 +40,7 @@ import { useWorkCentreOptions } from '@/features/production/work-order-model'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import { formatDateTime, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -109,7 +110,7 @@ function OpenCycleForm({
         quantity: values.quantity.trim(),
         assigned_to: values.assign_to_me ? (user?.id ?? null) : null,
         work_center_id: values.work_center_id === SELECT_NONE ? null : values.work_center_id,
-        notes: values.notes.trim() === '' ? null : values.notes.trim(),
+        notes: asText(values.notes),
         reason: values.reason.trim(),
       }),
     onSuccess: (record) => {
@@ -256,8 +257,8 @@ function CompleteCycleForm({ record, onDone }: { record: QcReworkRecord; onDone:
     mutationFn: (values: CompleteFormValues) =>
       api.post<QcReworkRecord>(`/quality/rework/${record.id}/complete`, {
         outcome: values.outcome,
-        cost: values.cost.trim() === '' ? null : values.cost.trim(),
-        notes: values.notes.trim() === '' ? null : values.notes.trim(),
+        cost: asText(values.cost),
+        notes: asText(values.notes),
         reason: values.reason.trim(),
       }),
     onSuccess: (done) => {

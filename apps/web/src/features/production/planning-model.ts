@@ -56,14 +56,6 @@ export type CapacitySource = SchemaOf<'CapacitySource'>
 /** This week's board is seven local dates; the API takes them as `YYYY-MM-DD`. */
 export const BOARD_DAYS = 7
 
-/** Today's local date as `YYYY-MM-DD` - the board's default first column. */
-export function localTodayISO(): string {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
-}
-
 /** The seven dates the board shows starting from `startISO`. */
 export function boardWeek(startISO: string): string[] {
   return Array.from({ length: BOARD_DAYS }, (_, offset) => addDaysISO(startISO, offset))

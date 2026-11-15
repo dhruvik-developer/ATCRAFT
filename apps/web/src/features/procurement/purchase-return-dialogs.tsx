@@ -77,6 +77,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import {
   formatDate,
   formatDateTime,
@@ -113,8 +114,6 @@ import { PurchaseReturnDebitAllocation } from './purchase-return-debit-allocatio
 
 /** NUMERIC(18,4): fourteen integer digits and four decimals, or nothing typed. */
 const QUANTITY = /^$|^\d{1,14}(\.\d{1,4})?$/
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 // -------------------------------------------------------- receipt picker ----
 
@@ -368,15 +367,15 @@ export function PurchaseReturnFormDialog({
         goods_receipt_id: receipt.id,
         return_date: values.return_date,
         reason: values.reason.trim(),
-        debit_note_number: orNull(values.debit_note_number),
-        notes: orNull(values.notes),
+        debit_note_number: asText(values.debit_note_number),
+        notes: asText(values.notes),
         lines: returned.map((line, index) => ({
           line_number: index + 1,
           goods_receipt_line_id: line.goods_receipt_line_id,
           // Quantities stay strings on the wire; the API parses Decimals.
           quantity: line.quantity.trim(),
-          reason: orNull(line.reason),
-          notes: orNull(line.notes),
+          reason: asText(line.reason),
+          notes: asText(line.notes),
         })),
       }
 

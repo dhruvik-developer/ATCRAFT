@@ -93,6 +93,7 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { LOOKUP_LIST_LIMIT, SEARCH_DEBOUNCE_MS } from '@/lib/constants'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -132,8 +133,6 @@ import {
 
 /** One page of cartons. The API caps a page at 200. */
 const CARTON_PAGE = 200
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 /** What is left to pack on a line, as decimals - never as doubles. */
 function pendingOf(line: PackingOrderLine): string {
@@ -209,10 +208,10 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
         packing_material_item_id: materialId,
         packing_material_quantity: materialQuantity.trim() || '1',
         carton_type: cartonType,
-        length_cm: orNull(length),
-        width_cm: orNull(width),
-        height_cm: orNull(height),
-        tare_weight_kg: tare.trim() === '' ? '0' : tare.trim(),
+        length_cm: asText(length),
+        width_cm: asText(width),
+        height_cm: asText(height),
+        tare_weight_kg: zeroIfBlank(tare),
         contents: [],
       }),
     onSuccess: (carton) => {
@@ -495,7 +494,7 @@ function AddContentsForm({
         quantity: quantity.trim(),
         batch_id: batchId || null,
         serial_ids: item?.is_serial_tracked ? serialIds : [],
-        net_weight_kg: netWeight.trim() === '' ? '0' : netWeight.trim(),
+        net_weight_kg: zeroIfBlank(netWeight),
       },
     ])
   }

@@ -59,6 +59,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import { EMPTY_VALUE, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -384,8 +385,6 @@ function valuesFrom(
   }
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
 // ---------------------------------------------------------------- dialog ----
 
 export function InspectionDialog({
@@ -509,9 +508,9 @@ export function InspectionDialog({
               parameter.parameter_type === 'BOOLEAN' && reading !== '' ? reading === 'PASS' : null,
             measured_value_text:
               parameter.parameter_type === 'TEXT' || parameter.parameter_type === 'SELECT'
-                ? orNull(reading)
+                ? asText(reading)
                 : null,
-            remark: orNull(parameter.remark),
+            remark: asText(parameter.remark),
             photo_document_id: parameter.document_id,
           }
         })
@@ -538,7 +537,7 @@ export function InspectionDialog({
         values.record && measurements.length > 0
           ? await api.post<QcResultsResponse>(`/quality/inspections/${inspectionId}/results`, {
               measurements,
-              remarks: orNull(values.remarks),
+              remarks: asText(values.remarks),
             })
           : null
 
@@ -562,14 +561,14 @@ export function InspectionDialog({
         {
           reason: values.reason,
           // Quantities stay decimal strings on the wire; the API parses them.
-          accepted_quantity: values.accepted_quantity.trim() || '0',
-          rejected_quantity: values.rejected_quantity.trim() || '0',
-          rework_quantity: values.rework_quantity.trim() || '0',
-          hold_quantity: values.hold_quantity.trim() || '0',
-          scrap_quantity: values.scrap_quantity.trim() || '0',
+          accepted_quantity: zeroIfBlank(values.accepted_quantity),
+          rejected_quantity: zeroIfBlank(values.rejected_quantity),
+          rework_quantity: zeroIfBlank(values.rework_quantity),
+          hold_quantity: zeroIfBlank(values.hold_quantity),
+          scrap_quantity: zeroIfBlank(values.scrap_quantity),
           ...(values.serial_ids.length ? { serial_dispositions: values.serial_dispositions } : {}),
-          rejection_reason: orNull(values.rejection_reason),
-          remarks: orNull(values.remarks),
+          rejection_reason: asText(values.rejection_reason),
+          remarks: asText(values.remarks),
         },
       )
       return { decided: true as const, code: decision.inspection.code, decision }

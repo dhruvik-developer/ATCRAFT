@@ -42,13 +42,13 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatMoney } from '@/lib/format'
 import { api } from '@/lib/api-client'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { asText } from '@/lib/utils'
 
 import type { ItemVendorLink } from './item-model'
 
@@ -104,10 +104,6 @@ function valuesFrom(link: ItemVendorLink): VendorLinkFormValues {
   }
 }
 
-/** Decimals stay strings all the way to the wire - never parsed into a double. */
-const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
-const asIdOrNull = (value: string): string | null => (value === SELECT_NONE ? null : value)
-
 function buildPayload(
   values: VendorLinkFormValues,
   { includeVendor }: { includeVendor: boolean },
@@ -124,12 +120,12 @@ function buildPayload(
     // An explicit null clears the maker and its part number rather than being
     // silently skipped: a maker recorded against the wrong source is a value a
     // person genuinely removes.
-    manufacturer_id: asIdOrNull(values.manufacturer_id),
+    manufacturer_id: asId(values.manufacturer_id),
     manufacturer_part_number: asText(values.manufacturer_part_number),
     is_preferred: values.is_preferred,
     lead_time_days: Number.parseInt(values.lead_time_days || '0', 10),
-    min_order_quantity: asDecimal(values.min_order_quantity),
-    order_multiple: asDecimal(values.order_multiple),
+    min_order_quantity: zeroIfBlank(values.min_order_quantity),
+    order_multiple: zeroIfBlank(values.order_multiple),
     ...(!includeVendor ? { is_active: values.is_active } : {}),
   }
 }

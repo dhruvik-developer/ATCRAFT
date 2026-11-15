@@ -49,6 +49,7 @@ import { useTransporterOptions } from '@/features/transporters/transporter-model
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -72,14 +73,6 @@ import {
   receiveSchema,
   type ReceiveFormValues,
 } from './job-work-receive-schema'
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-/** Decimals stay strings all the way to the wire - never parsed into a double. */
-const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
-
-function today(): string {
-  return toDateInput(new Date())
-}
 
 /** Ordered less already issued - what a fresh challan would normally carry. */
 function stillToIssue(line: JobWorkOrderLine): string {
@@ -139,7 +132,7 @@ type IssueFormValues = z.infer<typeof issueSchema>
 
 function issueDefaults(order: JobWorkOrderDetail | undefined): IssueFormValues {
   return {
-    challan_date: today(),
+    challan_date: toDateInput(new Date()),
     expected_return_date: toDateInput(order?.expected_return_date ?? null),
     vehicle_number: '',
     transporter_id: '',
@@ -224,16 +217,16 @@ export function JobWorkIssueDialog({
       api.post(`/job-work/${orderId}/issue`, {
         reason: values.reason,
         challan_date: values.challan_date,
-        expected_return_date: orNull(values.expected_return_date),
-        vehicle_number: orNull(values.vehicle_number),
+        expected_return_date: asText(values.expected_return_date),
+        vehicle_number: asText(values.vehicle_number),
         transporter_id: values.transporter_id === '' ? null : values.transporter_id,
         // The field is `challan_notes` on this endpoint, not `remarks`.
-        challan_notes: orNull(values.remarks),
+        challan_notes: asText(values.remarks),
         lines: values.lines
           .filter((line) => toDecimal(line.quantity).greaterThan(0))
           .map((line) => ({
             line_number: line.line_number,
-            issued_quantity: asDecimal(line.quantity),
+            issued_quantity: zeroIfBlank(line.quantity),
             batch_id: line.batch_id || null,
             ...(line.serial_ids.length ? { serial_ids: line.serial_ids } : {}),
           })),
@@ -547,7 +540,7 @@ export function JobWorkIssueDialog({
 
 function receiveDefaults(order: JobWorkOrderDetail | undefined): ReceiveFormValues {
   return {
-    receipt_date: today(),
+    receipt_date: toDateInput(new Date()),
     remarks: '',
     reason: '',
     vendor_challan_number: '',
@@ -660,10 +653,10 @@ export function JobWorkReceiveDialog({
       api.post(`/job-work/${orderId}/receive`, {
         reason: values.reason,
         receipt_date: values.receipt_date,
-        vendor_challan_number: orNull(values.vendor_challan_number),
-        vendor_challan_date: orNull(values.vendor_challan_date),
+        vendor_challan_number: asText(values.vendor_challan_number),
+        vendor_challan_date: asText(values.vendor_challan_date),
         approve_excess_loss: values.approve_excess_loss,
-        notes: orNull(values.remarks),
+        notes: asText(values.remarks),
         lines: values.lines
           .filter(
             (line) =>
@@ -675,12 +668,12 @@ export function JobWorkReceiveDialog({
           .map((line) => ({
             line_number: line.line_number,
             // Good output that came back processed.
-            output_quantity: asDecimal(line.received_quantity),
-            rejected_quantity: asDecimal(line.rejected_quantity),
+            output_quantity: zeroIfBlank(line.received_quantity),
+            rejected_quantity: zeroIfBlank(line.rejected_quantity),
             rejection_action: line.rejection_action,
-            returned_unprocessed_quantity: asDecimal(line.returned_quantity),
+            returned_unprocessed_quantity: zeroIfBlank(line.returned_quantity),
             is_final: line.is_final,
-            notes: orNull(line.rejection_reason),
+            notes: asText(line.rejection_reason),
             batch_id:
               linesOf(order).find((orderLine) => orderLine.line_number === line.line_number)
                 ?.batch_id ?? null,
@@ -1218,8 +1211,8 @@ export function JobWorkQcResultDialog({
         reason: values.reason,
         items: values.lines.map((line) => ({
           output_item_id: line.output_item_id,
-          accepted_quantity: asDecimal(line.accepted_quantity),
-          rejected_quantity: asDecimal(line.rejected_quantity),
+          accepted_quantity: zeroIfBlank(line.accepted_quantity),
+          rejected_quantity: zeroIfBlank(line.rejected_quantity),
         })),
       }),
     onSuccess: () => {

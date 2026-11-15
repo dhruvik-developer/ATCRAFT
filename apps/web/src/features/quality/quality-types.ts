@@ -27,7 +27,7 @@
  *    to the decision. See `inspection-dialog.tsx`.
  */
 
-import { toDecimal } from '@/lib/format'
+import { daysUntil, toDecimal } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
@@ -228,13 +228,14 @@ export function referenceLink(
   }
 }
 
-/** Whole days the material has been waiting for a decision. */
+/**
+ * Whole days the material has been waiting for a decision, counted on the local
+ * calendar as `daysUntil` counts them; a clock running ahead never reads as a
+ * negative wait.
+ */
 export function ageInDays(raisedAt: string | null): number | null {
-  if (!raisedAt) return null
-  const raised = new Date(raisedAt)
-  if (Number.isNaN(raised.getTime())) return null
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-  return Math.max(0, Math.round((startOfDay(new Date()) - startOfDay(raised)) / 86_400_000))
+  const until = daysUntil(raisedAt)
+  return until === null ? null : Math.max(0, -until)
 }
 
 /** Human-readable specification, e.g. `12.5 - 13.5 mm` or `<= 0.2 mm`. */

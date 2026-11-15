@@ -26,6 +26,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { PRODUCT_DESCRIPTION_POSITION_MAX, PRODUCT_DESCRIPTION_TEXT_MAX } from '@/lib/constants'
+import { asText } from '@/lib/form-values'
 import { EMPTY_VALUE, formatQuantity, toDecimal } from '@/lib/format'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
@@ -103,7 +104,7 @@ export function AccessoryFormDialog({
         quantity: values.quantity,
         relation: values.relation,
         sort_order: Number(values.sort_order),
-        notes: values.notes.trim() || null,
+        notes: asText(values.notes),
       } satisfies SchemaOf<'ItemAccessoryUpdate'>
       return accessory
         ? api.patch<Accessory>(`/products/item-accessories/${accessory.id}`, body)

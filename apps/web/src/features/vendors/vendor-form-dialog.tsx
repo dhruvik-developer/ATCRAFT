@@ -39,6 +39,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText, asUpperText } from '@/lib/form-values'
 import { humanise } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -213,43 +214,39 @@ function valuesFrom(vendor: VendorRow): VendorFormValues {
   }
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-const upperOrNull = (value: string): string | null =>
-  value.trim() === '' ? null : value.trim().toUpperCase()
-
 function buildPayload(values: VendorFormValues, isCreate: boolean): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     name: values.name.trim(),
-    legal_name: orNull(values.legal_name),
+    legal_name: asText(values.legal_name),
     vendor_types: values.vendor_types,
-    gstin: upperOrNull(values.gstin),
-    pan: upperOrNull(values.pan),
-    msme_number: upperOrNull(values.msme_number),
+    gstin: asUpperText(values.gstin),
+    pan: asUpperText(values.pan),
+    msme_number: asUpperText(values.msme_number),
     payment_terms_days: Number(values.payment_terms_days || 0),
     // Money stays a string on the wire; the API parses it as a Decimal.
-    credit_limit: orNull(values.credit_limit),
+    credit_limit: asText(values.credit_limit),
     lead_time_days: Number(values.lead_time_days || 0),
     currency: values.currency.trim().toUpperCase(),
-    bank_name: orNull(values.bank_name),
-    bank_branch: orNull(values.bank_branch),
-    bank_account_name: orNull(values.bank_account_name),
-    bank_ifsc: upperOrNull(values.bank_ifsc),
-    address_line1: orNull(values.address_line1),
-    address_line2: orNull(values.address_line2),
-    city: orNull(values.city),
-    state: orNull(values.state),
-    state_code: upperOrNull(values.state_code),
-    postal_code: orNull(values.postal_code),
+    bank_name: asText(values.bank_name),
+    bank_branch: asText(values.bank_branch),
+    bank_account_name: asText(values.bank_account_name),
+    bank_ifsc: asUpperText(values.bank_ifsc),
+    address_line1: asText(values.address_line1),
+    address_line2: asText(values.address_line2),
+    city: asText(values.city),
+    state: asText(values.state),
+    state_code: asUpperText(values.state_code),
+    postal_code: asText(values.postal_code),
     country: values.country.trim(),
-    contact_person: orNull(values.contact_person),
-    email: orNull(values.email),
-    phone: orNull(values.phone),
-    mobile: orNull(values.mobile),
-    website: orNull(values.website),
-    notes: orNull(values.notes),
+    contact_person: asText(values.contact_person),
+    email: asText(values.email),
+    phone: asText(values.phone),
+    mobile: asText(values.mobile),
+    website: asText(values.website),
+    notes: asText(values.notes),
   }
 
-  const accountNumber = orNull(values.bank_account_number)
+  const accountNumber = asText(values.bank_account_number)
   if (accountNumber) payload.bank_account_number = accountNumber
 
   if (isCreate) {

@@ -322,8 +322,8 @@ describe('purchase order inbound controls', () => {
     await user.click(screen.getByRole('button', { name: 'More shipments' }))
     expect(await screen.findByRole('option', { name: 'Shipment 2' })).toBeVisible()
     expect(requests.map((url) => url.searchParams.get('page'))).toEqual(['1', '2'])
-    expect(screen.getByRole('option', { name: 'INVOICE' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'LR COPY' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Invoice' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Lr Copy' })).toBeInTheDocument()
   })
 
   it('queues the existing PDF job and reports a failed generation', async () => {

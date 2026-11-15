@@ -56,6 +56,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
+import { asText, asUpperText } from '@/lib/form-values'
 import { humanise } from '@/lib/format'
 import { messages, success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -142,8 +143,6 @@ function valuesFrom(customer: CustomerDetail): CustomerFormValues {
   }
 }
 
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
 /**
  * `CustomerCreate` / `CustomerUpdate`, and nothing else.
  *
@@ -153,13 +152,13 @@ const orNull = (value: string): string | null => (value.trim() === '' ? null : v
 function buildPayload(values: CustomerFormValues, isEdit: boolean): Record<string, unknown> {
   const common = {
     name: values.name.trim(),
-    legal_name: orNull(values.legal_name),
+    legal_name: asText(values.legal_name),
     customer_type: values.customer_type,
     price_list_type: values.price_list_type,
-    gstin: orNull(values.gstin)?.toUpperCase() ?? null,
-    pan: orNull(values.pan)?.toUpperCase() ?? null,
+    gstin: asUpperText(values.gstin),
+    pan: asUpperText(values.pan),
     credit_days: Number.parseInt(values.credit_days || '0', 10),
-    notes: orNull(values.notes),
+    notes: asText(values.notes),
   }
 
   if (!isEdit) {

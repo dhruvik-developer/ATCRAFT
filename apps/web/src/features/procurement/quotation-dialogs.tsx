@@ -69,6 +69,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY, PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText, zeroIfBlank } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -107,8 +108,6 @@ import {
 import { RFQ_TERMINAL_STATUSES, rfqKeys, type RfqRow } from './rfq-model'
 
 // --------------------------------------------------------------- helpers ----
-
-const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 /**
  * The reason both decisions require.
@@ -902,7 +901,7 @@ const toLinePayload = (
   // Quantities and prices stay strings on the wire; the API parses Decimals.
   quantity: line.quantity.trim(),
   unit_price: line.unit_price.trim(),
-  discount_percentage: line.discount_percentage.trim() || null,
+  discount_percentage: asText(line.discount_percentage),
   // Null means "the header's lead time applies to this line", which is a
   // different statement from promising zero days.
   lead_time_days: line.lead_time_days.trim() === '' ? null : Number(line.lead_time_days.trim()),
@@ -1040,7 +1039,7 @@ export function QuotationFormDialog({
         vendor_id: values.vendor_id,
         vendor_reference: values.vendor_reference.trim(),
         quotation_date: values.quotation_date,
-        valid_until: orNull(values.valid_until),
+        valid_until: asText(values.valid_until),
         currency: values.currency.trim().toUpperCase(),
         // Blank means "whatever the vendor master says": `create_quotation`
         // falls back to the vendor's own terms for an absent key, so the key is
@@ -1051,9 +1050,9 @@ export function QuotationFormDialog({
         ...(values.lead_time_days.trim()
           ? { lead_time_days: Number(values.lead_time_days.trim()) }
           : {}),
-        freight_amount: values.freight_amount.trim() || '0',
-        terms: orNull(values.terms),
-        notes: orNull(values.notes),
+        freight_amount: zeroIfBlank(values.freight_amount),
+        terms: asText(values.terms),
+        notes: asText(values.notes),
         lines,
       }
       return api.post<QuotationDetail>('/procurement/quotations', payload)

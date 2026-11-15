@@ -40,10 +40,6 @@ function startOfMonth(): string {
   return toDateInput(new Date(now.getFullYear(), now.getMonth(), 1))
 }
 
-function today(): string {
-  return toDateInput(new Date())
-}
-
 /**
  * The ledger as a CSV download, straight from the rows on screen.
  *
@@ -86,7 +82,7 @@ export default function JobWorkLedgerTab() {
   const { can } = useAuth()
   const [vendorId, setVendorId] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(startOfMonth)
-  const [dateTo, setDateTo] = useState(today)
+  const [dateTo, setDateTo] = useState(() => toDateInput(new Date()))
 
   const ledger = useVendorLedger({ vendorId, dateFrom, dateTo })
   const rows = useMemo(() => ledger.data?.items ?? [], [ledger.data])
