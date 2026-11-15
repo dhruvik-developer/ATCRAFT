@@ -44,6 +44,7 @@ from src.modules.collections.models import (
     PaymentFollowUp,
     PaymentFollowUpNote,
 )
+from src.modules.collections.repository import PaymentFollowUpRepository
 from src.modules.collections.schemas import (
     FollowUpCancel,
     FollowUpCreate,
@@ -58,6 +59,7 @@ from tests.api.dealer_portal_support import sign_in
 from tests.collections_support import _follow_up
 from tests.sales_invoice_support import bench as bench
 from tests.sales_invoice_support import issue, make_dispatch
+from tests.statement_support import counted
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -727,3 +729,66 @@ class TestCancelling:
 
         refused(response, 404, "NOT_FOUND")
         assert await column(session, PaymentFollowUp.status, follow_up) == FollowUpStatus.OPEN
+
+
+# -----------------------------------------------------------------------------
+# The nightly overdue sweep (notifications.scan_overdue_receivables)
+# -----------------------------------------------------------------------------
+
+
+class TestTheOverdueSweep:
+    async def test_newly_overdue_customers_are_each_chased_with_a_note_in_one_insert(
+        self, session, tenant, unique_code, engine, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Three customers newly overdue: three chases, each with its note, one INSERT.
+
+        The sweep used to flush once per chase only to give its note an id. The
+        overdue figures are the repository's to compute and are stated here, so
+        the test is about what the sweep does with them.
+        """
+        customers = [
+            (
+                await seed_support.seed_customer(
+                    session, company_id=tenant.company_id, code=unique_code("CU")
+                )
+            ).id
+            for _ in range(3)
+        ]
+        overdue = [
+            SimpleNamespace(
+                customer_id=customer,
+                currency="INR",
+                overdue_amount=OVERDUE,
+                oldest_due_date=today() - timedelta(days=10),
+                overdue_invoice_count=2,
+            )
+            for customer in customers
+        ]
+
+        async def stated(self: Any, *, as_of: Any, customer_id: Any = None) -> list[Any]:
+            return overdue
+
+        monkeypatch.setattr(PaymentFollowUpRepository, "overdue_totals", stated)
+
+        with counted(engine) as statements:
+            result = await collections_service.scan_overdue_receivables(
+                session, tenant, as_of=today()
+            )
+
+        assert result.opened == 3
+        inserts = [
+            text
+            for text in statements
+            if text.lstrip().upper().startswith("INSERT INTO PAYMENT_FOLLOW_UPS ")
+        ]
+        assert len(inserts) == 1, inserts
+        for customer in customers:
+            (follow,) = (
+                await session.scalars(
+                    select(PaymentFollowUp).where(PaymentFollowUp.customer_id == customer)
+                )
+            ).all()
+            assert follow.status == FollowUpStatus.OPEN
+            (note,) = await system_notes(session, follow.id)
+            assert note.note.startswith("Follow-up opened automatically with INR ")
+            assert note.note.endswith("overdue across 2 invoices.")

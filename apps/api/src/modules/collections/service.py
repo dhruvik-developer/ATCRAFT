@@ -867,6 +867,7 @@ async def scan_overdue_receivables(
     await session.flush()
 
     # --- (a) open a chase where the money has none --------------------------
+    opened: list[tuple[PaymentFollowUp, str]] = []
     for key, row in current.items():
         if key in live_map:
             continue
@@ -887,16 +888,22 @@ async def scan_overdue_receivables(
             next_action_date=as_of,
         )
         session.add(follow)
-        await session.flush()
-        _system_note(
-            session,
-            tenant,
-            follow,
-            f"Follow-up opened automatically with {currency} {amount} overdue across "
-            f"{plural(row.overdue_invoice_count, 'invoice')}.",
+        opened.append(
+            (
+                follow,
+                f"Follow-up opened automatically with {currency} {amount} overdue across "
+                f"{plural(row.overdue_invoice_count, 'invoice')}.",
+            )
         )
         live_map[key] = follow
         result.opened += 1
+    if opened:
+        # One flush for every chase opened above, not one each. The notes are
+        # staged only after it: they name a chase by a foreign key with no
+        # relationship() behind it, so nothing else orders the two inserts.
+        await session.flush()
+        for follow, text in opened:
+            _system_note(session, tenant, follow, text)
 
     # --- (e) reminders ------------------------------------------------------
     reminders_due = [
