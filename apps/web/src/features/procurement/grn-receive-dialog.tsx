@@ -65,6 +65,7 @@ import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { ApiError, api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatQuantity, plural, toDateInput, toDecimal } from '@/lib/format'
@@ -86,8 +87,6 @@ import {
   type PurchaseOrderRow,
 } from './procurement-types'
 import { sentLineIndices } from './server-field-errors'
-
-const QUANTITY = /^$|^\d{1,14}(\.\d{1,4})?$/
 
 // ---------------------------------------------------------- order picker ----
 
@@ -173,9 +172,18 @@ const lineSchema = z.object({
   uom_id: z.string(),
   pending_quantity: z.string(),
   requires_qc: z.boolean(),
-  received_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
-  accepted_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
-  rejected_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+  received_quantity: z
+    .string()
+    .trim()
+    .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+  accepted_quantity: z
+    .string()
+    .trim()
+    .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+  rejected_quantity: z
+    .string()
+    .trim()
+    .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
   batch_number: z.string().trim().max(64, validation.maxLength(64)),
   manufactured_on: z.string(),
   expires_on: z.string(),

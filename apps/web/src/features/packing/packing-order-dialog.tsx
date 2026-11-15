@@ -91,6 +91,7 @@ import { useItemFacts, type DispatchRow } from '@/features/dispatch/dispatch-typ
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
+import { OPTIONAL_MEASURE_INPUT, OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { LOOKUP_LIST_LIMIT, SEARCH_DEBOUNCE_MS } from '@/lib/constants'
 import { asText, zeroIfBlank } from '@/lib/form-values'
@@ -111,8 +112,6 @@ import { toast } from '@/lib/toast'
 
 import {
   CARTON_TYPES,
-  MEASURE_INPUT,
-  QUANTITY_INPUT,
   isCloseable,
   isCompletable,
   isHandOverable,
@@ -361,7 +360,7 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
             ['Height', height],
             ['Tare weight', tare],
           ] as const) {
-            if (!MEASURE_INPUT.test(value.trim())) {
+            if (!OPTIONAL_MEASURE_INPUT.test(value.trim())) {
               return setProblem(validation.decimals(`the ${label.toLowerCase()}`, 3))
             }
           }
@@ -457,7 +456,7 @@ function AddContentsForm({
           'packed here - reading the item master needs the item.view permission.',
       )
     }
-    if (!QUANTITY_INPUT.test(quantity.trim()) || !toDecimal(quantity).greaterThan(0)) {
+    if (!OPTIONAL_QUANTITY_INPUT.test(quantity.trim()) || !toDecimal(quantity).greaterThan(0)) {
       return setProblem('Enter how many go in this carton.')
     }
     if (toDecimal(quantity).greaterThan(toDecimal(pendingOf(selectedLine)))) {
@@ -465,7 +464,7 @@ function AddContentsForm({
         `Only ${formatQuantity(pendingOf(selectedLine))} of this line is still unpacked.`,
       )
     }
-    if (!MEASURE_INPUT.test(netWeight.trim())) {
+    if (!OPTIONAL_MEASURE_INPUT.test(netWeight.trim())) {
       return setProblem(validation.decimals('the net weight', 3))
     }
     if (item?.is_batch_tracked && !batchId) {

@@ -29,6 +29,7 @@ import {
 import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { zeroIfBlank } from '@/lib/form-values'
 import { formatQuantity } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
@@ -36,10 +37,6 @@ import { describeError, success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
 import { assemblyKeys, type AssemblyOrderDetail } from './assembly-model'
-
-/** `Quantity` is NUMERIC(18,4): at most 14 integer digits and 4 decimals. */
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
 
 // ------------------------------------------------------------ verdict --------
 
@@ -91,7 +88,7 @@ export function AssemblyVerdictDialog({
   })
 
   const submit = () => {
-    if (!QUANTITY.test(accepted.trim()) || !OPTIONAL_QUANTITY.test(rejected.trim())) {
+    if (!QUANTITY_INPUT.test(accepted.trim()) || !OPTIONAL_QUANTITY_INPUT.test(rejected.trim())) {
       setComplaint(validation.decimals('quantities', 4))
       return
     }

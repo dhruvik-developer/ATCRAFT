@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { plural, toDecimal } from '@/lib/format'
 import { messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -33,8 +34,6 @@ export interface DuplicateResolutionScope {
 
 export const MAX_PURCHASE_ORDER_LINES = 200
 export const MAX_DUPLICATE_REASON_LENGTH = 1000
-export const PURCHASE_QUANTITY_PATTERN = /^\d{1,14}(\.\d{1,4})?$/
-export const PURCHASE_PRICE_PATTERN = /^\d{1,12}(\.\d{1,6})?$/
 
 const AMENDABLE_STATUSES = ['APPROVED', 'SENT', 'ACKNOWLEDGED']
 const MERGEABLE_STATUSES = ['DRAFT', 'PENDING_APPROVAL', ...AMENDABLE_STATUSES]
@@ -170,18 +169,17 @@ export function buildPurchaseOrderAmendment(
     const prefix = `lines.${index}`
     const quantity = line.quantity.trim()
     const unitPrice = line.unitPrice.trim()
-    const validQuantity =
-      PURCHASE_QUANTITY_PATTERN.test(quantity) && toDecimal(quantity).greaterThan(0)
+    const validQuantity = QUANTITY_INPUT.test(quantity) && toDecimal(quantity).greaterThan(0)
     if (!validQuantity)
       errors[`${prefix}.quantity`] = validation.decimals('a quantity above zero', 4)
-    if (!PURCHASE_PRICE_PATTERN.test(unitPrice))
+    if (!UNIT_PRICE_INPUT.test(unitPrice))
       errors[`${prefix}.unit_price`] = validation.decimals('a price', 6)
     if (!line.itemId) errors[`${prefix}.item_id`] = 'Choose an item'
 
     let validAllocations = true
     const allocations = line.allocations.flatMap((allocation, allocationIndex) => {
       const allocationQuantity = allocation.quantity.trim()
-      if (!PURCHASE_QUANTITY_PATTERN.test(allocationQuantity)) {
+      if (!QUANTITY_INPUT.test(allocationQuantity)) {
         validAllocations = false
         errors[`${prefix}.source_allocations.${allocationIndex}.quantity`] = validation.decimals(
           'a quantity of zero or more',
@@ -202,7 +200,7 @@ export function buildPurchaseOrderAmendment(
         'Choose the requisition quantities to retain. Their total cannot exceed this order line.'
     const allocationChanged = line.allocations.some(
       (allocation) =>
-        !PURCHASE_QUANTITY_PATTERN.test(allocation.quantity.trim()) ||
+        !QUANTITY_INPUT.test(allocation.quantity.trim()) ||
         !toDecimal(allocation.quantity.trim()).equals(allocation.originalQuantity),
     )
     return {

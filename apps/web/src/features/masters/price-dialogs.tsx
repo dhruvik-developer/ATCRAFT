@@ -57,6 +57,7 @@ import {
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
+import { QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatMoney, humanise, toDateInput } from '@/lib/format'
@@ -64,14 +65,7 @@ import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-import {
-  mastersKeys,
-  PRICE_PATTERN,
-  PRICE_TYPES,
-  QUANTITY_PATTERN,
-  type PriceRow,
-  type VariantRow,
-} from './masters-model'
+import { mastersKeys, PRICE_TYPES, type PriceRow, type VariantRow } from './masters-model'
 
 /** Radix Select forbids an empty option value, so "every variant" needs a sentinel. */
 const ALL_VARIANTS = '__all_variants'
@@ -88,11 +82,11 @@ const priceSchema = z
       .string()
       .trim()
       .min(1, validation.required('Price'))
-      .regex(PRICE_PATTERN, 'Up to 12 digits and 6 decimal places, no sign'),
+      .regex(UNIT_PRICE_INPUT, 'Up to 12 digits and 6 decimal places, no sign'),
     min_quantity: z
       .string()
       .trim()
-      .regex(QUANTITY_PATTERN, 'Up to 14 digits and 4 decimal places, no sign'),
+      .regex(QUANTITY_INPUT, 'Up to 14 digits and 4 decimal places, no sign'),
     valid_from: z.string().min(1, validation.required('Start date')),
     valid_to: z.string(),
     is_active: z.boolean(),
@@ -336,7 +330,7 @@ export function PriceFormDialog({
                   className="mt-1.5 tabular"
                 />
                 <FieldError message={errors.price?.message} />
-                {!errors.price && amount.trim() !== '' && PRICE_PATTERN.test(amount.trim()) && (
+                {!errors.price && amount.trim() !== '' && UNIT_PRICE_INPUT.test(amount.trim()) && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {formatMoney(amount.trim(), {
                       currency: /^[A-Za-z]{3}$/.test(currency.trim())

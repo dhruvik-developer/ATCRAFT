@@ -65,6 +65,13 @@ import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
+import {
+  OPTIONAL_PERCENT_INPUT,
+  OPTIONAL_QUANTITY_INPUT,
+  PERCENT_INPUT,
+  QUANTITY_INPUT,
+  UNIT_PRICE_INPUT,
+} from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { formatMoney, formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
@@ -86,12 +93,6 @@ import {
   type JobWorkOrderRow,
   type JobWorkOrderUpdate,
 } from './job-work-model'
-
-/** `Quantity` is NUMERIC(18,4), `UnitPrice` NUMERIC(18,6), `Percentage` (9,4). */
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
-const RATE = /^\d{1,12}(\.\d{1,6})?$/
-const PERCENT = /^\d{1,3}(\.\d{1,4})?$/
 
 /**
  * `MAX_LINES_PER_ORDER` in the API's job-work models.
@@ -143,7 +144,7 @@ const lineSchema = z
     quantity_to_issue: z
       .string()
       .trim()
-      .regex(QUANTITY, validation.decimals('a quantity', 4))
+      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
       .refine((value) => toDecimal(value).greaterThan(0), 'A line has to send something out'),
     /** Blank means the same item comes back, which is what the contract defaults to. */
     expected_output_item_id: z.string(),
@@ -151,7 +152,7 @@ const lineSchema = z
     expected_output_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4))
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4))
       .refine(
         (value) => value === '' || toDecimal(value).greaterThan(0),
         'Expect more than nothing back, or leave it blank for a 1:1 yield',
@@ -159,7 +160,7 @@ const lineSchema = z
     expected_loss_percentage: z
       .string()
       .trim()
-      .regex(PERCENT, validation.decimals('a percentage', 4))
+      .regex(PERCENT_INPUT, validation.decimals('a percentage', 4))
       .refine((value) => toDecimal(value).lessThanOrEqualTo(100), 'At most 100%'),
     notes: z.string().trim().max(2000, validation.maxLength(2000)),
   })
@@ -192,13 +193,13 @@ const schema = z.object({
   return_warehouse_id: z.string(),
   /** Blank means unallocated: the charges belong to no cost centre. */
   cost_centre_id: z.string(),
-  rate_per_unit: z.string().trim().regex(RATE, validation.decimals('a rate', 6)),
+  rate_per_unit: z.string().trim().regex(UNIT_PRICE_INPUT, validation.decimals('a rate', 6)),
   rate_basis: z.enum(RATE_BASES),
   /** Blank means the documented default GST rate - the client confirms it. */
   tax_rate: z
     .string()
     .trim()
-    .regex(/^(\d{1,3}(\.\d{1,4})?)?$/, validation.decimals('a percentage', 4))
+    .regex(OPTIONAL_PERCENT_INPUT, validation.decimals('a percentage', 4))
     .refine((value) => value === '' || toDecimal(value).lessThanOrEqualTo(100), 'At most 100%'),
   /** Blank means the default SAC for manufacturing services on others' goods. */
   sac_code: z.string().trim().max(16, validation.maxLength(16)),

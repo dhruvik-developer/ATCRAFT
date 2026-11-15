@@ -27,6 +27,7 @@
  *    to the decision. See `inspection-dialog.tsx`.
  */
 
+import { decimalPattern } from '@/lib/decimal-input'
 import { daysUntil, EMPTY_VALUE, toDecimal } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
 
@@ -289,10 +290,7 @@ export function isOutOfSpec(
 }
 
 /** Readings may be negative (a deviation) and are recorded to six places. */
-export const NUMERIC_READING = /^-?\d{1,14}(\.\d{1,6})?$/
-
-/** Quantities on the disposition. Empty is treated as zero by the form. */
-export const QUANTITY_INPUT = /^$|^\d{1,14}(\.\d{1,4})?$/
+export const NUMERIC_READING = decimalPattern({ whole: 14, places: 6 }, { signed: true })
 
 /**
  * A recorded answer that looks like a failure.

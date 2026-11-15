@@ -64,6 +64,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
+import { OPTIONAL_UNIT_PRICE_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { formatMoney, plural, toDateInput, toDecimal } from '@/lib/format'
@@ -83,12 +84,6 @@ import {
   type RequisitionLinePayload,
   type RequisitionUpdatePayload,
 } from './procurement-types'
-
-// The API's own precision: a requisition quantity is NUMERIC(18,4) and an
-// estimated price NUMERIC(18,6). Refusing a seventh decimal here is kinder than
-// letting the 422 arrive after the whole form has been filled in.
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const OPTIONAL_PRICE = /^(\d{1,12}(\.\d{1,6})?)?$/
 
 const schema = z
   .object({
@@ -112,12 +107,15 @@ const schema = z
           quantity: z
             .string()
             .trim()
-            .regex(QUANTITY, validation.decimals('a quantity', 4))
+            .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
             .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
           estimated_unit_price: z
             .string()
             .trim()
-            .regex(OPTIONAL_PRICE, `${validation.decimals('a price', 6)}, or leave it blank`),
+            .regex(
+              OPTIONAL_UNIT_PRICE_INPUT,
+              `${validation.decimals('a price', 6)}, or leave it blank`,
+            ),
           // Recorded on the line but not edited here. They are held in the form
           // so that an amend - which replaces the whole line set - sends them
           // back rather than silently dropping them.

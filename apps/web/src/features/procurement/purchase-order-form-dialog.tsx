@@ -48,6 +48,7 @@ import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
+import { QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
@@ -60,7 +61,6 @@ import type { SchemaOf } from '@/types/api'
 import { PurchaseOrderDuplicateDialog } from './purchase-order-duplicate-dialog'
 import {
   MAX_PURCHASE_ORDER_LINES,
-  PURCHASE_PRICE_PATTERN,
   type DuplicateResolutionDraft,
 } from './purchase-order-change-model'
 import {
@@ -73,8 +73,6 @@ import {
   type PurchaseOrderDetail,
 } from './procurement-types'
 
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const PRICE = PURCHASE_PRICE_PATTERN
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z
@@ -102,9 +100,9 @@ const schema = z
           quantity: z
             .string()
             .trim()
-            .regex(QUANTITY, validation.decimals('a quantity', 4))
+            .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
             .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
-          unit_price: z.string().trim().regex(PRICE, validation.decimals('a price', 6)),
+          unit_price: z.string().trim().regex(UNIT_PRICE_INPUT, validation.decimals('a price', 6)),
         }),
       )
       .min(1, 'A purchase order needs at least one line')

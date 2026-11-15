@@ -84,6 +84,7 @@ import { ItemPicker } from '@/features/inventory/pickers'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { PERCENT_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, humanise, toDecimal } from '@/lib/format'
 import { describeError, errors, joinValidationMessages, success, validation } from '@/lib/messages'
@@ -104,7 +105,6 @@ import {
   NAME_MIN_LENGTH,
   PARAMETER_NAME_MAX_LENGTH,
   PARAMETER_TYPE_LABEL,
-  PERCENTAGE,
   QC_SAMPLING_PLANS,
   SAMPLE_SIZE,
   SAMPLING_PLAN_HINT,
@@ -303,7 +303,7 @@ function schemaFor(mode: FormMode) {
 
     if (planNeedsPercentage(values.sampling_plan)) {
       if (
-        !PERCENTAGE.test(values.sample_percentage) ||
+        !PERCENT_INPUT.test(values.sample_percentage) ||
         !isPercentageInRange(values.sample_percentage)
       ) {
         ctx.addIssue({

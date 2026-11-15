@@ -67,6 +67,7 @@ import {
   REASON_MAX_LENGTH,
   REASON_MIN_LENGTH,
 } from '@/lib/constants'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { formatDate, plural, toDateInput, toDecimal } from '@/lib/format'
@@ -89,8 +90,6 @@ import {
   type RfqUpdatePayload,
 } from './rfq-model'
 
-// A NUMERIC(18,4) on the API side, and a string on the wire in both directions.
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const CURRENCY = /^[A-Z]{3}$/
 
 // =============================================================================
@@ -283,7 +282,7 @@ const schema = z
         quantity: z
           .string()
           .trim()
-          .regex(QUANTITY, validation.decimals('a quantity', 4))
+          .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
           .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
         required_date: z.string(),
         specification: z.string().trim().max(4000, validation.maxLength(4000)),

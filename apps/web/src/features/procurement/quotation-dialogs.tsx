@@ -68,6 +68,7 @@ import { ItemPicker } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY, PICKER_PAGE_SIZE } from '@/lib/constants'
+import { MONEY_INPUT, PERCENT_INPUT, QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import {
@@ -795,10 +796,6 @@ export function QuotationDecisionDialog({
 
 // ---------------------------------------------------- QuotationFormDialog ---
 
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const PRICE = /^\d{1,12}(\.\d{1,6})?$/
-const MONEY = /^\d{1,14}(\.\d{1,4})?$/
-const PERCENT = /^\d{1,3}(\.\d{1,4})?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const lineSchema = z.object({
@@ -806,13 +803,13 @@ const lineSchema = z.object({
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, validation.decimals('a quantity', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
     .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
-  unit_price: z.string().trim().regex(PRICE, validation.decimals('a price', 6)),
+  unit_price: z.string().trim().regex(UNIT_PRICE_INPUT, validation.decimals('a price', 6)),
   discount_percentage: z
     .string()
     .trim()
-    .refine((value) => value === '' || PERCENT.test(value), 'Enter a percentage, e.g. 2.5')
+    .refine((value) => value === '' || PERCENT_INPUT.test(value), 'Enter a percentage, e.g. 2.5')
     .refine(
       (value) => value === '' || toDecimal(value).lessThanOrEqualTo(100),
       'A discount cannot exceed 100%',
@@ -840,7 +837,7 @@ const schema = z
     freight_amount: z
       .string()
       .trim()
-      .refine((value) => value === '' || MONEY.test(value), 'Enter an amount, e.g. 1500.00'),
+      .refine((value) => value === '' || MONEY_INPUT.test(value), 'Enter an amount, e.g. 1500.00'),
     terms: z.string().trim().max(4000, validation.maxLength(4000)),
     notes: z.string().trim().max(4000, validation.maxLength(4000)),
     lines: z.array(lineSchema).min(1, 'A quotation needs at least one line'),

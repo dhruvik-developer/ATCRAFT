@@ -19,6 +19,7 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
+import { decimalPattern, ROUNDED_MONEY } from '@/lib/decimal-input'
 import { daysUntil } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
@@ -288,10 +289,8 @@ export function delayDays(
   return Math.abs(remaining)
 }
 
-/** Money and weights on the create form, to two and three places. */
-export const MONEY_INPUT = /^$|^\d{1,14}(\.\d{1,2})?$/
-export const WEIGHT_INPUT = /^$|^\d{1,10}(\.\d{1,3})?$/
-export const QUANTITY_INPUT = /^\d{1,14}(\.\d{1,4})?$/
+/** Freight on the create form, kept to the two places `to_money` keeps. */
+export const FREIGHT_INPUT = decimalPattern(ROUNDED_MONEY, { optional: true })
 
 /** `delivery_note` and `delay_reason` are `Notes`: free text up to 2000 characters. */
 export const NOTE_MAX_LENGTH = 2000

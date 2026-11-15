@@ -56,6 +56,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api, ApiError } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
+import { decimalPattern, QUANTITY, QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
   EMPTY_VALUE,
@@ -82,12 +83,11 @@ import { ADJUSTMENT_REASON_CODES, type PhysicalCountLineRow, type PhysicalCountR
 
 // --------------------------------------------------------- validation ------
 
-const QUANTITY_PATTERN = /^\d+(\.\d{1,4})?$/
-const SIGNED_QUANTITY_PATTERN = /^-?\d+(\.\d{1,4})?$/
+const SIGNED_QUANTITY_PATTERN = decimalPattern(QUANTITY, { signed: true })
 
 function isPositiveQuantity(value: string): boolean {
   const trimmed = value.trim()
-  return QUANTITY_PATTERN.test(trimmed) && toDecimal(trimmed).greaterThan(0)
+  return QUANTITY_INPUT.test(trimmed) && toDecimal(trimmed).greaterThan(0)
 }
 
 function isNonZeroQuantity(value: string): boolean {
@@ -597,7 +597,7 @@ const adjustmentSchema = z
             .string()
             .optional()
             .refine(
-              (value) => !value || /^\d+(\.\d{1,6})?$/.test(value.trim()),
+              (value) => !value || UNIT_PRICE_INPUT.test(value.trim()),
               validation.decimals('a cost of zero or more', 6),
             ),
           quantity: z
@@ -1258,9 +1258,6 @@ export function ConfirmPhysicalCountDialog({
 
 // ------------------------------------------------------ keying a count -----
 
-/** What `PhysicalCountEntry.counted_quantity` accepts: nought or more, to 4 places. */
-const COUNTED_QUANTITY_PATTERN = /^\d{1,14}(\.\d{1,4})?$/
-
 /**
  * `PhysicalCountEntryRequest` takes at most this many entries per request
  * (`MAX_DOCUMENT_LINES` in inventory/schemas.py). Figures keyed across several
@@ -1296,7 +1293,7 @@ function CountedQuantityCell({ line }: { line: PhysicalCountLineRow }) {
   const draft = entry.drafts[line.id]
   const value = draft ?? line.counted_quantity ?? ''
   const message =
-    draft !== undefined && draft.trim() !== '' && !COUNTED_QUANTITY_PATTERN.test(draft.trim())
+    draft !== undefined && draft.trim() !== '' && !QUANTITY_INPUT.test(draft.trim())
       ? validation.decimals('a quantity of zero or more', 4)
       : entry.errorsByLine[line.id]
   return (
@@ -1508,9 +1505,7 @@ export function EnterCountsDialog({
     ],
     [drafts, serialDrafts],
   )
-  const malformed = pending.filter(
-    (entry) => !COUNTED_QUANTITY_PATTERN.test(entry.counted_quantity),
-  )
+  const malformed = pending.filter((entry) => !QUANTITY_INPUT.test(entry.counted_quantity))
   const serialCount = pending.reduce(
     (total, entry) => total + (entry.serial_numbers?.length ?? 0),
     0,

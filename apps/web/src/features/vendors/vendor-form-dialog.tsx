@@ -38,6 +38,7 @@ import { Checkbox, Input, Label, Skeleton, Textarea } from '@/components/ui/prim
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
+import { OPTIONAL_MONEY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, asUpperText } from '@/lib/form-values'
 import { humanise } from '@/lib/format'
@@ -49,7 +50,6 @@ import { toast } from '@/lib/toast'
 import { UnsavedVendorNotice, VendorCategoriesPanel, VendorContactsPanel } from './vendor-relations'
 import { VENDOR_TYPES, type VendorRow, type VendorType } from './vendor-types'
 
-const MONEY = /^(\d{1,14}(\.\d{1,4})?)?$/
 const WHOLE_DAYS = /^\d{0,3}$/
 
 const schema = z
@@ -73,7 +73,10 @@ const schema = z
     msme_number: z.string().trim().max(32, validation.maxLength(32)),
 
     payment_terms_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
-    credit_limit: z.string().trim().regex(MONEY, validation.decimals('an amount', 4)),
+    credit_limit: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_MONEY_INPUT, validation.decimals('an amount', 4)),
     lead_time_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
     currency: z
       .string()

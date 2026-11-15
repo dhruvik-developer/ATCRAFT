@@ -47,6 +47,7 @@ import {
 } from '@/features/finance/finance-types'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
+import { OPTIONAL_PERCENT_INPUT, QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
@@ -62,11 +63,6 @@ import {
   type JobWorkOrderRow,
 } from './job-work-model'
 import { JobWorkOrderPicker } from './job-work-order-picker'
-
-/** `Quantity` is NUMERIC(18,4), `UnitPrice` NUMERIC(18,6). */
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const RATE = /^\d{1,12}(\.\d{1,6})?$/
-const PERCENT = /^(\d{1,3}(\.\d{1,4})?)?$/
 
 /** One billable line with the clerk's edits on top of the server's figures. */
 interface LineEdit {
@@ -157,8 +153,12 @@ export function JobWorkInvoiceDialog({
       billable.map((line) => {
         const edit = edits[line.job_work_receipt_line_id]
         if (!edit?.selected) return null
-        if (!QUANTITY.test(edit.quantity.trim()) || !RATE.test(edit.unit_price.trim())) return null
-        if (!PERCENT.test(edit.tax_rate.trim())) return null
+        if (
+          !QUANTITY_INPUT.test(edit.quantity.trim()) ||
+          !UNIT_PRICE_INPUT.test(edit.unit_price.trim())
+        )
+          return null
+        if (!OPTIONAL_PERCENT_INPUT.test(edit.tax_rate.trim())) return null
         return {
           line,
           edit,

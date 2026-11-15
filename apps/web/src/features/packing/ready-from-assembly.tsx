@@ -38,6 +38,7 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatQuantity, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
@@ -46,12 +47,9 @@ import { packingKeys, type PackingOrderDetail } from '@/features/packing/packing
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-/** `Quantity` is NUMERIC(18,4): at most 14 integer digits and 4 decimals. */
-const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
-
 const schema = z.object({
   customer_id: z.string(),
-  quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+  quantity: z.string().trim().regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
   planned_date: z.string(),
   notes: z.string().trim().max(2000, validation.maxLength(2000)),
 })

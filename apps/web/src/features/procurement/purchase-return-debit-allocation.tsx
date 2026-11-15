@@ -28,6 +28,7 @@ import {
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
+import { ROUNDED_MONEY_INPUT } from '@/lib/decimal-input'
 import { formatMoney, toDecimal } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, validation } from '@/lib/messages'
@@ -47,8 +48,6 @@ type DraftLine = {
   invoice_code: string
   vendor_invoice_number: string
 }
-
-const MONEY = /^\d{1,14}(\.\d{1,2})?$/
 
 export function PurchaseReturnDebitAllocation({
   purchaseReturn,
@@ -117,7 +116,8 @@ export function PurchaseReturnDebitAllocation({
   const creditLimit = toDecimal(purchaseReturn.total_amount)
   const exceedsCredit = draftTotal.greaterThan(creditLimit)
   const invalidAmount = draft.some(
-    (row) => !MONEY.test(row.amount.trim()) || toDecimal(row.amount).lessThanOrEqualTo(0),
+    (row) =>
+      !ROUNDED_MONEY_INPUT.test(row.amount.trim()) || toDecimal(row.amount).lessThanOrEqualTo(0),
   )
 
   // What the debit note carried when it was read: an invoice taken out of the

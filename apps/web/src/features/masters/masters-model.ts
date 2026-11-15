@@ -127,19 +127,6 @@ export const PRICE_TYPES = ['SALE', 'DEALER', 'DISTRIBUTOR'] as const satisfies 
 export const MIN_UOM_DECIMALS = 0
 export const MAX_UOM_DECIMALS = 6
 
-/**
- * `UomConversionCreate.factor` accepts at most 10 integer digits and 8
- * decimals and must be strictly positive. Transcribed from the contract's own
- * pattern so the form refuses what the API would refuse, before the round trip.
- */
-export const FACTOR_PATTERN = /^\d{1,10}(\.\d{1,8})?$/
-
-/** `PriceCreate.price`: 12 integer digits, 6 decimals, zero allowed. */
-export const PRICE_PATTERN = /^\d{1,12}(\.\d{1,6})?$/
-
-/** `PriceCreate.min_quantity`: 14 integer digits, 4 decimals, zero allowed. */
-export const QUANTITY_PATTERN = /^\d{1,14}(\.\d{1,4})?$/
-
 // ------------------------------------------------------------- reference ----
 
 /**

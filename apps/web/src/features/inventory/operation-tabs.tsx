@@ -44,6 +44,7 @@ import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
@@ -238,7 +239,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
       lines.some(
         (line) =>
           !line.item_id ||
-          !/^\d+(\.\d{1,4})?$/.test(line.quantity.trim()) ||
+          !QUANTITY_INPUT.test(line.quantity.trim()) ||
           !toDecimal(line.quantity).greaterThan(0),
       )
     ) {

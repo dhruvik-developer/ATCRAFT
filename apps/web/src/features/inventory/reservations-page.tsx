@@ -59,6 +59,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH } from '@/lib/constants'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import {
@@ -105,9 +106,6 @@ const LIVE_STATUSES: ReadonlySet<ReservationStatus> = new Set<ReservationStatus>
   'PARTIALLY_CONSUMED',
 ])
 
-/** A quantity typed by hand: positive, to the API's four decimal places. */
-const QUANTITY_PATTERN = /^\d+(\.\d{1,4})?$/
-
 /**
  * Priority as typed: a whole number, bounded the way `Priority` is in the
  * allocation schemas. Lower is more urgent - the column's own comment says so,
@@ -127,7 +125,7 @@ const createSchema = z.object({
     .string()
     .trim()
     .refine(
-      (value) => QUANTITY_PATTERN.test(value) && toDecimal(value).greaterThan(0),
+      (value) => QUANTITY_INPUT.test(value) && toDecimal(value).greaterThan(0),
       validation.decimals('a quantity above zero', 4),
     ),
   // The `: boolean` is load-bearing. Zod narrows a schema's output type when the
@@ -237,7 +235,7 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
   // A warning, never a block. The number is already historical by the time it
   // renders; the lock the API takes is the only answer that counts.
   const overPromised =
-    free !== null && QUANTITY_PATTERN.test(quantity) && toDecimal(quantity).greaterThan(free)
+    free !== null && QUANTITY_INPUT.test(quantity) && toDecimal(quantity).greaterThan(free)
 
   const create = useMutation({
     mutationFn: (body: ReservationCreateBody) =>

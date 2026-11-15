@@ -81,6 +81,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { optionLabel, useWorkCentreOptions } from '@/features/production/work-order-model'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import {
   EMPTY_VALUE,
   formatDate,
@@ -114,8 +115,6 @@ import {
   type WhereUsedRow,
 } from './bom-model'
 import { BomStructure } from './bom-tree'
-
-const QUANTITY_PATTERN = /^\d{1,12}(\.\d{1,4})?$/
 
 /** The four status moves, all of which take a recorded reason. */
 type StatusAction = 'submit' | 'approve' | 'reject' | 'obsolete'
@@ -459,7 +458,7 @@ function ExplosionPanel({ bom }: { bom: BomDetail }) {
     return () => clearTimeout(timer)
   }, [input])
 
-  const isValid = QUANTITY_PATTERN.test(quantity) && quantity !== '0'
+  const isValid = QUANTITY_INPUT.test(quantity) && quantity !== '0'
 
   const explosion = useQuery({
     queryKey: queryKeys.bom.explosion(bom.id, quantity),

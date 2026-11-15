@@ -35,6 +35,7 @@ import { useFormSeed } from '@/hooks/use-form-seed'
 import { useBranchOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asId, asText } from '@/lib/form-values'
 import { humanise } from '@/lib/format'
@@ -54,7 +55,6 @@ import {
 const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/ ]*$/
 const CODE_MESSAGE =
   'Use letters, digits, dot, dash, slash, underscore or space, starting with a letter or digit'
-const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
 
 // ------------------------------------------------------------ warehouse -----
 
@@ -485,7 +485,10 @@ const locationSchema = z.object({
     .regex(CODE_PATTERN, CODE_MESSAGE),
   name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
   location_type: z.enum(LOCATION_TYPES),
-  capacity_quantity: z.string().trim().regex(DECIMAL, validation.decimals('a number', 4)),
+  capacity_quantity: z
+    .string()
+    .trim()
+    .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a number', 4)),
   capacity_uom: z.string().trim().max(16, validation.maxLength(16)),
   barcode: z.string().trim().max(64, validation.maxLength(64)),
   notes: z.string().trim(),

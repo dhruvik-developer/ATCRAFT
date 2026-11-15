@@ -55,6 +55,7 @@ import {
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { OPTIONAL_MONEY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { asText, asUpperText } from '@/lib/form-values'
 import { humanise } from '@/lib/format'
@@ -67,7 +68,6 @@ import { AddressesPanel, ContactsPanel, UnsavedCustomerNotice } from './customer
 import { CUSTOMER_TYPES, PRICE_TYPES, isDealerChannel, type CustomerDetail } from './customer-types'
 import { CustomerCollectionsPanel } from './customer-collections-panel'
 
-const MONEY = /^(\d{1,14}(\.\d{1,4})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z
@@ -89,7 +89,10 @@ const schema = z
       .trim()
       .refine((v) => v === '' || PAN_PATTERN.test(v.toUpperCase()), 'Not a valid 10-character PAN'),
     /** Ignored while `unlimited_credit` is on. */
-    credit_limit: z.string().trim().regex(MONEY, validation.decimals('an amount', 4)),
+    credit_limit: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_MONEY_INPUT, validation.decimals('an amount', 4)),
     unlimited_credit: z.boolean(),
     credit_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
     notes: z.string().trim().max(1000, validation.maxLength(1000)),

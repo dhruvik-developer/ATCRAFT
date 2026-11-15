@@ -72,6 +72,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import type { VendorRow } from '@/features/vendors/vendor-types'
 import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
+import { ROUNDED_MONEY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, asUpperText } from '@/lib/form-values'
 import {
@@ -119,15 +120,6 @@ import {
   type PaymentType,
   type PaymentUpdateBody,
 } from './payment-model'
-
-/**
- * Money as it is actually stored: `to_money` quantises to two places.
- *
- * The contract's own pattern permits four, so a third decimal would be accepted
- * by validation and then silently rounded away. The form asks for what will be
- * kept.
- */
-const MONEY = /^\d{1,14}(\.\d{1,2})?$/
 
 /** A `z.enum` built from a contract-derived list, so the two cannot drift. */
 function enumOf<T extends string>(values: readonly T[]) {
@@ -202,7 +194,7 @@ const paymentFormSchema = z
     amount: z
       .string()
       .trim()
-      .regex(MONEY, validation.decimals('an amount', 2))
+      .regex(ROUNDED_MONEY_INPUT, validation.decimals('an amount', 2))
       .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Amount')),
     currency: z
       .string()
@@ -1097,7 +1089,7 @@ export function PaymentAllocationDialog({
    * a line whose ceiling is unknown is simply left to the server.
    */
   const problems: string[] = []
-  if (draftEntries.some(([, line]) => !MONEY.test(line.amount.trim()))) {
+  if (draftEntries.some(([, line]) => !ROUNDED_MONEY_INPUT.test(line.amount.trim()))) {
     problems.push(`${validation.decimals('every amount', 2)}.`)
   }
   if (payableEntries.length > MAX_ALLOCATIONS) {
@@ -1384,7 +1376,7 @@ export function PaymentAllocationDialog({
                                   autoComplete="off"
                                   value={line.amount}
                                   aria-label={`Amount settled against ${label}`}
-                                  aria-invalid={!MONEY.test(line.amount.trim())}
+                                  aria-invalid={!ROUNDED_MONEY_INPUT.test(line.amount.trim())}
                                   className="h-8 w-32 text-right tabular"
                                   onChange={(event) =>
                                     setDraft((current) => ({

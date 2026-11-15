@@ -33,6 +33,7 @@ import { LocationPicker } from '@/features/inventory/location-picker'
 import { WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT, OPTIONAL_UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import { humanise, toDecimal } from '@/lib/format'
@@ -55,16 +56,15 @@ import {
   type ItemDetail,
 } from './item-model'
 
-const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
-const DECIMAL_6 = /^(\d{1,14}(\.\d{1,6})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
+/** A quantity or a cost to four places, blank meaning zero; the GST rate adds its ceiling. */
 const decimalField = (message = validation.decimals('a number', 4)) =>
-  z.string().trim().regex(DECIMAL, message)
+  z.string().trim().regex(OPTIONAL_QUANTITY_INPUT, message)
 
 /** Channel prices carry 6 decimal places, like the price-list rows. */
 const priceField = (message = validation.decimals('a price', 6)) =>
-  z.string().trim().regex(DECIMAL_6, message)
+  z.string().trim().regex(OPTIONAL_UNIT_PRICE_INPUT, message)
 
 const schema = z.object({
   code: z.string().trim().min(1, validation.required('Code')).max(64, validation.maxLength(64)),

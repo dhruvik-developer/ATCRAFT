@@ -39,6 +39,7 @@ import { useUomOptions } from '@/features/items/item-model'
 import { optionLabel, useWorkCentreOptions } from '@/features/production/work-order-model'
 import { ApiError, api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
+import { decimalPattern, MONEY_INPUT, PERCENTAGE, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { humanise, toDateInput } from '@/lib/format'
@@ -49,7 +50,8 @@ import { toast } from '@/lib/toast'
 
 import { BOM_TYPES, type BomDetail, type BomRow } from './bom-model'
 
-const DECIMAL = /^\d{1,14}(\.\d{1,4})?$/
+/** `ScrapPercentage` is the column's own `Numeric(9, 4)`, below 100. */
+const SCRAP_PERCENTAGE = decimalPattern(PERCENTAGE)
 
 // ------------------------------------------------------------- new BOM ------
 
@@ -65,9 +67,12 @@ const lineSchema = z.object({
   quantity_per: z
     .string()
     .trim()
-    .regex(DECIMAL, validation.decimals('a quantity', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
     .refine((value) => value !== '0', validation.positive('Quantity per')),
-  scrap_percentage: z.string().trim().regex(DECIMAL, validation.decimals('a percentage', 4)),
+  scrap_percentage: z
+    .string()
+    .trim()
+    .regex(SCRAP_PERCENTAGE, validation.decimals('a percentage', 4)),
   is_optional: z.boolean(),
 })
 
@@ -86,7 +91,7 @@ const createSchema = z
     output_quantity: z
       .string()
       .trim()
-      .regex(DECIMAL, validation.decimals('a quantity', 4))
+      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
       .refine((value) => value !== '0', validation.positive('Output quantity')),
     base_uom_id: z.string().min(1, validation.required('Base unit')),
     effective_from: z.string().min(1, validation.required('Effective-from date')),
@@ -620,9 +625,12 @@ const editLineSchema = z.object({
   quantity_per: z
     .string()
     .trim()
-    .regex(DECIMAL, validation.decimals('a quantity', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
     .refine((value) => value !== '0', validation.positive('Quantity per')),
-  scrap_percentage: z.string().trim().regex(DECIMAL, validation.decimals('a percentage', 4)),
+  scrap_percentage: z
+    .string()
+    .trim()
+    .regex(SCRAP_PERCENTAGE, validation.decimals('a percentage', 4)),
   is_optional: z.boolean(),
   substitute_for_index: z.number().int().min(0).nullable(),
   operation_sequence: z
@@ -643,10 +651,13 @@ const editOperationSchema = z.object({
   sequence: z.number().int().positive().nullable(),
   name: z.string().trim().min(1, validation.required('Operation name')).max(255),
   work_center_id: z.string().nullable(),
-  setup_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
-  run_time_minutes_per_unit: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
-  cost_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
-  fixed_cost: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
+  setup_time_minutes: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('minutes', 4)),
+  run_time_minutes_per_unit: z
+    .string()
+    .trim()
+    .regex(QUANTITY_INPUT, validation.decimals('minutes', 4)),
+  cost_per_hour: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 4)),
+  fixed_cost: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 4)),
   is_outsourced: z.boolean(),
   notes: z.string().trim().max(2000, validation.maxLength(2000)),
 })

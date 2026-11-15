@@ -18,6 +18,14 @@ import {
 import { Checkbox, Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
+import {
+  decimalPattern,
+  MONEY,
+  MONEY_INPUT,
+  PERCENTAGE,
+  QUANTITY_INPUT,
+  UNIT_PRICE_INPUT,
+} from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
@@ -40,18 +48,16 @@ const lineSchema = z.object({
   hsn_code: z.string().trim().max(16),
   quantity: z
     .string()
-    .regex(/^\d{1,14}(\.\d{1,4})?$/, validation.decimals('a quantity', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
     .refine((v): boolean => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
   uom_id: z.string().nullable(),
-  unit_price: z
-    .string()
-    .regex(/^\d{1,12}(\.\d{1,6})?$/, validation.decimals('a price of zero or more', 6)),
+  unit_price: z.string().regex(UNIT_PRICE_INPUT, validation.decimals('a price of zero or more', 6)),
   discount_amount: z
     .string()
-    .regex(/^\d{1,14}(\.\d{1,4})?$/, validation.decimals('a discount of zero or more', 4)),
+    .regex(MONEY_INPUT, validation.decimals('a discount of zero or more', 4)),
   tax_rate: z
     .string()
-    .regex(/^\d{1,5}(\.\d{1,4})?$/, validation.decimals('a rate', 4))
+    .regex(decimalPattern(PERCENTAGE), validation.decimals('a rate', 4))
     .refine((v): boolean => toDecimal(v).lessThanOrEqualTo(100), 'Tax must be between 0 and 100%'),
   is_interstate: z.boolean(),
 })
@@ -63,7 +69,7 @@ const schema = z
     notes: z.string().trim().max(2000),
     round_off_amount: z
       .string()
-      .regex(/^-?\d{1,14}(\.\d{1,4})?$/, validation.decimals('an amount', 4)),
+      .regex(decimalPattern(MONEY, { signed: true }), validation.decimals('an amount', 4)),
     lines: z
       .array(lineSchema)
       .min(1, 'This receipt has no accepted quantities to invoice')

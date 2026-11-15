@@ -1,9 +1,10 @@
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { isIsoCalendarDate, toDateInput, toDecimal } from '@/lib/format'
 import { validation } from '@/lib/messages'
 import type { SchemaOf } from '@/types/api'
 
 export function dealerQuantity(value: string): string {
-  if (!/^\d{1,14}(\.\d{1,4})?$/.test(value) || !toDecimal(value).greaterThan(0)) {
+  if (!QUANTITY_INPUT.test(value) || !toDecimal(value).greaterThan(0)) {
     throw new Error(validation.decimals('a quantity above zero', 4))
   }
   return value

@@ -50,6 +50,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { zeroIfBlank } from '@/lib/form-values'
 import {
@@ -96,9 +97,6 @@ import {
 } from './assembly-model'
 import { AssemblyOrderFormDialog } from './assembly-order-dialog'
 
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
-
 // -------------------------------------------------------- issue components --
 
 const issueSchema = z.object({
@@ -119,7 +117,10 @@ const issueSchema = z.object({
       item_id: z.string(),
       label: z.string(),
       batch_id: z.string(),
-      quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      quantity: z
+        .string()
+        .trim()
+        .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     }),
   ),
 })
@@ -579,11 +580,14 @@ function SerialPicker({
 
 const completeSchema = z
   .object({
-    assembled_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+    assembled_quantity: z
+      .string()
+      .trim()
+      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     rejected_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     reason: z
       .string()
       .trim()

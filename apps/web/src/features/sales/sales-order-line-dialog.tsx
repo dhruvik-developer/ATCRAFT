@@ -41,6 +41,11 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions, type ItemVariant } from '@/features/items/item-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
+import {
+  OPTIONAL_PERCENT_INPUT,
+  OPTIONAL_UNIT_PRICE_INPUT,
+  QUANTITY_INPUT,
+} from '@/lib/decimal-input'
 import { asText } from '@/lib/form-values'
 import { validation } from '@/lib/messages'
 import { api } from '@/lib/api-client'
@@ -50,10 +55,6 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import type { SalesOrderLineIn } from './sales-types'
-
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const PRICE = /^$|^\d{1,12}(\.\d{1,6})?$/
-const RATE = /^(\d{1,3}(\.\d{1,4})?)?$/
 
 /** Radix Select forbids an empty option value, so "not stated" needs a sentinel. */
 const ITEM_DEFAULT_UOM = '__item_default'
@@ -65,14 +66,14 @@ const schema = z.object({
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, validation.decimals('a quantity', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
     .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
   uom_id: z.string(),
-  unit_price: z.string().trim().regex(PRICE, validation.decimals('a price', 6)),
+  unit_price: z.string().trim().regex(OPTIONAL_UNIT_PRICE_INPUT, validation.decimals('a price', 6)),
   discount_percentage: z
     .string()
     .trim()
-    .regex(RATE, 'Enter a percentage')
+    .regex(OPTIONAL_PERCENT_INPUT, 'Enter a percentage')
     .refine((value) => toDecimal(value).lessThanOrEqualTo(100), 'A discount cannot exceed 100%'),
   required_date: z.string(),
   notes: z.string().trim().max(2000, validation.maxLength(2000)),

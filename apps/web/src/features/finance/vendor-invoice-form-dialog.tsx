@@ -100,6 +100,14 @@ import type {
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, SELECT_NONE } from '@/lib/constants'
+import {
+  decimalPattern,
+  MONEY,
+  OPTIONAL_MONEY_INPUT,
+  PERCENTAGE,
+  QUANTITY_INPUT,
+  UNIT_PRICE_INPUT,
+} from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
@@ -128,18 +136,13 @@ import {
 } from './finance-types'
 
 /**
- * The NUMERIC scales the contract states, as input patterns.
- *
- * Each one is the JSON-schema pattern for its field read back in a form a
- * person can be told about: quantity is NUMERIC(18,4), a unit price is stored
- * at six places, a tax rate at four. A blank is allowed where the field has a
- * server-side default and is sent as "0" instead.
+ * The scales the contract states, as input patterns: a quantity and an amount
+ * at four places, a unit price at six, a tax rate at the `Percentage` column's
+ * four. A blank is allowed where the field has a server-side default and is
+ * sent as "0" instead.
  */
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const UNIT_PRICE = /^\d{1,12}(\.\d{1,6})?$/
-const MONEY_OR_BLANK = /^$|^\d{1,14}(\.\d{1,4})?$/
-const SIGNED_MONEY_OR_BLANK = /^$|^-?\d{1,14}(\.\d{1,4})?$/
-const RATE_OR_BLANK = /^$|^\d{1,5}(\.\d{1,4})?$/
+const SIGNED_MONEY_OR_BLANK = decimalPattern(MONEY, { signed: true, optional: true })
+const RATE_OR_BLANK = decimalPattern(PERCENTAGE, { optional: true })
 const CURRENCY_OR_BLANK = /^$|^[A-Za-z]{3}$/
 
 /** `formatMoney` hands the code to `Intl`, which throws on a half-typed one. */
@@ -158,11 +161,14 @@ const lineSchema = z.object({
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, validation.decimals('a quantity', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
     .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
   uom_id: z.string(),
-  unit_price: z.string().trim().regex(UNIT_PRICE, validation.decimals('a price', 6)),
-  discount_amount: z.string().trim().regex(MONEY_OR_BLANK, validation.decimals('an amount', 4)),
+  unit_price: z.string().trim().regex(UNIT_PRICE_INPUT, validation.decimals('a price', 6)),
+  discount_amount: z
+    .string()
+    .trim()
+    .regex(OPTIONAL_MONEY_INPUT, validation.decimals('an amount', 4)),
   tax_rate: z
     .string()
     .trim()

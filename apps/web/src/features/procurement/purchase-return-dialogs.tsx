@@ -76,6 +76,7 @@ import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import {
@@ -111,9 +112,6 @@ import {
 } from './purchase-return-model'
 import { sentLineIndices } from './server-field-errors'
 import { PurchaseReturnDebitAllocation } from './purchase-return-debit-allocation'
-
-/** NUMERIC(18,4): fourteen integer digits and four decimals, or nothing typed. */
-const QUANTITY = /^$|^\d{1,14}(\.\d{1,4})?$/
 
 // -------------------------------------------------------- receipt picker ----
 
@@ -196,7 +194,7 @@ const lineSchema = z.object({
   batch_number: z.string(),
   returnable_quantity: z.string(),
   unit_cost: z.string(),
-  quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+  quantity: z.string().trim().regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
   reason: z.string().trim().max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
   notes: z.string().trim().max(MAX_LINE_NOTES_LENGTH, validation.maxLength(MAX_LINE_NOTES_LENGTH)),
 })

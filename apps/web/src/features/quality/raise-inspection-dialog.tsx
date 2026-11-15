@@ -47,6 +47,7 @@ import { SerialPicker } from '@/features/dispatch/stock-pickers'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { humanise, toDecimal } from '@/lib/format'
@@ -71,7 +72,6 @@ const REFERENCE_TYPES = [
 ] as const
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 
 const schema = z
   .object({
@@ -83,7 +83,7 @@ const schema = z
     inspected_quantity: z
       .string()
       .trim()
-      .regex(QUANTITY, validation.decimals('a quantity', 4))
+      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
       .refine((value) => value !== '' && Number(value) > 0, validation.positive('Quantity')),
     hold_stock: z.boolean(),
     template_id: z.string(),

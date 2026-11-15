@@ -20,12 +20,12 @@ import {
 import { Badge, Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
-import { QUANTITY_PATTERN } from '@/features/masters/masters-model'
 import { invalidateProductDescriptions } from '@/features/product-descriptions/specification-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { PRODUCT_DESCRIPTION_POSITION_MAX, PRODUCT_DESCRIPTION_TEXT_MAX } from '@/lib/constants'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { asText } from '@/lib/form-values'
 import { EMPTY_VALUE, formatQuantity, toDecimal } from '@/lib/format'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
@@ -42,7 +42,7 @@ const schema = z.object({
     .string()
     .trim()
     .refine(
-      (value) => QUANTITY_PATTERN.test(value) && toDecimal(value).greaterThan(0),
+      (value) => QUANTITY_INPUT.test(value) && toDecimal(value).greaterThan(0),
       validation.decimals('a quantity above zero', 4),
     ),
   relation: z.enum(['OPTIONAL', 'INCLUDED']),

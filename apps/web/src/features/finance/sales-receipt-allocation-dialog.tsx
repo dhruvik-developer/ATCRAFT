@@ -18,6 +18,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
+import { ROUNDED_MONEY_INPUT } from '@/lib/decimal-input'
 import { formatDate, formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { fieldErrorSummary } from '@/lib/form-errors'
@@ -99,7 +100,7 @@ export function SalesReceiptAllocationDialog({
     total.lessThanOrEqualTo(toDecimal(payment.amount)) &&
     Object.values(draft).every(
       (row) =>
-        /^\d+(\.\d{1,2})?$/.test(row.amount) &&
+        ROUNDED_MONEY_INPUT.test(row.amount) &&
         toDecimal(row.amount).greaterThan(0) &&
         (row.ceiling === null || toDecimal(row.amount).lessThanOrEqualTo(row.ceiling)),
     )

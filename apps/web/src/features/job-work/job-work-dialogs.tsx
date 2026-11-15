@@ -48,6 +48,7 @@ import { SERIAL_BULK_MAX } from '@/features/inventory/serial-numbers'
 import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
@@ -68,11 +69,7 @@ import {
   type RejectionAction,
 } from './job-work-model'
 
-import {
-  JOB_WORK_QUANTITY_INPUT,
-  receiveSchema,
-  type ReceiveFormValues,
-} from './job-work-receive-schema'
+import { receiveSchema, type ReceiveFormValues } from './job-work-receive-schema'
 
 /** Ordered less already issued - what a fresh challan would normally carry. */
 function stillToIssue(line: JobWorkOrderLine): string {
@@ -123,7 +120,7 @@ const issueSchema = z.object({
       quantity: z
         .string()
         .trim()
-        .regex(JOB_WORK_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+        .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     }),
   ),
 })

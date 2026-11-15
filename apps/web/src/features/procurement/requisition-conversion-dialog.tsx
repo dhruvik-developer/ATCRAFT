@@ -58,6 +58,7 @@ import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
+import { QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import {
   EMPTY_VALUE,
   daysUntil,
@@ -105,17 +106,9 @@ import {
 
 // ------------------------------------------------------------ overrides -----
 
-/**
- * The bounds `RequisitionConversionLineOverride` declares: a quantity of up to
- * four decimal places and a price of up to six, both within NUMERIC(18, n). A
- * value outside them is held back with a message rather than sent for a 422.
- */
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const PRICE = /^\d{1,12}(\.\d{1,6})?$/
-
 const isQuantity = (text: string): boolean =>
-  QUANTITY.test(text.trim()) && toDecimal(text.trim()).greaterThan(0)
-const isUnitPrice = (text: string): boolean => PRICE.test(text.trim())
+  QUANTITY_INPUT.test(text.trim()) && toDecimal(text.trim()).greaterThan(0)
+const isUnitPrice = (text: string): boolean => UNIT_PRICE_INPUT.test(text.trim())
 
 /** What the buyer has changed on one line, as typed. Empty text means "as proposed". */
 interface LineEdit {

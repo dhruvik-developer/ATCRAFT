@@ -39,6 +39,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useWorkCentreOptions } from '@/features/production/work-order-model'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
+import { OPTIONAL_MONEY_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { formatDateTime, formatMoney, formatQuantity, humanise } from '@/lib/format'
@@ -54,14 +55,11 @@ import {
   type QcReworkRecord,
 } from './quality-types'
 
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const MONEY = /^(\d{1,14}(\.\d{1,4})?)?$/
-
 const openSchema = z.object({
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, validation.decimals('a quantity', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
     .refine((value) => Number(value) > 0, validation.positive('Quantity')),
   assign_to_me: z.boolean(),
   work_center_id: z.string(),
@@ -229,7 +227,7 @@ function OpenCycleForm({
 
 const completeSchema = z.object({
   outcome: z.enum(QC_REWORK_OUTCOMES),
-  cost: z.string().trim().regex(MONEY, validation.decimals('an amount', 4)),
+  cost: z.string().trim().regex(OPTIONAL_MONEY_INPUT, validation.decimals('an amount', 4)),
   notes: z.string().trim().max(2000, validation.maxLength(2000)),
   reason: z
     .string()

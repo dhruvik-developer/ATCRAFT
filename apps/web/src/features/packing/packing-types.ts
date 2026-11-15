@@ -189,9 +189,3 @@ export type CartonScanRequest = SchemaOf<'CartonScanRequest'>
 
 /** `GET` or `POST /packing/scan` (`CartonScanResult`). */
 export type CartonScanResult = SchemaOf<'CartonScanResult'>
-
-/** Quantities on the carton content form. Empty is treated as zero. */
-export const QUANTITY_INPUT = /^$|^\d{1,14}(\.\d{1,4})?$/
-
-/** Weights and dimensions, to three places. */
-export const MEASURE_INPUT = /^$|^\d{1,10}(\.\d{1,3})?$/

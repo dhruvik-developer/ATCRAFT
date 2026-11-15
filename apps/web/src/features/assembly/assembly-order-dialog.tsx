@@ -63,6 +63,7 @@ import {
   ASSEMBLY_PRIORITY_MAX,
   DEFAULT_ASSEMBLY_PRIORITY,
 } from '@/lib/constants'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { formatQuantity, humanise, toDateInput } from '@/lib/format'
@@ -74,8 +75,6 @@ import type { BomRow } from '@/features/bom/bom-model'
 
 import { assemblyKeys, type AssemblyOrderDetail } from './assembly-model'
 
-/** `Quantity` is NUMERIC(18,4): at most 14 integer digits and 4 decimals. */
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 /** A priority is a small whole number; lower is more urgent. */
 const PRIORITY = /^\d{1,4}$/
 
@@ -86,7 +85,7 @@ const schema = z
   .object({
     item_id: z.string().min(1, validation.choose('the item to assemble')),
     bom_id: z.string(),
-    planned_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+    planned_quantity: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     warehouse_id: z
       .string()
       .min(1, validation.choose('the warehouse the components are drawn from')),

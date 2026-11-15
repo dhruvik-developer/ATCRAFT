@@ -41,6 +41,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { SELECT_NONE } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import { formatDate, formatMoney } from '@/lib/format'
@@ -52,7 +53,6 @@ import { toast } from '@/lib/toast'
 
 import type { ItemVendorLink } from './item-model'
 
-const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z.object({
@@ -67,8 +67,14 @@ const schema = z.object({
     .trim()
     .regex(WHOLE_DAYS, 'Whole days only')
     .refine((value) => value === '' || Number(value) <= 3650, 'Lead time cannot exceed 3650 days'),
-  min_order_quantity: z.string().trim().regex(DECIMAL, validation.decimals('a quantity', 4)),
-  order_multiple: z.string().trim().regex(DECIMAL, validation.decimals('a quantity', 4)),
+  min_order_quantity: z
+    .string()
+    .trim()
+    .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+  order_multiple: z
+    .string()
+    .trim()
+    .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
   is_active: z.boolean(),
 })
 

@@ -62,6 +62,7 @@ import {
   SELECT_NONE,
   LOOKUP_LIST_LIMIT,
 } from '@/lib/constants'
+import { decimalPattern, OPTIONAL_QUANTITY_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import { formatQuantity, humanise, plural, toDateInput, toDecimal } from '@/lib/format'
@@ -84,27 +85,25 @@ import {
   type ProductionOrderRow,
 } from './production-model'
 
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const WHOLE = /^\d{1,6}$/
-const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
 /** Minutes are a measured value on the wire, so decimals are legitimate. */
-const MINUTES = /^(\d{1,6}(\.\d{1,4})?)?$/
+const MINUTES = decimalPattern({ whole: 6, places: 4 }, { optional: true })
 
 const completionSchema = z
   .object({
     produced_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     rejected_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     rejection_reason: z.string().trim().max(255, validation.maxLength(255)),
     scrap_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     actual_end_date: z.string().min(1, 'Enter the actual end date'),
     shift_id: z.string(),
     output_batch_id: z.string(),
@@ -452,7 +451,7 @@ const orderSchema = z
     planned_quantity: z
       .string()
       .trim()
-      .regex(QUANTITY, validation.decimals('a quantity', 4))
+      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4))
       .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
     planned_start_date: z.string().min(1, validation.required('Planned start')),
     // Required by the API, not optional: `ProductionOrderCreate` names both
@@ -849,7 +848,10 @@ const issueSchema = z.object({
       line_number: z.number(),
       label: z.string(),
       location_id: z.string().optional(),
-      quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      quantity: z
+        .string()
+        .trim()
+        .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     }),
   ),
 })
@@ -1170,7 +1172,10 @@ const returnSchema = z.object({
         label: z.string(),
         /** This line's own ceiling, carried so the rule can name the row. */
         returnable: z.string(),
-        quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+        quantity: z
+          .string()
+          .trim()
+          .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
       })
       .superRefine((line, ctx) => {
         // Held here rather than left to the API. The service refuses the whole
@@ -1538,11 +1543,11 @@ const entrySchema = z
     produced_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     rejected_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     rejection_reason: z.string().trim().max(255, validation.maxLength(255)),
     downtime_minutes: z.string().trim().regex(MINUTES, validation.decimals('minutes', 4)),
     output_batch_id: z.string(),

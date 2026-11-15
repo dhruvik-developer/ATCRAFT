@@ -30,6 +30,7 @@ import {
 } from '@/hooks/use-item-attribute-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
+import { decimalPattern, MONEY, UNIT_PRICE } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import { success, validation } from '@/lib/messages'
@@ -39,8 +40,8 @@ import { toast } from '@/lib/toast'
 
 import type { ItemVariant } from './item-model'
 
-const PRICE_DELTA = /^(-?\d{1,12}(\.\d{1,6})?)?$/
-const COST_DELTA = /^(-?\d{1,14}(\.\d{1,4})?)?$/
+const PRICE_DELTA = decimalPattern(UNIT_PRICE, { signed: true, optional: true })
+const COST_DELTA = decimalPattern(MONEY, { signed: true, optional: true })
 
 const schema = z
   .object({

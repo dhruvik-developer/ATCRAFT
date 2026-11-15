@@ -58,6 +58,7 @@ import type { ItemDetail } from '@/features/items/item-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
 import { EMPTY_VALUE, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
@@ -70,7 +71,6 @@ import { cn } from '@/lib/utils'
 import {
   NUMERIC_READING,
   QC_PARAMETER_TYPES,
-  QUANTITY_INPUT,
   REJECTION_REASON_MAX_LENGTH,
   hasFailed,
   isInspectable,
@@ -145,14 +145,23 @@ const schema = z
     accepted_quantity: z
       .string()
       .trim()
-      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     rejected_quantity: z
       .string()
       .trim()
-      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
-    rework_quantity: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
-    hold_quantity: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
-    scrap_quantity: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    rework_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    hold_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    scrap_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     remarks: z.string().trim().max(2000, validation.maxLength(2000)),
     parameters: z.array(parameterSchema),
   })

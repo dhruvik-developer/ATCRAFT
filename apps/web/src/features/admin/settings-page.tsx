@@ -34,6 +34,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import type { SalesSettings } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
+import { MONEY_INPUT } from '@/lib/decimal-input'
 import { reportFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import { describeError, success, validation } from '@/lib/messages'
@@ -96,15 +97,10 @@ function toApprovalDraft(settings?: ApprovalSettings | null): ApprovalDraft {
   }
 }
 
-//: The database stores NUMERIC(18,4): at most four decimal places. The bound is
-//: repeated here so an obvious typo is caught before a round trip; the API is
-//: still the authority for the digit count and for the non-negative rule.
-const approvalAmountPattern = /^\d+(?:\.\d{1,4})?$/
-
 function invalidApprovalField(values: ApprovalDraft): string | null {
   for (const [key, label] of approvalFields) {
     const trimmed = values[key].trim()
-    if (trimmed !== '' && !approvalAmountPattern.test(trimmed)) return label
+    if (trimmed !== '' && !MONEY_INPUT.test(trimmed)) return label
   }
   return null
 }

@@ -1,3 +1,4 @@
+import { PERCENT_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { isIsoCalendarDate, toDecimal } from '@/lib/format'
 import { validation } from '@/lib/messages'
 import type { SchemaOf } from '@/types/api'
@@ -74,10 +75,10 @@ export function offerPayload(
   if (kind !== 'ALL' && !targetId) throw new Error('Choose the offer scope target.')
   const minQuantity = String(fields.get('min_quantity') ?? '').trim()
   const discount = String(fields.get('discount_percentage') ?? '').trim()
-  if (!/^\d{1,14}(\.\d{1,4})?$/.test(minQuantity) || !toDecimal(minQuantity).greaterThan(0))
+  if (!QUANTITY_INPUT.test(minQuantity) || !toDecimal(minQuantity).greaterThan(0))
     throw new Error(validation.decimals('a minimum quantity above zero', 4))
   if (
-    !/^\d{1,3}(\.\d{1,4})?$/.test(discount) ||
+    !PERCENT_INPUT.test(discount) ||
     !toDecimal(discount).greaterThan(0) ||
     toDecimal(discount).greaterThan(100)
   )

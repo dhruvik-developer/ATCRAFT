@@ -65,6 +65,7 @@ import { useWorkCentreOptions } from '@/features/production/work-order-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
+import { MONEY_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText } from '@/lib/form-values'
 import {
@@ -96,8 +97,6 @@ import {
   type RoutingRow,
   type WorkCenter,
 } from './routing-model'
-
-const DECIMAL = /^\d{1,10}(\.\d{1,4})?$/
 
 /**
  * The whole work-centre register, inactive centres included - for naming a
@@ -669,11 +668,14 @@ const operationSchema = z
       .min(1, validation.required('Operation name'))
       .max(255, validation.maxLength(255)),
     work_center_id: z.string().min(1, 'Every operation runs on a work centre'),
-    setup_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
-    run_time_per_unit_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
-    queue_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
-    move_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
-    process_cost: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
+    setup_time_minutes: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('minutes', 4)),
+    run_time_per_unit_minutes: z
+      .string()
+      .trim()
+      .regex(QUANTITY_INPUT, validation.decimals('minutes', 4)),
+    queue_time_minutes: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('minutes', 4)),
+    move_time_minutes: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('minutes', 4)),
+    process_cost: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 4)),
     is_outsourced: z.boolean(),
     qc_required: z.boolean(),
     // Assigned, not just carried. `RoutingUpdate.operations` replaces the list
@@ -1327,14 +1329,14 @@ const workCenterSchema = z.object({
   code: z.string().trim().min(1, validation.required('Code')).max(64, validation.maxLength(64)),
   name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
   description: z.string().trim().max(1000, validation.maxLength(1000)),
-  capacity_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('a number', 4)),
-  cost_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
+  capacity_per_hour: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a number', 4)),
+  cost_per_hour: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 4)),
   // A flat charge per batch. There is no efficiency percentage on this record.
-  setup_cost: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
+  setup_cost: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 4)),
   working_hours_per_day: z
     .string()
     .trim()
-    .regex(DECIMAL, validation.decimals('hours', 4))
+    .regex(QUANTITY_INPUT, validation.decimals('hours', 4))
     // Compared as a decimal, like every other measured value in this form: a
     // `parseFloat` here is the same defect near the working day that it is near
     // money, and "24.00001" is not 24 hours however an IEEE-754 double reads it.
@@ -1583,8 +1585,8 @@ const machineSchema = z.object({
   // Required: the API has no unassigned machine.
   work_center_id: z.string().min(1, 'A machine belongs to a work centre'),
   machine_type: z.string().trim().max(64, validation.maxLength(64)),
-  capacity_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('a number', 4)),
-  cost_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
+  capacity_per_hour: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a number', 4)),
+  cost_per_hour: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 4)),
   last_maintenance_date: z.string(),
   next_maintenance_date: z.string(),
 })

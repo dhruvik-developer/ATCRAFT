@@ -21,6 +21,7 @@
  * Nothing moves either way until an approver acts on the PENDING request.
  */
 
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { joinValidationMessages, validation } from '@/lib/messages'
 
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -70,10 +71,7 @@ const reallocationSchema = z.object({
   quantity: z
     .string()
     .trim()
-    .refine(
-      (value) => /^\d+(\.\d{1,4})?$/.test(value),
-      validation.decimals('a quantity above zero', 4),
-    )
+    .refine((value) => QUANTITY_INPUT.test(value), validation.decimals('a quantity above zero', 4))
     .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
   reason: z
     .string()

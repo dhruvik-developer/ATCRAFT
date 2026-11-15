@@ -73,6 +73,7 @@ import type {
 import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
+import { OPTIONAL_MEASURE_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import {
@@ -95,12 +96,10 @@ import { toast } from '@/lib/toast'
 
 import { BatchSelect, SerialPicker } from './stock-pickers'
 import {
+  FREIGHT_INPUT,
   FREIGHT_PAID_BY,
   MANUAL_EVENT_STATUSES,
-  MONEY_INPUT,
-  QUANTITY_INPUT,
   RAISED_DISPATCH_TYPE,
-  WEIGHT_INPUT,
   dispatchKeys,
   isDeliverable,
   itemFactsQuery,
@@ -559,8 +558,11 @@ const createSchema = z
     eway_bill_number: z.string().trim().max(64, validation.maxLength(64)),
 
     total_boxes: z.string().trim().regex(BOXES, 'Whole number of boxes'),
-    total_weight_kg: z.string().trim().regex(WEIGHT_INPUT, validation.decimals('a weight', 3)),
-    freight_amount: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 2)),
+    total_weight_kg: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_MEASURE_INPUT, validation.decimals('a weight', 3)),
+    freight_amount: z.string().trim().regex(FREIGHT_INPUT, validation.decimals('an amount', 2)),
     freight_paid_by: z.string(),
 
     notes: z.string().trim().max(2000, validation.maxLength(2000)),
@@ -1359,8 +1361,11 @@ const editDispatchSchema = z
     driver_mobile: z.string().trim().max(20, validation.maxLength(20)),
     eway_bill_number: z.string().trim().max(64, validation.maxLength(64)),
     total_boxes: z.string().trim().regex(BOXES, 'Whole number of boxes'),
-    total_weight_kg: z.string().trim().regex(WEIGHT_INPUT, validation.decimals('a weight', 3)),
-    freight_amount: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 2)),
+    total_weight_kg: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_MEASURE_INPUT, validation.decimals('a weight', 3)),
+    freight_amount: z.string().trim().regex(FREIGHT_INPUT, validation.decimals('an amount', 2)),
     freight_paid_by: z.string(),
     notes: z.string().trim().max(2000, validation.maxLength(2000)),
   })

@@ -1,11 +1,10 @@
 import { z } from 'zod'
 
 import { SERIAL_BULK_MAX } from '@/features/inventory/serial-numbers'
+import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { validation } from '@/lib/messages'
 
 import { REJECTION_ACTIONS } from './job-work-model'
-
-export const JOB_WORK_QUANTITY_INPUT = /^(\d{1,14}(\.\d{1,4})?)?$/
 
 export const receiveSchema = z
   .object({
@@ -29,11 +28,11 @@ export const receiveSchema = z
         received_quantity: z
           .string()
           .trim()
-          .regex(JOB_WORK_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+          .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
         rejected_quantity: z
           .string()
           .trim()
-          .regex(JOB_WORK_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+          .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
         /**
          * Material that went out and is coming back untouched. The API models
          * this as `returned_unprocessed_quantity`; there is no free-standing
@@ -42,7 +41,7 @@ export const receiveSchema = z
         returned_quantity: z
           .string()
           .trim()
-          .regex(JOB_WORK_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+          .regex(OPTIONAL_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
         /** Where rejected output physically is - ignored when nothing was rejected. */
         rejection_action: z.enum(REJECTION_ACTIONS),
         /** Why the output was rejected. Sent as the receipt line's notes. */

@@ -18,6 +18,7 @@ import {
 import { Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
+import { MONEY_INPUT, OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { toDateInput, toDateTimeInput } from '@/lib/format'
 import { describeError, validation } from '@/lib/messages'
@@ -30,9 +31,7 @@ import { transporterKeys } from '@/features/transporters/transporter-model'
 import { P } from '@/lib/permissions'
 
 const nullableText = (max: number) => z.string().trim().max(max)
-const amount = z
-  .string()
-  .regex(/^\d{1,14}(\.\d{1,4})?$/, validation.decimals('an amount of zero or more', 4))
+const amount = z.string().regex(MONEY_INPUT, validation.decimals('an amount of zero or more', 4))
 const shipmentSchema = z
   .object({
     transporter_id: z.string(),
@@ -58,10 +57,7 @@ const shipmentSchema = z
       ),
     weight_kg: z
       .string()
-      .refine(
-        (v): boolean => v === '' || /^\d{1,14}(\.\d{1,4})?$/.test(v),
-        validation.decimals('a weight', 4),
-      ),
+      .refine((v): boolean => OPTIONAL_QUANTITY_INPUT.test(v), validation.decimals('a weight', 4)),
     freight_amount: amount,
     notes: nullableText(2000),
   })

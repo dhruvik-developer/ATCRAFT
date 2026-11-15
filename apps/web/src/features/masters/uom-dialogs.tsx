@@ -58,6 +58,7 @@ import {
 } from '@/components/ui/primitives'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
+import { CONVERSION_FACTOR, decimalPattern } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
@@ -66,7 +67,6 @@ import { toast } from '@/lib/toast'
 
 import {
   conversionStatement,
-  FACTOR_PATTERN,
   formatFactor,
   inverseFactor,
   MAX_UOM_DECIMALS,
@@ -77,6 +77,15 @@ import {
   type ConversionRow,
   type UomRow,
 } from './masters-model'
+
+/** `UomConversionCreate.factor`: a `ConversionFactor`, strictly positive. */
+const FACTOR_INPUT = decimalPattern(CONVERSION_FACTOR)
+
+/**
+ * The converter's own bound (`max_digits=20, decimal_places=6`): it multiplies
+ * before rounding to the stored scale, so a finer input is a finer answer.
+ */
+const CONVERTED_QUANTITY_INPUT = decimalPattern({ whole: 14, places: 6 })
 
 // -------------------------------------------------------------- the unit ----
 
@@ -364,7 +373,7 @@ const conversionSchema = z
       .string()
       .trim()
       .min(1, validation.required('Factor'))
-      .regex(FACTOR_PATTERN, 'Up to 10 digits and 8 decimal places, no sign')
+      .regex(FACTOR_INPUT, 'Up to 10 digits and 8 decimal places, no sign')
       .refine((value) => toDecimal(value).greaterThan(0), 'The factor must be greater than nought'),
   })
   .refine((values) => values.from_uom_id !== values.to_uom_id, {
@@ -460,7 +469,7 @@ export function ConversionFormDialog({
     onError: (error) => applyFieldErrors(error, setError),
   })
 
-  const inverse = FACTOR_PATTERN.test(factor.trim()) ? inverseFactor(factor.trim()) : null
+  const inverse = FACTOR_INPUT.test(factor.trim()) ? inverseFactor(factor.trim()) : null
   const canPreview = Boolean(fromUnit && toUnit && inverse)
 
   return (
@@ -732,7 +741,7 @@ export function UomConversionCheckDialog({
   const answeredTo = result ? (units.find((unit) => unit.id === result.to_uom_id) ?? null) : null
 
   const quantityIsValid =
-    /^\d{1,14}(\.\d{1,6})?$/.test(quantity.trim()) && toDecimal(quantity.trim()).greaterThan(0)
+    CONVERTED_QUANTITY_INPUT.test(quantity.trim()) && toDecimal(quantity.trim()).greaterThan(0)
   const canAsk = Boolean(fromId) && Boolean(toId) && fromId !== toId && quantityIsValid
 
   return (

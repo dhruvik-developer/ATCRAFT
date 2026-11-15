@@ -32,6 +32,7 @@
  * the API, which is precisely how a screen comes to render nothing.
  */
 
+import { decimalPattern } from '@/lib/decimal-input'
 import { asText } from '@/lib/form-values'
 import { formatNumber, formatQuantity, toDecimal } from '@/lib/format'
 import { queryKeys } from '@/lib/query-client'
@@ -229,10 +230,7 @@ export const MAX_PARAMETERS_PER_TEMPLATE = 200
 export const MAX_SAMPLE_SIZE = 1_000_000
 
 /** `Measurement` is `NUMERIC(18,6)`, and a specification limit may be negative. */
-export const MEASUREMENT = /^-?\d{1,12}(\.\d{1,6})?$/
-
-/** `SamplePercentage` is `NUMERIC(9,4)`, bounded 0 < p <= 100. */
-export const PERCENTAGE = /^\d{1,3}(\.\d{1,4})?$/
+export const MEASUREMENT = decimalPattern({ whole: 12, places: 6 }, { signed: true })
 
 /** `sample_size` is a whole count of pieces, not a decimal. */
 export const SAMPLE_SIZE = /^\d{1,7}$/

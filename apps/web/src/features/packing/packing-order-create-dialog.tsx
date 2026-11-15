@@ -22,6 +22,7 @@ import { WarehouseSelect } from '@/features/inventory/pickers'
 import type { ItemDetail } from '@/features/items/item-model'
 import type { SalesOrderDetail } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
+import { QUANTITY_INPUT } from '@/lib/decimal-input'
 import { formatQuantity, toDecimal } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
@@ -31,8 +32,6 @@ import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
 
 import { packingKeys, type PackingOrderDetail } from './packing-types'
-
-const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 
 type DraftLine = {
   key: number
@@ -179,7 +178,7 @@ export function PackingOrderCreateDialog({
         errors[`line-${line.key}`] =
           detailError?.message ?? 'The item unit is still loading; retry after it appears.'
       } else if (
-        !QUANTITY.test(line.quantity_to_pack) ||
+        !QUANTITY_INPUT.test(line.quantity_to_pack) ||
         !toDecimal(line.quantity_to_pack).greaterThan(0)
       ) {
         errors[`line-${line.key}`] = validation.decimals('a quantity above zero', 4)
