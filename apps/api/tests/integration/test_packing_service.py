@@ -738,10 +738,15 @@ async def test_a_short_pack_is_refused_unless_it_is_asked_for(
         session, tenant, order.id, carton.id, SealCartonRequest(reason="Sealed")
     )
 
-    with pytest.raises(BusinessRuleError, match="short-packed"):
+    with pytest.raises(BusinessRuleError, match="short-packed") as refused:
         await service.complete_packing(
             session, tenant, order.id, CompleteRequest(reason="Ship what we have")
         )
+    # Said as the packer's checkbox, with the request option in the details.
+    assert "allow a short pack" in refused.value.message
+    assert "allow_short_pack" not in refused.value.message
+    assert refused.value.details["field"] == "allow_short_pack"
+    assert refused.value.details["short_packed_lines"] == [1]
 
     result = await service.complete_packing(
         session,

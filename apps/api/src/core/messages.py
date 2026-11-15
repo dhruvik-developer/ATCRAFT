@@ -325,9 +325,7 @@ def self_approval_refused(
 
 # --- orders -------------------------------------------------------------------
 
-SOURCE_DOCUMENT_REQUIRED = (
-    "Name the source document this order covers, or leave the source type MANUAL."
-)
+SOURCE_DOCUMENT_REQUIRED = "Name the source document this order covers, or make it a manual order."
 
 
 def serial_label_length(noun: str, where: str = "") -> str:

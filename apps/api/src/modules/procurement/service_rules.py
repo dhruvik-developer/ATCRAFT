@@ -1222,18 +1222,21 @@ def duplicate_refusal(candidates: list[DuplicateCandidate]) -> BusinessRuleError
     acknowledgement.
 
     Carries every candidate and its possible actions, because a refusal that
-    only says "duplicate" leaves the buyer with nothing to do but retry.
+    only says "duplicate" leaves the buyer with nothing to do but retry. The
+    sentence names what the buyer does on the screen; ``field`` names the
+    request option that proceeds, for a caller of the API.
     """
     strongest = candidates[0]
     return BusinessRuleError(
         f"This order duplicates {plural(len(candidates), 'open purchase order line')} - "
         f"{strongest.purchase_order_code} already covers the same item or procurement category "
         "for the same vendor, "
-        "warehouse and delivery window. Review the suggested action, or resubmit with "
-        "acknowledge_duplicates and a reason if the demand is genuinely additional.",
+        "warehouse and delivery window. Review the suggested action, or go ahead with a "
+        "separate order and give a reason if the demand is genuinely additional.",
         code=ErrorCode.DUPLICATE_DOCUMENT,
         status_code=409,
         details={
+            "field": "acknowledge_duplicates",
             "candidate_count": len(candidates),
             "candidates": [
                 {

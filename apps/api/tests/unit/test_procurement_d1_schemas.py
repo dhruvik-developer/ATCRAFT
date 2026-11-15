@@ -99,8 +99,10 @@ def test_existing_amendment_line_can_keep_its_item_and_commercial_terms() -> Non
 
 
 def test_new_amendment_line_requires_item_and_unit_price() -> None:
-    with pytest.raises(ValidationError):
+    # Said as the amendment screen's fields, not as the request's keys.
+    with pytest.raises(ValidationError, match="needs an item and a unit price") as refused:
         PurchaseOrderAmendLineIn(quantity="2")
+    assert "item_id" not in str(refused.value.errors()[0]["msg"])
 
 
 def test_amendment_cannot_repeat_an_existing_physical_line() -> None:

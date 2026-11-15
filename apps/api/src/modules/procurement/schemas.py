@@ -1235,7 +1235,7 @@ class PurchaseOrderAmendLineIn(BaseModel):
     @model_validator(mode="after")
     def _valid_line(self) -> PurchaseOrderAmendLineIn:
         if self.line_id is None and (self.item_id is None or self.unit_price is None):
-            raise ValueError("A new amendment line requires item_id and unit_price.")
+            raise ValueError("A new amendment line needs an item and a unit price.")
         if self.discount is not None and self.discount_percentage is not None:
             raise ValueError(DISCOUNT_EITHER_NOT_BOTH)
         _validate_source_allocations(self.source_allocations, self.quantity)

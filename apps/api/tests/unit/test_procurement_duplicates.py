@@ -395,6 +395,27 @@ def test_the_refusal_carries_the_candidates_and_their_actions():
     assert reported["match_reasons"]
 
 
+def test_the_refusal_says_what_the_buyer_does_and_details_name_the_option():
+    """The duplicate dialog shows this sentence under "Why this stopped", beside a
+    button that raises a separate order with a reason - there is no
+    ``acknowledge_duplicates`` on the screen to set. A caller of the API reads
+    the option it sets from ``details``."""
+    candidates = classify_candidates(
+        [make_candidate(code="PO/2026-27/00042")],
+        vendor_id=VENDOR,
+        item_id=ITEM,
+        warehouse_id=WAREHOUSE,
+        required_date=REQUIRED,
+        source_type=None,
+        source_id=None,
+    )
+    error = duplicate_refusal(candidates)
+
+    assert "acknowledge_duplicates" not in error.message
+    assert "go ahead with a separate order and give a reason" in error.message
+    assert error.details["field"] == "acknowledge_duplicates"
+
+
 # -----------------------------------------------------------------------------
 # Same pending requisition line ("same pending PR")
 # -----------------------------------------------------------------------------

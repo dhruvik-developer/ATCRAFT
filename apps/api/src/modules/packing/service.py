@@ -2988,11 +2988,17 @@ async def complete_packing(
             < to_quantity(Decimal(line.quantity_to_pack))
         ]
         if short and not payload.allow_short_pack:
+            # The sentence says what the packer does on the screen; ``field``
+            # names the request option that does it, for a caller of the API.
             raise BusinessRuleError(
                 f"{order.code} is short-packed on {'line' if len(short) == 1 else 'lines'} "
                 f"{listed(short)}. "
-                "Pack the balance, or complete with allow_short_pack.",
-                details={"order_id": str(order.id), "short_packed_lines": short},
+                "Pack the balance, or allow a short pack to complete it as it is.",
+                details={
+                    "order_id": str(order.id),
+                    "short_packed_lines": short,
+                    "field": "allow_short_pack",
+                },
             )
 
         await _assert_final_qc_accepted(session, tenant, order, lines, action="complete")

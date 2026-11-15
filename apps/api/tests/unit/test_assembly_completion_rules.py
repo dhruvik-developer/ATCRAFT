@@ -15,11 +15,13 @@ import pytest
 from pydantic import ValidationError
 
 from src.core.errors import BusinessRuleError, NotFoundError
+from src.core.messages import SOURCE_DOCUMENT_REQUIRED
 from src.modules.assembly import service
 from src.modules.assembly.models import (
     DEFAULT_ASSEMBLY_PRIORITY,
     AssemblyOrderComponent,
     AssemblyOrderStatus,
+    AssemblySourceType,
 )
 from src.modules.assembly.schemas import AssemblyBoardFilters, AssemblyOrderCreate
 from src.modules.bom.models import BomType
@@ -207,6 +209,25 @@ def test_an_order_defaults_to_the_allocation_scales_default_priority() -> None:
 def test_a_priority_off_the_scale_is_refused(priority: int) -> None:
     with pytest.raises(ValidationError):
         _create(priority=priority)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [{"source_type": AssemblySourceType.SALES_ORDER}, {"source_id": uuid.uuid4()}],
+    ids=["a-source-type-naming-no-document", "a-document-under-a-manual-order"],
+)
+def test_a_source_and_its_document_come_together_in_words_a_person_can_act_on(
+    fields: dict[str, object],
+) -> None:
+    # The sentence reaches a person verbatim; they set no source type, so it
+    # says "a manual order" rather than the API's value for one.
+    with pytest.raises(ValidationError) as refused:
+        _create(**fields)
+
+    (error,) = refused.value.errors()
+    assert SOURCE_DOCUMENT_REQUIRED in error["msg"]
+    assert "manual order" in SOURCE_DOCUMENT_REQUIRED
+    assert AssemblySourceType.MANUAL.value not in SOURCE_DOCUMENT_REQUIRED
 
 
 def test_the_board_takes_one_line_selector_at_a_time() -> None:
