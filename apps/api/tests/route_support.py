@@ -27,15 +27,18 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from functools import cache
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI
+from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
 from src.api.router import MODULE_ORDER
+from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal
@@ -165,7 +168,33 @@ class UntouchableSession:
         raise DatabaseReachedError()
 
 
-def _sample(annotation: Any) -> str:
+def dependants(mounted: MountedRoute) -> list[Dependant]:
+    """The route's own dependant and every dependency below it.
+
+    A dependency declares parameters too - a ``PageDep``'s query, a lookup's
+    path id - so a parameter is looked for in all of them, not the handler's
+    signature alone.
+    """
+    found: list[Dependant] = []
+    pending = [mounted.route.dependant]
+    while pending:
+        current = pending.pop()
+        found.append(current)
+        pending.extend(current.dependencies)
+    return found
+
+
+def path_parameters(mounted: MountedRoute) -> dict[str, Any]:
+    """Each path parameter's alias and annotation, wherever it is declared."""
+    return {
+        field.alias: field.field_info.annotation
+        for dependant in dependants(mounted)
+        for field in dependant.path_params
+    }
+
+
+def sample_value(annotation: Any) -> str | None:
+    """A valid value for a parameter of this type, or ``None`` when no sample fits."""
     if isinstance(annotation, type):
         if issubclass(annotation, uuid.UUID):
             return str(uuid.uuid4())
@@ -175,23 +204,23 @@ def _sample(annotation: Any) -> str:
             return "false"
         if issubclass(annotation, int):
             return "1"
+        if issubclass(annotation, Decimal):
+            return "1"
         if issubclass(annotation, date):
-            return "2026-04-01"
-    return "sample"
+            return utcnow().date().isoformat()
+        if issubclass(annotation, str):
+            return "sample"
+    return None
 
 
 def route_url(mounted: MountedRoute) -> str:
-    """The route's path below the API prefix, each path parameter a valid sample."""
-    annotations: dict[str, Any] = {}
-    pending = [mounted.route.dependant]
-    while pending:
-        dependant = pending.pop()
-        for field in dependant.path_params:
-            annotations[field.alias] = field.field_info.annotation
-        pending.extend(dependant.dependencies)
+    """The route's path below the API prefix, each path parameter a valid sample.
+
+    A parameter of a type no sample fits is filled with ``"sample"``.
+    """
     path = mounted.path
-    for name, annotation in annotations.items():
-        path = path.replace("{" + name + "}", _sample(annotation))
+    for name, annotation in path_parameters(mounted).items():
+        path = path.replace("{" + name + "}", sample_value(annotation) or "sample")
     assert "{" not in path, f"unfilled path parameter in {mounted.path}"
     return path
 

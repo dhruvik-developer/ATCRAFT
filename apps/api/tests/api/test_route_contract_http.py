@@ -23,19 +23,21 @@ behaviour is covered by the vendor and dealer portal HTTP suites.
 from __future__ import annotations
 
 import asyncio
-import enum
 import uuid
-from datetime import date
-from decimal import Decimal
 from typing import Any
 
 import pytest
-from fastapi.dependencies.models import Dependant
 from httpx import AsyncClient, Response
 
-from src.core.clock import utcnow
 from src.core.errors import ErrorCode
-from tests.route_support import MountedRoute, module_routes
+from tests.route_support import (
+    MountedRoute,
+    dependants,
+    module_routes,
+    path_parameters,
+    route_url,
+    sample_value,
+)
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -57,60 +59,23 @@ NOT_FOUND_EXEMPT: dict[tuple[str, str], str] = {
 }
 
 
-def _walk(dependant: Dependant) -> list[Dependant]:
-    found, pending = [], [dependant]
-    while pending:
-        current = pending.pop()
-        found.append(current)
-        pending.extend(current.dependencies)
-    return found
-
-
-def _sample(annotation: Any) -> str | None:
-    """A syntactically valid value for a parameter of this type, or None."""
-    if isinstance(annotation, type):
-        if issubclass(annotation, uuid.UUID):
-            return str(uuid.uuid4())
-        if issubclass(annotation, enum.Enum):
-            return str(next(iter(annotation)).value)
-        if issubclass(annotation, bool):
-            return "false"
-        if issubclass(annotation, int):
-            return "1"
-        if issubclass(annotation, Decimal):
-            return "1"
-        if issubclass(annotation, date):
-            return utcnow().date().isoformat()
-        if issubclass(annotation, str):
-            return "sample"
-    return None
-
-
 def _required_query(mounted: MountedRoute) -> dict[str, str] | None:
     params: dict[str, str] = {}
-    for dependant in _walk(mounted.route.dependant):
+    for dependant in dependants(mounted):
         for field in dependant.query_params:
             if not field.field_info.is_required():
                 continue
-            value = _sample(field.field_info.annotation)
+            value = sample_value(field.field_info.annotation)
             if value is None:
                 return None
             params[field.alias] = value
     return params
 
 
-def _path_annotations(mounted: MountedRoute) -> dict[str, Any]:
-    annotations: dict[str, Any] = {}
-    for dependant in _walk(mounted.route.dependant):
-        for field in dependant.path_params:
-            annotations[field.alias] = field.field_info.annotation
-    return annotations
-
-
 def _needs_body(mounted: MountedRoute) -> bool:
     return any(
         field.field_info.is_required()
-        for dependant in _walk(mounted.route.dependant)
+        for dependant in dependants(mounted)
         for field in dependant.body_params
     )
 
@@ -136,19 +101,16 @@ def _by_id_routes() -> list[Any]:
     for mounted in module_routes():
         if "{" not in mounted.path or _is_portal(mounted) or _needs_body(mounted):
             continue
-        annotations = _path_annotations(mounted)
+        annotations = path_parameters(mounted)
         if not any(isinstance(a, type) and issubclass(a, uuid.UUID) for a in annotations.values()):
             continue
-        path, complete = mounted.path, True
-        for name, annotation in annotations.items():
-            value = _sample(annotation)
-            if value is None:
-                complete = False
-                break
-            path = path.replace("{" + name + "}", value)
-        query = _required_query(mounted)
-        if not complete or query is None:
+        # A path parameter no sample fits would answer 422, not the 404 asked about.
+        if any(sample_value(annotation) is None for annotation in annotations.values()):
             continue
+        query = _required_query(mounted)
+        if query is None:
+            continue
+        path = route_url(mounted)
         for method in sorted(mounted.methods):
             cases.append(pytest.param(method, mounted, path, query, id=f"{method} {mounted.path}"))
     return cases
