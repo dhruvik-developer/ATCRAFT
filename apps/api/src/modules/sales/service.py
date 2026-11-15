@@ -10,7 +10,8 @@ The rules that matter, and why each one lives here rather than in the caller:
 2. **Price comes from the price list, not from the request.** ``unit_price`` on
    a payload is an *override*, allowed only to ``price.manage``; below the
    item's cost it also needs a second person's approval before the order can be
-   confirmed.
+   confirmed. That approval is decided on the draft and stands for the
+   confirmed order, whose prices are frozen from then on.
 3. **GST treatment is decided once, from two state codes, and then frozen.**
    Intra-state supply is CGST+SGST, inter-state is IGST. Both halves of an
    intra-state split are rounded independently, because that is what the
@@ -2102,6 +2103,12 @@ async def update_order(
     unit price on a confirmed order is an agreed number; silently restating it
     because a quantity moved would change what the customer owes without anybody
     deciding to.
+
+    ASSUMPTION: only a draft's edit opens or withdraws a pricing approval, because
+    only a draft's approval can be decided (``approve_order``). A confirmed order
+    keeps the decision it was confirmed with: its prices and discount terms are
+    frozen, and an edit that would still move a line's price into approval
+    territory is refused (docs/assumptions.md §SALES-1).
     """
     require_changes(payload)
     port = _allocation(allocation)
@@ -2157,7 +2164,13 @@ async def update_order(
             old_values={**before, "line_count": len(lines)},
             new_values={**snapshot(order, ORDER_AUDITED_FIELDS), "line_count": len(lines)},
         )
-        if order.requires_approval:
+        # Only a draft's approval can be decided (``approve_order``), so only a
+        # draft's edit opens or withdraws one. A confirmed order's approval, if it
+        # needed one, was decided before it was confirmed and its prices cannot
+        # have moved since (``_update_confirmed``); opening a request here left
+        # one in the approvals inbox that nothing could decide.
+        is_draft = status is SalesOrderStatus.DRAFT
+        if is_draft and order.requires_approval:
             await open_approval(
                 session,
                 tenant=tenant,
@@ -2170,7 +2183,7 @@ async def update_order(
                 action_url=f"/sales-orders/{order.id}",
                 amount=order.total_amount,
             )
-        elif before["requires_approval"]:
+        elif is_draft and before["requires_approval"]:
             await close_approval(
                 session,
                 tenant=tenant,
@@ -2415,6 +2428,7 @@ async def _update_confirmed(
         line.notes = sent.notes
 
     if changed:
+        await _assert_confirmed_prices_hold(session, tenant, order=order, changed=changed)
         # Rule 4 (module docstring): the credit check ran inside the confirming
         # transaction for the total *at that moment*. Growing the order afterwards
         # is new exposure the check never saw, so it is re-run here, against the
@@ -2461,6 +2475,68 @@ async def _update_confirmed(
     _apply_totals(order, sum_order_totals(amounts))
     await session.flush()
     return existing
+
+
+async def _assert_confirmed_prices_hold(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    order: SalesOrder,
+    changed: Sequence[tuple[SalesOrderLine, Decimal]],
+) -> None:
+    """Refuse a quantity change that would give a confirmed line an unapproved price.
+
+    A confirmed line's unit price and discount terms are frozen, so a line with
+    a percentage discount - or none - keeps the price per unit it was confirmed
+    at, whatever its quantity. A flat discount does not: the same amount over
+    fewer units is a deeper discount per unit. Where that deeper price would need
+    a pricing approval under ``price_line``'s own rules - a net unit price under
+    the item's standard cost, or an explicit discount above
+    ``discount_approval_percent()`` - the edit is refused, because an approval is
+    decided only on a draft. A larger quantity only thins a flat discount, so it
+    is never refused here.
+
+    ASSUMPTION: re-pricing a confirmed order is a cancellation and a replacement,
+    as for a changed unit price (docs/assumptions.md §SALES-1).
+    """
+    deepened = [
+        (line, quantity)
+        for line, quantity in changed
+        if quantity < Decimal(line.quantity)
+        and Decimal(line.discount_percentage) == ZERO
+        and Decimal(line.discount_amount) > ZERO
+    ]
+    if not deepened:
+        return
+    items = await ItemLookupRepository(session, tenant).load([line.item_id for line, _ in deepened])
+    threshold = discount_approval_percent()
+    for line, quantity in deepened:
+        gross = to_money(quantity * Decimal(line.unit_price))
+        discount = Decimal(line.discount_amount)
+        if discount > gross:
+            # ``compute_line_amounts`` refuses this with its own sentence.
+            continue
+        item = items.get(line.item_id)
+        below_cost = item is not None and is_below_cost(
+            (gross - discount) / quantity, item.standard_cost
+        )
+        over_threshold = (
+            line.offer_id is None and gross > ZERO and discount / gross * Decimal(100) > threshold
+        )
+        if below_cost or over_threshold:
+            raise BusinessRuleError(
+                f"Line {line.line_number}: {order.code} is confirmed, and its flat discount "
+                f"of {discount} over {plural(quantity, 'unit')} would need a pricing approval, "
+                "which an order can be given only while it is a draft. Cancel the order and "
+                "raise a replacement.",
+                details={
+                    "line_number": line.line_number,
+                    "quantity": str(quantity),
+                    "discount_amount": str(discount),
+                    "below_cost": below_cost,
+                    "discount_over_threshold": over_threshold,
+                },
+            )
 
 
 async def _rereserve_changed_lines(

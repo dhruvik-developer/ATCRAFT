@@ -5696,3 +5696,32 @@ are legitimate uses that have to order themselves.
 
 **Impact if wrong.** If such a statement should be refused, raise in place of
 the warning, after checking that no endpoint pages one.
+
+## §SALES-1. A confirmed order keeps the pricing decision it was confirmed with
+
+**Assumed.** A pricing approval (§E10-3, section 8) is decided only on a draft:
+`approve_order` refuses any other status. So only a draft's edit opens a pricing
+approval request, or withdraws one the new prices no longer need. An edit to a
+CONFIRMED or ALLOCATED order neither opens nor withdraws one - the decision taken
+before confirmation stands - because its unit prices and discount terms are
+frozen. The one way its price per unit could still move is a flat discount
+amount spread over a smaller quantity; when that deeper price would need an
+approval under the same rules - a net unit price below the item's standard cost,
+or an explicit discount above `SALES_DISCOUNT_APPROVAL_PERCENT` - the edit is
+refused, and the order is cancelled and replaced, as for a changed unit price. A
+larger quantity only thins a flat discount and is never refused for it.
+
+**Why.** Every confirmed edit of an order that had needed approval used to open
+a new request that no workflow could decide, so it sat PENDING in the approvals
+inbox for ever. Allowing the deeper flat discount without a decision would
+instead let a confirmed order reach a below-cost or above-threshold price nobody
+approved.
+
+**Where.** `src/modules/sales/service.py` - `update_order` and
+`_assert_confirmed_prices_hold`; `tests/api/test_sales_routes_http.py`.
+
+**Impact if wrong.** If an approval should be decidable after confirmation,
+extend `approve_order` to confirmed orders and open the request again from
+`update_order`. If a smaller quantity should keep the discount per unit instead,
+scale the flat amount in `_update_confirmed` - that changes the agreed terms, so
+it needs its own decision.

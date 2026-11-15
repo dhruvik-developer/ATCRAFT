@@ -32,6 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today
+from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.permissions import Permission
 from src.modules.allocation.models import ReservationStatus, StockReservation
@@ -798,6 +799,168 @@ async def test_cancelling_an_approved_order_leaves_its_decision_as_it_was(
         )
     ).one()
     assert tuple(decision) == ("APPROVED", "Clearance agreed")
+
+
+# -----------------------------------------------------------------------------
+# An edit keeps a confirmed order's pricing decision (assumptions §SALES-1)
+# -----------------------------------------------------------------------------
+
+
+async def approval_statuses(session: AsyncSession, order_id: uuid.UUID) -> list[str]:
+    rows = await session.scalars(
+        select(ApprovalRequest.status)
+        .where(ApprovalRequest.entity_id == order_id)
+        .order_by(ApprovalRequest.created_at, ApprovalRequest.id)
+    )
+    return list(rows)
+
+
+def line_quantity(desk: SimpleNamespace, quantity: str) -> dict[str, Any]:
+    return {"lines": [{"line_number": 1, "item_id": str(desk.item_id), "quantity": quantity}]}
+
+
+async def flat_discounted(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    desk: SimpleNamespace,
+    *,
+    discount: str,
+) -> uuid.UUID:
+    """A DRAFT of ten at the list price of 100, less a flat ``discount`` on the line."""
+    order, _ = await sales.create_order(
+        session,
+        tenant,
+        principal,
+        SalesOrderCreate(
+            customer_id=desk.customer_id,
+            warehouse_id=desk.warehouse_id,
+            required_date=today() + WEEK,
+            lines=[
+                SalesOrderLineIn(
+                    line_number=1,
+                    item_id=desk.item_id,
+                    quantity=Decimal("10"),
+                    discount_amount=Decimal(discount),
+                )
+            ],
+        ),
+    )
+    return order.id
+
+
+async def test_editing_an_approved_confirmed_order_opens_no_approval_nobody_can_decide(
+    api_client, session, tenant, principal, colleague, desk
+):
+    """The edit used to open a PENDING request that ``approve_order`` refuses past DRAFT."""
+    order_id, line_id = await place(session, tenant, principal, desk, unit_price="50")
+    await sales.approve_order(session, tenant, colleague, order_id, reason="Clearance agreed")
+    await sales.confirm_order(session, tenant, principal, order_id, reason="Customer committed")
+
+    promised = (today() + WEEK).isoformat()
+    ok(await api_client.patch(f"/sales/{order_id}", json={"promised_date": promised}))
+    edited = ok(await api_client.patch(f"/sales/{order_id}", json=line_quantity(desk, "12")))
+
+    assert (edited["status"], edited["approved_by_id"]) == ("ALLOCATED", str(colleague.user_id))
+    assert await approval_statuses(session, order_id) == ["APPROVED"]
+    sign_in(colleague)
+    assert str(order_id) not in await approvals_waiting(api_client)
+
+    # One operation further: the edited order ships as approved.
+    consignment = await dispatch_service.create_dispatch(
+        session,
+        tenant,
+        DispatchCreate.model_validate(
+            {
+                "dispatch_type": "SALES",
+                "customer_id": str(desk.customer_id),
+                "warehouse_id": str(desk.warehouse_id),
+                "sales_order_id": str(order_id),
+                "dispatch_date": today().isoformat(),
+                "lines": [
+                    {
+                        "item_id": str(desk.item_id),
+                        "sales_order_line_id": str(line_id),
+                        "quantity": "12",
+                    }
+                ],
+            }
+        ),
+    )
+    await dispatch_service.mark_ready(session, tenant, consignment.id, reason="Loaded and ready")
+    await dispatch_service.dispatch_consignment(
+        session, tenant, consignment.id, DispatchRequest(reason="Goods leaving")
+    )
+    assert await order_status(session, order_id) == SalesOrderStatus.DISPATCHED
+    assert await approval_statuses(session, order_id) == ["APPROVED"]
+
+
+async def test_editing_an_approved_draft_reopens_an_approval_its_approver_can_decide(
+    api_client, session, tenant, principal, colleague, desk
+):
+    order_id, _ = await place(session, tenant, principal, desk, unit_price="50")
+    await sales.approve_order(session, tenant, colleague, order_id, reason="Clearance agreed")
+    body = line_quantity(desk, "12")
+    body["lines"][0]["unit_price"] = "50"
+
+    edited = ok(await api_client.patch(f"/sales/{order_id}", json=body))
+
+    assert (edited["status"], edited["approved_at"]) == ("DRAFT", None)
+    assert await approval_statuses(session, order_id) == ["APPROVED", "PENDING"]
+    sign_in(colleague)
+    assert str(order_id) in await approvals_waiting(api_client)
+    ok(await api_client.post(f"/sales/{order_id}/approve", json={"reason": "Twelve agreed"}))
+    assert await approval_statuses(session, order_id) == ["APPROVED", "APPROVED"]
+
+
+async def test_a_confirmed_flat_discount_is_not_spread_over_the_threshold(
+    api_client, session, tenant, principal, desk, monkeypatch, decimal_equal
+):
+    """50 off 1,000 is 5%; over eight units 6.25%, over four 12.5% - past the 10% line."""
+    monkeypatch.setattr(settings, "sales_discount_approval_percent", Decimal("10"))
+    order_id = await flat_discounted(session, tenant, principal, desk, discount="50")
+    await sales.confirm_order(session, tenant, principal, order_id, reason="Customer committed")
+    url = f"/sales/{order_id}"
+    ok(await api_client.patch(url, json=line_quantity(desk, "8")))
+
+    error = refused(
+        await api_client.patch(url, json=line_quantity(desk, "4")), 422, "BUSINESS_RULE_VIOLATION"
+    )
+
+    assert (error["details"]["discount_over_threshold"], error["details"]["below_cost"]) == (
+        True,
+        False,
+    )
+    assert "Cancel the order and raise a replacement" in error["message"]
+    stored = await session.scalar(
+        select(SalesOrderLine.quantity).where(SalesOrderLine.sales_order_id == order_id)
+    )
+    decimal_equal(stored, "8")
+    # A larger quantity only thins the discount, and opens no approval either.
+    grown = ok(await api_client.patch(url, json=line_quantity(desk, "20")))
+    decimal_equal(grown["lines"][0]["quantity"], "20")
+    assert await approval_statuses(session, order_id) == []
+
+
+async def test_a_confirmed_flat_discount_is_not_spread_below_cost(
+    api_client, session, tenant, principal, desk, monkeypatch
+):
+    """300 off ten at 100 nets 70 against a cost of 60; over six units it nets 50."""
+    monkeypatch.setattr(settings, "sales_discount_approval_percent", Decimal("100"))
+    order_id = await flat_discounted(session, tenant, principal, desk, discount="300")
+    await sales.confirm_order(session, tenant, principal, order_id, reason="Customer committed")
+
+    error = refused(
+        await api_client.patch(f"/sales/{order_id}", json=line_quantity(desk, "6")),
+        422,
+        "BUSINESS_RULE_VIOLATION",
+    )
+
+    assert (error["details"]["below_cost"], error["details"]["discount_over_threshold"]) == (
+        True,
+        False,
+    )
+    assert await audit_trail(session, order_id, AuditAction.UPDATE) == []
 
 
 # -----------------------------------------------------------------------------
