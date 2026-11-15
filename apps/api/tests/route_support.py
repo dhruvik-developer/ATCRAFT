@@ -43,6 +43,7 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal
 from src.core.errors import AppError, ErrorCode
+from src.core.permissions import Permission
 
 #: The committed contract, generated from the application by
 #: ``scripts.export_openapi`` and kept current by ``make contract-check``.
@@ -225,9 +226,32 @@ def route_url(mounted: MountedRoute) -> str:
     return path
 
 
-#: A portal account's routes answer a staff principal with SCOPE_DENIED before
-#: the body is read; ``tests/api`` drives them with a portal principal.
+#: A portal account's routes answer anyone but their own kind of account with
+#: SCOPE_DENIED before the body is read, so :func:`route_caller` signs in as one.
 PORTAL_PREFIXES = ("/dealer-portal/", "/vendor-portal/")
+
+
+def route_caller(path: str) -> Principal:
+    """Whoever may call ``path`` at all: a superuser, or a portal route's own account.
+
+    A portal account holds every permission and the vendor or customer its portal
+    scopes to, as ``test_route_budgets`` builds one; a superuser would be refused
+    there before the body was read, and a guard about bodies would prove nothing.
+    """
+    portal = path.startswith(PORTAL_PREFIXES)
+    return Principal(
+        user_id=uuid.uuid4(),
+        company_id=uuid.uuid4(),
+        email="route.guard@example.com",
+        full_name="Route Guard",
+        is_superuser=not portal,
+        permissions=frozenset(str(permission) for permission in Permission)
+        if portal
+        else frozenset(),
+        role_codes=(),
+        vendor_id=uuid.uuid4() if path.startswith("/vendor-portal/") else None,
+        customer_id=uuid.uuid4() if path.startswith("/dealer-portal/") else None,
+    )
 
 
 def mounted_application() -> FastAPI:
@@ -243,30 +267,22 @@ def mounted_application() -> FastAPI:
 
 
 @asynccontextmanager
-async def superuser_without_database(
-    app: FastAPI,
+async def caller_without_database(
+    app: FastAPI, path: str
 ) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
-    """A client signed in as a superuser whose request session refuses every use.
+    """A client signed in as :func:`route_caller` of ``path``, whose session refuses every use.
 
     Yields the client and the names of the session attributes requests reached
     for: an empty list proves a request was decided before anything was read.
     """
     touched: list[str] = []
-    administrator = Principal(
-        user_id=uuid.uuid4(),
-        company_id=uuid.uuid4(),
-        email="route.guard@example.com",
-        full_name="Route Guard",
-        is_superuser=True,
-        permissions=frozenset(),
-        role_codes=(),
-    )
+    caller = route_caller(path)
 
     async def _session() -> AsyncIterator[UntouchableSession]:
         yield UntouchableSession(touched)
 
     app.dependency_overrides[get_db] = _session
-    app.dependency_overrides[get_current_principal] = lambda: administrator
+    app.dependency_overrides[get_current_principal] = lambda: caller
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"

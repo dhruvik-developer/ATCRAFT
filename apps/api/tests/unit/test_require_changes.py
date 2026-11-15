@@ -9,8 +9,9 @@ same (docs/assumptions.md §PATCH-1). ``require_changes`` is the one refusal.
 Two guards hold it. The HTTP one sends ``{}`` to every PATCH route through the
 real application with a session that refuses to be used, so it sees every
 update path whatever its shape, and proves the refusal comes before anything
-is read. The source one names the service function that applies a payload's
-sent fields without the call, which is the line to fix.
+is read - a portal route as its own vendor or dealer account. The source one
+names the service function that applies a payload's sent fields without the
+call, which is the line to fix.
 """
 
 from __future__ import annotations
@@ -28,12 +29,11 @@ from src.core.errors import BusinessRuleError, ErrorCode
 from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.validation import require_changes
 from tests.route_support import (
-    PORTAL_PREFIXES,
     MountedRoute,
+    caller_without_database,
     module_routes,
     mounted_application,
     route_url,
-    superuser_without_database,
 )
 
 pytestmark = pytest.mark.unit
@@ -201,17 +201,15 @@ def test_the_guard_reads_real_files() -> None:
 
 
 def _patch_routes() -> list[MountedRoute]:
-    return [
-        mounted
-        for mounted in module_routes()
-        if "PATCH" in mounted.methods and not mounted.path.startswith(PORTAL_PREFIXES)
-    ]
+    return [mounted for mounted in module_routes() if "PATCH" in mounted.methods]
 
 
 @pytest.fixture
-async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
+async def client(
+    mounted: MountedRoute, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
     monkeypatch.setattr(settings, "rate_limit_enabled", False)
-    async with superuser_without_database(mounted_application()) as pair:
+    async with caller_without_database(mounted_application(), mounted.path) as pair:
         yield pair
 
 
@@ -221,6 +219,7 @@ def test_the_http_guard_sees_the_update_routes() -> None:
         "/products/items/{item_id}",
         "/production/{order_id}",
         "/promotions/offers/{identity}",
+        "/dealer-portal/cart/lines/{line_id}",
     } <= paths
 
 

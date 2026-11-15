@@ -11,7 +11,8 @@ Two guards hold it. The structural one reads every route's body model - an
 optional one, and every model nested in one, included - and names any that
 would drop a key. The HTTP one sends an unknown key to every JSON body route
 through the real application, with a session that refuses to be used, and
-proves the 422 names the key before anything is read.
+proves the 422 names the key before anything is read. A portal route is sent it
+as its own vendor or dealer account, which it scopes to before reading a body.
 """
 
 from __future__ import annotations
@@ -29,12 +30,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.core.config import settings
 from src.core.errors import ErrorCode
 from tests.route_support import (
-    PORTAL_PREFIXES,
     MountedRoute,
+    caller_without_database,
     module_routes,
     mounted_application,
     route_url,
-    superuser_without_database,
 )
 
 pytestmark = pytest.mark.unit
@@ -168,15 +168,17 @@ def _body_operations() -> list[tuple[str, MountedRoute]]:
     return [
         (method, mounted)
         for mounted in module_routes()
-        if body_models(mounted) and not mounted.path.startswith(PORTAL_PREFIXES)
+        if body_models(mounted)
         for method in sorted(mounted.methods)
     ]
 
 
 @pytest.fixture
-async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
+async def client(
+    mounted: MountedRoute, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
     monkeypatch.setattr(settings, "rate_limit_enabled", False)
-    async with superuser_without_database(mounted_application()) as pair:
+    async with caller_without_database(mounted_application(), mounted.path) as pair:
         yield pair
 
 
@@ -188,7 +190,28 @@ def test_the_http_guard_sees_the_bodies_that_once_dropped_a_key() -> None:
         ("POST", "/products/items"),
         ("PATCH", "/products/items/{item_id}"),
         ("PUT", "/notifications/preferences"),
+        ("POST", "/dealer-portal/checkout"),
+        ("POST", "/vendor-portal/invoices"),
     } <= operations
+
+
+async def test_a_portal_route_is_driven_as_its_own_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Staff are refused a portal route before its body is read, so they would prove nothing."""
+    monkeypatch.setattr(settings, "rate_limit_enabled", False)
+    (invoices,) = [
+        m for m in module_routes() if m.path == "/vendor-portal/invoices" and "POST" in m.methods
+    ]
+    url = settings.api_v1_prefix + route_url(invoices)
+
+    async with caller_without_database(mounted_application(), "/customers") as (staff, _):
+        refused = await staff.post(url, json={UNKNOWN_KEY: 1})
+    async with caller_without_database(mounted_application(), invoices.path) as (vendor, _):
+        read = await vendor.post(url, json={UNKNOWN_KEY: 1})
+
+    assert (refused.status_code, refused.json()["error"]["code"]) == (403, ErrorCode.SCOPE_DENIED)
+    assert UNKNOWN_KEY in read.json()["error"]["details"]["fields"]
 
 
 @pytest.mark.parametrize(
