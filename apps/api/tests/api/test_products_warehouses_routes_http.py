@@ -1230,6 +1230,7 @@ class TestCreatePrice:
             f"/products/items/{item.id}/prices",
             json={
                 "price_type": "SALE",
+                "currency": " inr ",
                 "price": "125.50",
                 "min_quantity": "10",
                 "valid_from": start.isoformat(),
@@ -1239,6 +1240,8 @@ class TestCreatePrice:
 
         data = ok(response, 201)
         assert data["price_type"] == "SALE"
+        # A currency is its code: the field normalises it, so the service writes it as sent.
+        assert data["currency"] == "INR"
         assert Decimal(data["price"]) == Decimal("125.50")
         assert Decimal(data["min_quantity"]) == Decimal("10")
         price_id = uuid.UUID(data["id"])
@@ -1376,11 +1379,13 @@ class TestLinkVendor:
                 "vendor_item_code": "V-100",
                 "is_preferred": True,
                 "lead_time_days": 14,
+                "currency": "inr",
             },
         )
 
         data = ok(response, 201)
         assert data["vendor_id"] == str(vendor.id)
+        assert data["currency"] == "INR"
         assert data["vendor_item_code"] == "V-100"
         assert data["is_preferred"] is True
         link_id = uuid.UUID(data["id"])

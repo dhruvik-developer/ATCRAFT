@@ -60,7 +60,6 @@ from src.core.errors import (
     referenced_in_use,
 )
 from src.core.messages import (
-    NO_FIELDS_TO_UPDATE,
     inactive_record,
     no_longer_editable,
 )
@@ -229,11 +228,6 @@ _COST_CENTRE_AUDITED_FIELDS = [
     "description",
     "is_active",
 ]
-
-#: Columns a cost-centre PATCH may not null. An explicit ``null`` for one of
-#: these is a client mistake, not an instruction, and is ignored rather than
-#: written into a NOT NULL column as an integrity error naming a constraint.
-_COST_CENTRE_REQUIRED_FIELDS = frozenset({"name", "cost_centre_type", "is_active"})
 
 _FINANCIAL_YEAR_AUDITED_FIELDS = [
     "code",
@@ -1020,7 +1014,8 @@ class CostCentreService:
     ) -> CostCentreRead:
         """Change a cost centre's fields, place in the tree and active flag.
 
-        Only the fields sent change, and a null for a required field is ignored.
+        Only the fields sent change; ``CostCentreUpdate`` refuses a null for a
+        required field, naming it, before this runs.
         Only a changed plant or head is checked, so a head retired since does
         not block later edits. A new parent must keep the tree acyclic and
         within its depth; flipping ``is_active`` is a lifecycle transition, and
@@ -1029,13 +1024,8 @@ class CostCentreService:
         may not end up under an inactive parent, whichever edit would cause it.
         Audited, with a status-change row when the active flag moved.
         """
-        changes = {
-            field: value
-            for field, value in payload.model_dump(exclude_unset=True).items()
-            if not (value is None and field in _COST_CENTRE_REQUIRED_FIELDS)
-        }
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
+        require_changes(payload)
+        changes = payload.model_dump(exclude_unset=True)
 
         async with transaction(self.session):
             centre = await self.repo.lock_for_update(cost_centre_id)

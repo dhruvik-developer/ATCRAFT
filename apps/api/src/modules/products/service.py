@@ -2518,7 +2518,7 @@ async def create_price(
             item_id=item.id,
             variant_id=payload.variant_id,
             price_type=payload.price_type,
-            currency=payload.currency.upper(),
+            currency=payload.currency,
             price=payload.price,
             min_quantity=payload.min_quantity,
             valid_from=payload.valid_from,
@@ -2758,7 +2758,6 @@ async def link_vendor(
             raise DuplicateError("This vendor is already linked to the item.")
 
         values = payload.model_dump()
-        values["currency"] = payload.currency.upper()
         audited = [*values, "is_active", "deleted_at"]
         before = snapshot(link, audited) if link is not None else None
 

@@ -252,6 +252,13 @@ class TestCostCentrePayloads:
         assert cleared.model_dump(exclude_unset=True) == {"parent_id": None}
         assert CostCentreUpdate.model_validate({}).model_dump(exclude_unset=True) == {}
 
+    @pytest.mark.parametrize("field", ["name", "cost_centre_type", "is_active"])
+    def test_an_update_refuses_a_null_for_a_required_column(self, field: str) -> None:
+        """``update_cost_centre`` writes every key it is sent, so this keeps NOT NULL whole."""
+        with pytest.raises(PydanticValidationError) as raised:
+            CostCentreUpdate.model_validate({field: None})
+        assert raised.value.errors()[0]["loc"] == (field,)
+
     def test_a_department_may_name_a_default(self) -> None:
         centre = uuid.uuid4()
         payload = DepartmentCreate(code="PROD", name="Production", cost_centre_id=centre)
