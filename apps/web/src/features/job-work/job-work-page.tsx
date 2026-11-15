@@ -875,13 +875,20 @@ function PendingPanel() {
         header: 'Item',
         enableSorting: false,
         cell: ({ row }) => (
-          <Link
-            to={`/items/${row.original.item_id}`}
-            className="font-mono text-xs hover:underline"
-            title="Open this item"
-          >
-            {row.original.item_id.slice(0, 8)}
-          </Link>
+          <div className="max-w-[18rem]">
+            <Link
+              to={`/items/${row.original.item_id}`}
+              className="block truncate font-medium hover:underline"
+              title="Open this item"
+            >
+              {row.original.item_code ?? EMPTY_VALUE}
+            </Link>
+            {row.original.item_name && (
+              <span className="block truncate text-xs text-muted-foreground">
+                {row.original.item_name}
+              </span>
+            )}
+          </div>
         ),
       },
       {

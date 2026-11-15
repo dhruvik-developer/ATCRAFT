@@ -107,26 +107,28 @@ function ReferenceCell({ inspection }: { inspection: QcInspectionRow }) {
 }
 
 /**
- * The item an inspection is against.
+ * The item an inspection is against, and the lot it holds.
  *
- * The row carries `item_id` and nothing else - no code, no name, no UoM - so
- * this links to the item master rather than rendering a blank cell. Resolving
- * names here would mean a request per row against an unbounded table.
+ * Named from the row itself - the read joins in the item's code and name and
+ * the lot's number, one query a page - and linked to the item master.
  */
 function ItemCell({ inspection }: { inspection: QcInspectionRow }) {
   return (
     <div className="max-w-[16rem]">
       <Link
         to={`/items/${inspection.item_id}`}
-        className="inline-flex items-center gap-1 font-mono text-xs hover:underline"
+        className="inline-flex max-w-full items-center gap-1 font-medium hover:underline"
         title="Open this item"
       >
-        {inspection.item_id.slice(0, 8)}
+        <span className="truncate">{inspection.item_code ?? EMPTY_VALUE}</span>
         <ExternalLink className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
       </Link>
+      {inspection.item_name && (
+        <span className="block truncate text-xs text-muted-foreground">{inspection.item_name}</span>
+      )}
       {inspection.batch_id && (
         <span className="block truncate text-xs text-muted-foreground">
-          Batch {inspection.batch_id.slice(0, 8)}
+          Batch {inspection.batch_number ?? EMPTY_VALUE}
         </span>
       )}
     </div>

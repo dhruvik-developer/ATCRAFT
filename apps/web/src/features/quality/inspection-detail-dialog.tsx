@@ -39,6 +39,7 @@ import { InspectionAttachments, PhotoThumb } from './inspection-attachments'
 import {
   isInspectable,
   inspectionBadgeStatus,
+  itemLabel,
   referenceLink,
   type QcInspectionDetail,
   type QcInspectionRow,
@@ -123,8 +124,11 @@ export function InspectionDetailDialog({
               <DescriptionList
                 columns={3}
                 items={[
-                  { label: 'Item', value: row.item_id.slice(0, 8) },
-                  { label: 'Warehouse', value: row.warehouse_id.slice(0, 8) },
+                  { label: 'Item', value: itemLabel(row) },
+                  { label: 'Warehouse', value: row.warehouse_code ?? EMPTY_VALUE },
+                  ...(row.batch_id
+                    ? [{ label: 'Batch', value: row.batch_number ?? EMPTY_VALUE }]
+                    : []),
                   {
                     label: 'Against',
                     value: row.reference_code ?? humanise(row.reference_type),

@@ -61,12 +61,20 @@ import {
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
-import { formatDate, formatNumber, formatPercent, formatQuantity, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatNumber,
+  formatPercent,
+  formatQuantity,
+  toDecimal,
+} from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import type {
-  ItemQualityHistory as ItemQualityHistoryPayload,
-  VendorQualitySummary as VendorQualitySummaryPayload,
+import {
+  itemLabel,
+  type ItemQualityHistory as ItemQualityHistoryPayload,
+  type VendorQualitySummary as VendorQualitySummaryPayload,
 } from './quality-types'
 
 /**
@@ -300,7 +308,7 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
   const record = summary.data ?? null
   const items = record?.items ?? []
   const series = items.map((row) => ({
-    item: row.item_id.slice(0, 8),
+    item: row.item_code ?? EMPTY_VALUE,
     rate: toDecimal(row.rejection_rate).toNumber(),
   }))
 
@@ -460,12 +468,8 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
                   {items.map((row) => (
                     <TableRow key={row.item_id}>
                       <TableCell>
-                        {/* The breakdown carries item ids only. */}
-                        <Link
-                          to={`/items/${row.item_id}`}
-                          className="font-mono text-xs hover:underline"
-                        >
-                          {row.item_id.slice(0, 8)}
+                        <Link to={`/items/${row.item_id}`} className="hover:underline">
+                          {itemLabel(row)}
                         </Link>
                       </TableCell>
                       <TableCell align="right">{formatNumber(row.inspection_count)}</TableCell>

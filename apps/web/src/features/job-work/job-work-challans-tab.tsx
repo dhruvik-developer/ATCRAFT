@@ -75,7 +75,7 @@ export default function JobWorkChallansTab() {
             className="hover:underline"
             title="Open this order"
           >
-            {row.original.job_work_order_id.slice(0, 8)}
+            {row.original.job_work_order_code ?? EMPTY_VALUE}
           </Link>
         ),
       },

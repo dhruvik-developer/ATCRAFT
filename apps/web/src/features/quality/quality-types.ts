@@ -27,7 +27,7 @@
  *    to the decision. See `inspection-dialog.tsx`.
  */
 
-import { daysUntil, toDecimal } from '@/lib/format'
+import { daysUntil, EMPTY_VALUE, toDecimal } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
@@ -226,6 +226,16 @@ export function referenceLink(
     default:
       return null
   }
+}
+
+/**
+ * How a quality screen names an item: its code and name, as the reads join them
+ * in (`InspectionSummary`, `VendorQualityItemRow`). The code is null only when
+ * the id names no item of this company, which reads as a blank, never a raw id.
+ */
+export function itemLabel(row: { item_code?: string | null; item_name?: string | null }): string {
+  if (!row.item_code) return EMPTY_VALUE
+  return row.item_name ? `${row.item_code} - ${row.item_name}` : row.item_code
 }
 
 /**

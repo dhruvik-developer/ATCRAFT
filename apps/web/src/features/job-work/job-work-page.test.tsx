@@ -342,6 +342,61 @@ describe('what the two tabs ask the API for', () => {
     expect(screen.queryByText('vendor-a')).toBeNull()
   })
 
+  it('names the item at the vendor and the order behind each challan, never their ids', async () => {
+    // `PendingAtVendorRow` carries the item's code and name and `ChallanRead`
+    // the order's code (G-02); both columns printed eight characters of a uuid.
+    const pending = renderScreen(<JobWorkPage />, {
+      permissions: [P.JOB_WORK_VIEW],
+      route: '/job-work?tab=pending',
+      routes: {
+        'GET /job-work/pending-at-vendor': page([
+          {
+            vendor_id: 'vendor-aaaa-0001',
+            item_id: 'item-bbbb-0001',
+            item_code: 'HNG-RAW-100',
+            item_name: 'Hinge blank 100 mm',
+            warehouse_id: 'wh-1',
+            order_count: 1,
+            outstanding_quantity: '40.0000',
+            oldest_issued_at: '2026-03-02',
+            earliest_expected_return: '2026-03-20',
+            ageing_days: 4,
+            is_overdue: false,
+          },
+        ]),
+      },
+    })
+    expect(await screen.findByRole('link', { name: 'HNG-RAW-100' })).toHaveAttribute(
+      'href',
+      '/items/item-bbbb-0001',
+    )
+    expect(screen.getByText('Hinge blank 100 mm')).toBeVisible()
+    expect(screen.queryByText('item-bbb')).toBeNull()
+    pending.unmount()
+
+    renderScreen(<JobWorkPage />, {
+      permissions: [P.JOB_WORK_VIEW],
+      route: '/job-work?tab=challans',
+      routes: {
+        'GET /job-work/challans': page([
+          {
+            id: 'ch-1',
+            code: 'DC-0007',
+            job_work_order_id: 'order-cccc-0001',
+            job_work_order_code: 'JW-0042',
+            vendor_id: 'vendor-aaaa-0001',
+            challan_date: '2026-03-02',
+          },
+        ]),
+      },
+    })
+    expect(await screen.findByRole('link', { name: 'JW-0042' })).toHaveAttribute(
+      'href',
+      '/job-work/order-cccc-0001',
+    )
+    expect(screen.queryByText('order-cc')).toBeNull()
+  })
+
   it('says an empty register is empty, and a refused one refused', async () => {
     const empty = renderScreen(<JobWorkPage />, {
       permissions: [P.JOB_WORK_VIEW],

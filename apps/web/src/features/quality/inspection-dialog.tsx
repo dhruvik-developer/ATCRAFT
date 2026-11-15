@@ -75,6 +75,7 @@ import {
   hasFailed,
   isInspectable,
   isOutOfSpec,
+  itemLabel,
   referenceLink,
   specLabel,
   type QcDecisionResponse,
@@ -685,14 +686,13 @@ export function InspectionDialog({
                     },
                     {
                       label: 'Item',
-                      // The row carries an id only - no code, no name.
                       value: (
                         <Link
                           to={`/items/${inspection.item_id}`}
-                          className="inline-flex items-center gap-1 font-mono text-xs hover:underline"
+                          className="inline-flex items-center gap-1 hover:underline"
                         >
-                          {inspection.item_id.slice(0, 8)}
-                          <ExternalLink className="h-3 w-3" aria-hidden />
+                          {itemLabel(inspection)}
+                          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
                         </Link>
                       ),
                     },
@@ -726,11 +726,9 @@ export function InspectionDialog({
                     },
                     {
                       label: 'Batch',
-                      value: inspection.batch_id ? (
-                        <span className="font-mono text-xs">{inspection.batch_id.slice(0, 8)}</span>
-                      ) : (
-                        'Not batch tracked'
-                      ),
+                      value: inspection.batch_id
+                        ? (inspection.batch_number ?? EMPTY_VALUE)
+                        : 'Not batch tracked',
                     },
                     { label: 'Raised', value: formatDate(inspection.created_at) },
                     {

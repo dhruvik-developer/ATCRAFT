@@ -384,6 +384,67 @@ async function openInspection(
   return rendered
 }
 
+describe('what an inspection is against', () => {
+  // The reads join in the item's code and name, the store's code and the lot's
+  // number (G-02). The screens printed the first eight characters of each id.
+  const NAMED: Partial<QcInspectionRow> = {
+    item_code: 'HNG-SS-100',
+    item_name: 'Stainless hinge 100 mm',
+    warehouse_code: 'WH-MAIN',
+    batch_id: '01a00000-0000-7000-8000-0000000000b1',
+    batch_number: 'LOT-2611',
+  }
+
+  it('names the item and the lot on the queue', async () => {
+    renderScreen(<QualityPage />, {
+      permissions: [P.QC_VIEW],
+      routes: { 'GET /quality/pending': page([inspection(NAMED)]) },
+    })
+
+    const row = (await screen.findByRole('button', { name: 'QC-0001' })).closest('tr')!
+    expect(within(row).getByRole('link', { name: 'HNG-SS-100' })).toHaveAttribute(
+      'href',
+      '/items/01a00000-0000-7000-8000-0000000000i1',
+    )
+    expect(within(row).getByText('Stainless hinge 100 mm')).toBeVisible()
+    expect(within(row).getByText('Batch LOT-2611')).toBeVisible()
+    expect(within(row).queryByText(/01a00000/)).toBeNull()
+  })
+
+  it('names the item, the store and the lot on the read-only detail', async () => {
+    const { user } = renderScreen(<QualityPage />, {
+      permissions: [P.QC_VIEW],
+      routes: {
+        'GET /quality/pending': page([inspection(NAMED)]),
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(detail(NAMED)),
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'QC-0001' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Inspection QC-0001' })
+    expect(within(dialog).getByText('HNG-SS-100 - Stainless hinge 100 mm')).toBeVisible()
+    expect(within(dialog).getByText('WH-MAIN')).toBeVisible()
+    expect(within(dialog).getByText('LOT-2611')).toBeVisible()
+    expect(within(dialog).queryByText(/01a00000/)).toBeNull()
+  })
+
+  it('names the item and the lot on the inspection sheet', async () => {
+    await openInspection(
+      {
+        'GET /quality/pending': page([inspection(NAMED)]),
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(detail(NAMED)),
+      },
+      [P.QC_VIEW, P.QC_INSPECT],
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      await within(dialog).findByRole('link', { name: 'HNG-SS-100 - Stainless hinge 100 mm' }),
+    ).toBeVisible()
+    expect(within(dialog).getByText('LOT-2611')).toBeVisible()
+  })
+})
+
 describe('reaching an inspection from the keyboard', () => {
   // The row opens the read-only detail on a click, but a `<tr onClick>` is not
   // in the tab order. Inspect is offered only on an open row and only with qc
