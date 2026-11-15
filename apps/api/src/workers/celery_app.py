@@ -68,7 +68,25 @@ def _mrp_schedule() -> crontab:
     )
 
 
-celery_app = Celery(
+class ResultlessCelery(Celery):
+    """Celery whose ``send_task`` keeps ``task_ignore_result``, as ``apply_async`` does.
+
+    ``Celery.send_task`` defaults ``ignore_result`` to ``False`` - whatever the
+    configuration or the task says - and writes it into the message, where the
+    worker lets it override the task's own setting. The API and the tasks send
+    every job by name, so a task registered ``ignore_result=True`` stored its
+    failure all the same: the exception and its traceback, in Redis until
+    ``result_expires``. The sending process also subscribed to the result's
+    channel, which nothing reads. A caller that wants a result passes
+    ``ignore_result=False``.
+    """
+
+    def send_task(self, name: str, *args: Any, **options: Any) -> Any:
+        options.setdefault("ignore_result", self.conf.task_ignore_result)
+        return super().send_task(name, *args, **options)
+
+
+celery_app = ResultlessCelery(
     "atcraft",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
@@ -93,8 +111,15 @@ celery_app.conf.update(
     # Prefetching many long tasks starves other workers; 1 keeps distribution fair.
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=200,  # bounds slow memory growth in long runs
+    # Nothing reads a task's result: a job records its outcome on its own row -
+    # the report snapshot, the MRP run, the delivery. A stored result was only
+    # the failure again, held in Redis for a day: a database error quoting the
+    # row it was writing, a relay naming the recipient it refused. With no
+    # result there is no STARTED state to track either (``task_track_started``
+    # writes only where a result is kept). ResultlessCelery makes this hold for
+    # a task sent by name; ``result_expires`` bounds a result a caller asks for.
+    task_ignore_result=True,
     result_expires=86400,
-    task_track_started=True,
     task_time_limit=3600,
     task_soft_time_limit=3300,  # soft first, so a task can clean up and report
     broker_connection_retry_on_startup=True,
@@ -356,9 +381,9 @@ def _on_task_end(
 #: :mod:`src.core.mail` forbids from the log: ``SMTPRecipientsRefused`` is
 #: keyed by recipient address, and every ``SMTPResponseException`` carries the
 #: relay's response text. The tasks log their own stable row identifiers.
-#: Each is registered with ``ignore_result=True`` - nothing reads a Celery
-#: result - so the result backend never keeps a retry's or a failure's
-#: exception either.
+#: Like every task, each keeps no result (``task_ignore_result``, held for a
+#: task sent by name by :class:`ResultlessCelery`), so the result backend never
+#: keeps a retry's or a failure's exception either.
 MAIL_TASKS = frozenset(
     {
         "notifications.send_email",
@@ -514,6 +539,7 @@ __all__ = [
     "RECONCILE_QUALITY_OWNERS_ENTRY",
     "RECONCILE_QUALITY_OWNERS_TASK",
     "AsyncTask",
+    "ResultlessCelery",
     "async_task",
     "celery_app",
     "filter_celery_trace",

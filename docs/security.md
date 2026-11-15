@@ -531,8 +531,14 @@ A delivery task's transport exception names the recipient and quotes the
 relay's reply, so for every task in `MAIL_TASKS` (`workers/celery_app.py`) it
 is logged by type only. That covers Celery's own trace lines as well as the
 application's: a filter on `celery.app.trace` replaces the exception in each
-retry and failure line and drops its traceback. Those tasks are registered with
-`ignore_result=True`, so the result backend never stores the exception either.
+retry and failure line and drops its traceback. No task keeps a result
+(`task_ignore_result`), so the result backend never stores an exception either -
+not a refused recipient, and not a database error quoting its row. A job's
+outcome is its own row; nothing reads a Celery result. `Celery.send_task` writes
+`ignore_result=False` into every message unless told otherwise, and the worker
+lets the message override the task, so every job the API or a task sent by name
+stored its failure for a day; `ResultlessCelery` sends with the configured
+default instead.
 
 Errors returned to clients carry a stable code, a usable message and the
 correlation id. Never a stack trace, SQL fragment, constraint or table name.
