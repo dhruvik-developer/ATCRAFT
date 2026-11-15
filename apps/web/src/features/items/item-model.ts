@@ -35,6 +35,7 @@ import {
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
+import type { PriceType } from '@/features/masters/masters-model'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
@@ -60,8 +61,6 @@ export type ItemGroup = (typeof ITEM_GROUPS)[number]
 
 export const PRODUCTION_TYPES = ['MAKE', 'BUY', 'MAKE_OR_BUY', 'JOB_WORK'] as const
 export type ProductionType = (typeof PRODUCTION_TYPES)[number]
-
-export type PriceType = 'SALE' | 'DEALER' | 'DISTRIBUTOR'
 
 // ---------------------------------------------------------- capabilities ----
 

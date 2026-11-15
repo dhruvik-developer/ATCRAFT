@@ -1,4 +1,3 @@
-import type { SchemaOf } from '@/types/api'
 /**
  * Wire shapes and vocabulary for the production module.
  *
@@ -33,7 +32,9 @@ import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
-import type { DecimalString } from '@/types/api'
+import type { DecimalString, SchemaOf } from '@/types/api'
+
+import type { MachineOption, WorkOrderStatus } from './work-order-model'
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -62,9 +63,6 @@ export const PRODUCTION_STEPS: readonly ProductionStatus[] = [
 
 export const PRODUCTION_SOURCE_TYPES = ['MANUAL', 'MRP_SUGGESTION', 'SALES_ORDER'] as const
 export type ProductionSourceType = (typeof PRODUCTION_SOURCE_TYPES)[number]
-
-export const WORK_ORDER_STATUSES = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const
-export type WorkOrderStatus = (typeof WORK_ORDER_STATUSES)[number]
 
 /**
  * Priority is a plain integer on the wire, lower being more urgent, defaulting
@@ -431,13 +429,6 @@ export interface CloseResult {
   released_reservation_count: number
 }
 
-/**
- * Lookup row behind the machine select on a production booking, and behind the
- * routing operation's machine picker, which shares the cache entry - so the
- * whole `MachineRead` row, not the three fields the booking draws.
- */
-export type MachineOption = SchemaOf<'MachineRead'>
-
 // -------------------------------------------------------------- derived -----
 
 const ZERO = new Decimal(0)
@@ -542,6 +533,11 @@ const MACHINE_REGISTER_PARAMS = {
   sort_dir: 'asc',
 } as const
 
+/**
+ * The machine register behind the select on a production booking and the
+ * routing operation's machine picker, which share the cache entry - so whole
+ * `MachineRead` rows, not the three fields the booking draws.
+ */
 export function useMachineOptions(enabled: boolean) {
   return useQuery({
     // From `queryKeys`, not a hand-written literal: the scoped sibling in

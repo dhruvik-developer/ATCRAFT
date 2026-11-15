@@ -337,11 +337,3 @@ export interface StockBatch {
   status: string
   expires_on: string | null
 }
-
-/** One row of `GET /inventory/serials` (`StockSerialRead`). */
-export interface StockSerial {
-  id: string
-  serial_number: string
-  status: string
-  warehouse_id: string | null
-}

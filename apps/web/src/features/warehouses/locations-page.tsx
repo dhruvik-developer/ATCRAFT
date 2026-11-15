@@ -64,12 +64,11 @@ import {
   describeCapacity,
   describeLimit,
   isRetired,
-  LOCATION_TYPES,
   locationKeys,
   useLocationDetail,
   type StorageLocationRow,
 } from './location-model'
-import { useWarehouseOptions, type WarehouseOption } from './warehouse-model'
+import { LOCATION_TYPES, useWarehouseOptions, type WarehouseOption } from './warehouse-model'
 
 /**
  * Every filter key this screen owns, named once.

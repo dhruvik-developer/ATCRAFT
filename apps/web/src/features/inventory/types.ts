@@ -25,11 +25,11 @@ import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------- lookups -----
 
-export interface WarehouseOption {
-  id: string
-  code: string
-  name: string
-}
+/**
+ * The fields a warehouse lookup reads off `GET /warehouses`. Not
+ * `WarehouseOption`, which is the `/warehouses/options` row a picker offers.
+ */
+export type WarehouseLookupRow = Pick<SchemaOf<'WarehouseRead'>, 'id' | 'code' | 'name'>
 
 /**
  * `GET /warehouses` read whole, for a select.

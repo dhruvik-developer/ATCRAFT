@@ -12,13 +12,13 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import { WAREHOUSE_LOOKUP_PARAMS, type WarehouseOption } from './types'
+import { WAREHOUSE_LOOKUP_PARAMS, type WarehouseLookupRow } from './types'
 
 export function useWarehouseLookup(enabled = true) {
   const params = WAREHOUSE_LOOKUP_PARAMS
   return useQuery({
     queryKey: queryKeys.warehouses.list(params),
-    queryFn: ({ signal }) => api.getPage<WarehouseOption>('/warehouses', { params, signal }),
+    queryFn: ({ signal }) => api.getPage<WarehouseLookupRow>('/warehouses', { params, signal }),
     staleTime: staleTimes.master,
     enabled,
   })

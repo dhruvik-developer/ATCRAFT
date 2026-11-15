@@ -299,15 +299,6 @@ export interface ReadyForPackingRow {
   source_id: string | null
 }
 
-/** One row of `GET /inventory/serials` (`StockSerialRead`). */
-export interface StockSerial {
-  id: string
-  item_id: string
-  serial_number: string
-  warehouse_id: string | null
-  status: string
-}
-
 // -------------------------------------------------------------- derived -----
 
 /**

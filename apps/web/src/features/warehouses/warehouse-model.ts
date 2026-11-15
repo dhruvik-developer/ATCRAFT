@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
 import { queryKeys, staleTimes, type ErrorNetMeta } from '@/lib/query-client'
-import type { DecimalString } from '@/types/api'
+import type { DecimalString, SchemaOf } from '@/types/api'
 
 /** Const tuples so one list drives the type, the options and the zod enum. */
 export const WAREHOUSE_TYPES = [
@@ -30,8 +30,21 @@ export const WAREHOUSE_TYPES = [
 ] as const
 export type WarehouseType = (typeof WAREHOUSE_TYPES)[number]
 
-export const LOCATION_TYPES = ['RACK', 'BIN', 'SHELF', 'FLOOR', 'STAGING'] as const
-export type LocationType = (typeof LOCATION_TYPES)[number]
+/** `StorageLocationType` - the physical shape of a storage position. */
+export type LocationType = SchemaOf<'StorageLocationType'>
+
+/**
+ * The options a location-type select offers. `satisfies` checks the tuple
+ * against the generated union, so a member renamed on the server stops
+ * compiling here instead of being offered and refused.
+ */
+export const LOCATION_TYPES = [
+  'RACK',
+  'BIN',
+  'SHELF',
+  'FLOOR',
+  'STAGING',
+] as const satisfies readonly LocationType[]
 
 /** One row of `GET /warehouses`. */
 export interface Warehouse {
@@ -86,13 +99,8 @@ export interface StorageLocation {
   updated_at: string
 }
 
-export interface WarehouseOption {
-  id: string
-  code: string
-  name: string
-  warehouse_type: WarehouseType
-  is_default: boolean
-}
+/** One row of `GET /warehouses/options`: the active warehouses a picker offers. */
+export type WarehouseOption = SchemaOf<'WarehouseOption'>
 
 /**
  * Active warehouses for a picker.

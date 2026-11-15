@@ -73,7 +73,7 @@ describe('naming units from the keyboard', () => {
             [1, 2, 3].map((index) => ({
               id: `unit-${index}`,
               serial_number: `SERIAL-${index}`,
-              status: index === 2 ? 'DAMAGED' : 'IN_STOCK',
+              status: index === 2 ? 'ISSUED' : 'IN_STOCK',
             })),
             { has_next: false },
           )
@@ -89,7 +89,7 @@ describe('naming units from the keyboard', () => {
     await user.keyboard(' ')
     // A unit the document cannot take is read, with its reason, but not ticked.
     await user.keyboard('{ArrowDown} ')
-    expect(within(list).getByRole('option', { name: 'SERIAL-2 Damaged' })).toHaveAttribute(
+    expect(within(list).getByRole('option', { name: 'SERIAL-2 Issued' })).toHaveAttribute(
       'aria-selected',
       'false',
     )
@@ -144,7 +144,6 @@ function ScopedReworkSerials() {
       quantity="101"
       selected={selected}
       onChange={setSelected}
-      allowedStatuses={['DAMAGED']}
       scope={{ serial_ids: sourceIds }}
     />
   )
@@ -163,7 +162,9 @@ describe('source-scoped rework serial selection', () => {
             ids.map((id) => ({
               id,
               serial_number: `SERIAL-${id.replace('rejected-', '')}`,
-              status: 'DAMAGED',
+              // A job-work receipt leaves a rejected unit IN_STOCK, in the
+              // damaged pool: a serial has no DAMAGED status.
+              status: 'IN_STOCK',
             })),
             { has_next: false },
           )

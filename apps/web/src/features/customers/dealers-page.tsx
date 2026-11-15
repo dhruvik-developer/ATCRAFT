@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { PRICE_TYPES } from '@/features/masters/masters-model'
 import { cleared, useFilterWriter } from '@/hooks/use-filter-writer'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
@@ -49,7 +50,6 @@ import { staleTimes } from '@/lib/query-client'
 import {
   DEALER_CHANNELS,
   DEALER_CHANNEL_LABELS,
-  PRICE_TYPES,
   PRICE_TYPE_LABELS,
   creditHeadroom,
   dealerKeys,

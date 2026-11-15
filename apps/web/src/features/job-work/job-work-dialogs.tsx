@@ -486,8 +486,11 @@ export function JobWorkIssueDialog({
                                   onChange={serials.onChange}
                                   {...(order.source_type === 'REWORK'
                                     ? {
-                                        status: 'DAMAGED' as const,
-                                        allowedStatuses: ['DAMAGED'],
+                                        // Exactly the units the source receipt
+                                        // rejected. A job-work receipt leaves each
+                                        // IN_STOCK - its damage is the stock pool it
+                                        // sits in, not a serial status, which has no
+                                        // DAMAGED - so the default status admits them.
                                         scope: {
                                           serial_ids: line.source_rejected_serial_ids ?? [],
                                         },

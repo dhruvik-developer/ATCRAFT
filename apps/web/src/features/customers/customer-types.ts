@@ -16,6 +16,7 @@
  */
 
 import { toDecimal } from '@/lib/format'
+import type { PriceType } from '@/features/masters/masters-model'
 import type { DecimalString } from '@/types/api'
 
 import { DEALER_CHANNELS } from './dealer-model'
@@ -25,10 +26,6 @@ import { DEALER_CHANNELS } from './dealer-model'
 /** `CustomerType` in the API schema. */
 export const CUSTOMER_TYPES = ['CUSTOMER', 'DEALER', 'DISTRIBUTOR', 'OEM'] as const
 export type CustomerType = (typeof CUSTOMER_TYPES)[number]
-
-/** `PriceType` - which `item_prices.price_type` applies to this account. */
-export const PRICE_TYPES = ['SALE', 'DEALER', 'DISTRIBUTOR'] as const
-export type PriceType = (typeof PRICE_TYPES)[number]
 
 /** `AddressType`. An address is billing or shipping; there is no "both". */
 export const ADDRESS_TYPES = ['BILLING', 'SHIPPING'] as const

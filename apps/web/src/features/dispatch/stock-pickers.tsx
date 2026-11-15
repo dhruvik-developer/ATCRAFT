@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { MultiSelectList, type MultiSelectListHandle } from '@/components/ui/multi-select-list'
 import { Label, Badge, Input } from '@/components/ui/primitives'
 import { SearchPicker } from '@/components/ui/search-picker'
+import type { StockSerialRow } from '@/features/inventory/types'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
@@ -35,7 +36,7 @@ import { describeError, picker } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
-import type { StockBatch, StockSerial } from './dispatch-types'
+import type { StockBatch } from './dispatch-types'
 
 /** One page of candidates. Both endpoints page on the server. */
 const STOCK_PAGE = 50
@@ -185,7 +186,7 @@ export function SerialPicker({
   label?: string
   batchId?: string | null
   locationId?: string | null
-  status?: StockSerial['status']
+  status?: StockSerialRow['status']
   allowedStatuses?: readonly string[]
   excludedIds?: readonly string[]
   scope?: {
@@ -244,7 +245,7 @@ export function SerialPicker({
         }
         const pages = await Promise.all(
           idGroups.map((serialIds) =>
-            api.getPage<StockSerial>('/inventory/serials', {
+            api.getPage<StockSerialRow>('/inventory/serials', {
               params: {
                 item_id: itemId,
                 ...(warehouseId ? { warehouse_id: warehouseId } : {}),
@@ -266,7 +267,7 @@ export function SerialPicker({
         )
         return { data: pages.flatMap((page) => page.data), hasNext: false }
       }
-      const page = await api.getPage<StockSerial>('/inventory/serials', { params, signal })
+      const page = await api.getPage<StockSerialRow>('/inventory/serials', { params, signal })
       return { data: page.data, hasNext: page.pagination.has_next }
     },
     enabled: Boolean(itemId) && (Boolean(warehouseId) || !requireWarehouse),
@@ -278,7 +279,7 @@ export function SerialPicker({
   const rows = serials.data?.data ?? []
   const wanted = toDecimal(quantity)
   const chosen = selected.length
-  const available = (serial: StockSerial) =>
+  const available = (serial: StockSerialRow) =>
     allowedStatuses.includes(serial.status) && !excludedIds.includes(serial.id)
 
   const toggle = (serialId: string) =>

@@ -52,6 +52,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { PRICE_TYPES } from '@/features/masters/masters-model'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
@@ -65,7 +66,7 @@ import { GSTIN_PATTERN, PAN_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
 
 import { AddressesPanel, ContactsPanel, UnsavedCustomerNotice } from './customer-relations'
-import { CUSTOMER_TYPES, PRICE_TYPES, isDealerChannel, type CustomerDetail } from './customer-types'
+import { CUSTOMER_TYPES, isDealerChannel, type CustomerDetail } from './customer-types'
 import { CustomerCollectionsPanel } from './customer-collections-panel'
 
 const WHOLE_DAYS = /^\d{0,4}$/

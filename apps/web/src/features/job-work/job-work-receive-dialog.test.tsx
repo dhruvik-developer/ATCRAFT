@@ -209,6 +209,56 @@ describe('named serial processing', () => {
     expect(urls[0]?.searchParams.get('warehouse_id')).toBe('wh-1')
   })
 
+  it('lets a rework choose among the units its source receipt rejected, as the receipt left them', async () => {
+    // A job-work receipt leaves a rejected unit IN_STOCK, in the damaged pool:
+    // a serial status has no DAMAGED. The picker once admitted only 'DAMAGED',
+    // so every rejected unit read "In stock" as though it could not be taken,
+    // and one the form had not pre-chosen could never be chosen.
+    const urls: URL[] = []
+    const { user, fetch } = renderScreen(
+      <JobWorkIssueDialog open onOpenChange={() => {}} orderId="jw-1" orderCode="JW-0001" />,
+      {
+        permissions: [P.JOB_WORK_VIEW, P.JOB_WORK_ISSUE, P.INVENTORY_VIEW],
+        routes: {
+          'GET /job-work/jw-1': ok({
+            ...DETAIL,
+            source_type: 'REWORK',
+            lines: [
+              {
+                ...SERIAL_LINE,
+                issued_quantity: '0',
+                quantity_to_issue: '2',
+                source_rejected_serial_ids: ['unit-1', 'unit-2', 'unit-3'],
+              },
+            ],
+          }),
+          'GET /transporters/options': ok([]),
+          'GET /inventory/serials': ({ url }) => {
+            urls.push(url)
+            return page(SERIAL_UNITS.slice(0, 3).map((unit) => ({ ...unit, status: 'IN_STOCK' })))
+          },
+          'POST /job-work/jw-1/issue': ok({}),
+        },
+      },
+    )
+    await user.type(await screen.findByRole('textbox', { name: 'Reason' }), 'Rework the rejects')
+    // The first two rejects come chosen; the third is offered, not refused.
+    expect(await screen.findByRole('option', { name: 'SERIAL-001', selected: true })).toBeVisible()
+    const third = screen.getByRole('option', { name: 'SERIAL-003', selected: false })
+    expect(third).not.toHaveAttribute('aria-disabled', 'true')
+    await user.click(screen.getByRole('option', { name: 'SERIAL-002' }))
+    await user.click(third)
+    await user.click(screen.getByRole('button', { name: 'Issue and create challan' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/job-work/jw-1/issue')).toMatchObject({
+        lines: [{ issued_quantity: '2', serial_ids: ['unit-1', 'unit-3'] }],
+      }),
+    )
+    // Asked for exactly the rejected units, never by a status the API refuses.
+    expect(urls[0]?.searchParams.getAll('serial_ids')).toEqual(['unit-1', 'unit-2', 'unit-3'])
+    expect(urls.every((url) => !url.searchParams.has('status'))).toBe(true)
+  })
+
   it('names output, rejected, untouched and lost units separately, using only outstanding vendor units', async () => {
     const urls: URL[] = []
     const { user, fetch } = renderReceive(

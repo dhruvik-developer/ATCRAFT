@@ -40,6 +40,7 @@ import type Decimal from 'decimal.js'
 
 import { toDecimal } from '@/lib/format'
 import { queryKeys } from '@/lib/query-client'
+import type { PriceType } from '@/features/masters/masters-model'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
@@ -75,9 +76,6 @@ export type Dealer = SchemaOf<'CustomerSummary'>
 /** The full `CustomerType` union. Only two of its members reach this list. */
 export type CustomerChannel = SchemaOf<'CustomerType'>
 
-/** `PriceType` - which `item_prices.price_type` order entry quotes from. */
-export type PriceType = SchemaOf<'PriceType'>
-
 // ------------------------------------------------------------ vocabulary ----
 
 /** The channels `list_dealers` will accept; anything else is a 422. */
@@ -100,8 +98,6 @@ export const PRICE_TYPE_LABELS: Record<PriceType, string> = {
   DEALER: 'Dealer',
   DISTRIBUTOR: 'Distributor',
 }
-
-export const PRICE_TYPES = Object.keys(PRICE_TYPE_LABELS) as PriceType[]
 
 // ------------------------------------------------------------ state code ----
 

@@ -46,6 +46,7 @@ import { BatchSelect } from '@/features/dispatch/stock-pickers'
 import MovementBatchPicker from '@/features/inventory/movement-batch-picker'
 import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
 import { labelSerials, splitSerialNumbers } from '@/features/inventory/serial-numbers'
+import type { StockSerialRow } from '@/features/inventory/types'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
@@ -93,7 +94,6 @@ import {
   type AssemblyComponentAvailability,
   type AssemblyCompletionResult,
   type AssemblyOrderDetail,
-  type StockSerial,
 } from './assembly-model'
 import { AssemblyOrderFormDialog } from './assembly-order-dialog'
 
@@ -429,8 +429,8 @@ function SerialPicker({
 }: {
   component: AssemblyComponent
   warehouseId: string
-  selected: StockSerial[]
-  onChange: (next: StockSerial[]) => void
+  selected: StockSerialRow[]
+  onChange: (next: StockSerialRow[]) => void
   canSearch: boolean
 }) {
   const [term, setTerm] = useState('')
@@ -455,7 +455,7 @@ function SerialPicker({
 
   const results = useQuery({
     queryKey: queryKeys.inventory.serials(params),
-    queryFn: ({ signal }) => api.getPage<StockSerial>('/inventory/serials', { params, signal }),
+    queryFn: ({ signal }) => api.getPage<StockSerialRow>('/inventory/serials', { params, signal }),
     // A serial another document has just eaten must never be offered from cache.
     staleTime: staleTimes.live,
     enabled: canSearch,
@@ -465,7 +465,7 @@ function SerialPicker({
   // A named serial stays in the list, ticked, and in the chips above it, which
   // keep it in sight once a new search has moved the list on.
   const rows = results.data?.data ?? []
-  const toggle = (serial: StockSerial) =>
+  const toggle = (serial: StockSerialRow) =>
     onChange(
       chosen.has(serial.id)
         ? selected.filter((row) => row.id !== serial.id)
@@ -635,7 +635,7 @@ function CompleteAssemblyDialog({
   canSearchSerials: boolean
 }) {
   const queryClient = useQueryClient()
-  const [serialsByLine, setSerialsByLine] = useState<Record<number, StockSerial[]>>({})
+  const [serialsByLine, setSerialsByLine] = useState<Record<number, StockSerialRow[]>>({})
   const [batchesByLine, setBatchesByLine] = useState<Record<number, string>>({})
 
   const serialTracked = useMemo(

@@ -39,8 +39,6 @@ import { formatQuantity } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
-import { LOCATION_TYPES as WAREHOUSE_MODULE_LOCATION_TYPES } from './warehouse-model'
-
 // ------------------------------------------------------------ query keys ----
 
 /**
@@ -59,21 +57,6 @@ export const locationKeys = {
   list: (params: unknown) => [...queryKeys.storageLocations.all, 'list', params] as const,
   detail: (id: string) => [...queryKeys.storageLocations.all, 'detail', id] as const,
 }
-
-// ------------------------------------------------------------ vocabulary ----
-
-/** `StorageLocationType` - the physical shape of a storage position. */
-export type LocationType = SchemaOf<'StorageLocationType'>
-
-/**
- * The options the type filter offers.
- *
- * Reused from the warehouse module rather than retyped, and annotated against
- * the generated union: the annotation is what proves the neighbouring tuple
- * still agrees with the contract, and it fails to compile the day a member is
- * renamed on the server.
- */
-export const LOCATION_TYPES: readonly LocationType[] = WAREHOUSE_MODULE_LOCATION_TYPES
 
 // ----------------------------------------------------------- wire shapes ----
 
