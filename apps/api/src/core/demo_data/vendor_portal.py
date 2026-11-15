@@ -72,6 +72,14 @@ _SEND_ROUTE = (
 
 
 async def seed(ctx: DemoContext) -> None:
+    """Take each example order as far as its portal tab needs, and no further.
+
+    The buyer raises, approves and sends it; then the vendor declines, accepts
+    with a committed date, marks it ready, ships a consignment and (for the
+    delivered example) the store receives it and the vendor bills it - each
+    step skipped when an earlier run already took it. An example whose
+    manager, item or warehouse is missing is skipped.
+    """
     managers = {
         row.id: row
         for row in (

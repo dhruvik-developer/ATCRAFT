@@ -511,6 +511,23 @@ async def ingest_events(
     account: CourierAccount,
     provider_events: Sequence[dict[str, Any]],
 ) -> int:
+    """Record a batch of provider tracking events for one account; return how many were new.
+
+    Every event is validated first and the whole batch refused on the first bad
+    one: a tracking number of 1-120 characters, a timezone-aware time and a
+    status, which is normalised to :class:`CourierStatus` (location and
+    description are trimmed to their columns). An event already stored - by
+    provider event id, or by tracking number, status and time - is skipped, so
+    a redelivered webhook or a repeated poll changes nothing. A new event is
+    linked to the outbound dispatch or inbound shipment carrying that number as
+    its tracking id or LR number; a number matching two of either is refused
+    rather than guessed. Then each new event takes effect: it is applied to its
+    dispatch (a tracking entry, and the status move the dispatch lifecycle
+    allows), a first DELIVERED marks the shipment delivered, and RETURNED or
+    EXCEPTION warns the courier-anomaly roles. The account is locked for the
+    batch, so two deliveries of the same events cannot both pass the duplicate
+    check.
+    """
     if not provider_events:
         return 0
     repo = CourierAccountRepository(session, tenant)

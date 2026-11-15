@@ -1,3 +1,10 @@
+"""Sales-return routes: raise, read, receive, disposition, close and cancel.
+
+Internal users only - vendor and dealer principals are refused at the router;
+dealers raise their returns through the dealer portal, which calls the same
+service. Viewing needs sales_return.view and every change sales_return.create.
+"""
+
 from __future__ import annotations
 
 import uuid

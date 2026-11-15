@@ -1016,6 +1016,17 @@ class CostCentreService:
     async def update_cost_centre(
         self, cost_centre_id: uuid.UUID, payload: CostCentreUpdate
     ) -> CostCentreRead:
+        """Change a cost centre's fields, place in the tree and active flag.
+
+        Only the fields sent change, and a null for a required field is ignored.
+        Only a changed plant or head is checked, so a head retired since does
+        not block later edits. A new parent must keep the tree acyclic and
+        within its depth; flipping ``is_active`` is a lifecycle transition, and
+        deactivating is refused while anything still hands the centre out (an
+        active sub-centre, a department default, a work centre). An active centre
+        may not end up under an inactive parent, whichever edit would cause it.
+        Audited, with a status-change row when the active flag moved.
+        """
         changes = {
             field: value
             for field, value in payload.model_dump(exclude_unset=True).items()

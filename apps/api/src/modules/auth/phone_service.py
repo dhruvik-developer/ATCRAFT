@@ -101,6 +101,19 @@ class PhoneProfileService:
             )
 
     async def request_verification(self, *, ip_address: str | None) -> PhoneVerificationStarted:
+        """Text a one-time code to the caller's unverified mobile number.
+
+        Spent against two budgets first - per user and per client address - and
+        refused unless the SMS provider is fully configured and its URL allowed.
+        The user must have a number on file that is not yet verified. One
+        challenge row per user carries the code as a digest bound to the
+        company, user and number, never the code itself: a new request replaces
+        the code, restarts its lifetime and attempts, and is refused with a
+        retry-after while the resend delay has not passed or the send window's
+        quota is spent. The row is committed and audited before the SMS goes
+        out; if the provider does not deliver, the code is burned and the
+        answer is 503, so a code nobody received can never be redeemed.
+        """
         user_key = str(self.principal.user_id)
         await enforce_policy(RateLimitPolicy.PHONE_OTP_SEND, user_key)
         if ip_address is not None:

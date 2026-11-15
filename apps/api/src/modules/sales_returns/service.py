@@ -1,3 +1,18 @@
+"""Sales returns: goods a customer sends back against a SALES dispatch.
+
+A return is raised as DRAFT against a dispatch that has left, received
+(DRAFT -> RECEIVED), then closed (RECEIVED -> CLOSED), or cancelled while still
+a draft. Receiving takes the goods back at the cost they left at. An ordinary
+line that needs QC goes on hold with a RETURN inspection that quality owns
+(``quality.owners``): quality moves the stock and calls
+:func:`record_quality_verdict`, which closes the return once every inspection it
+raised is settled. Serial units are held without an inspection and settled one
+by one on the return itself (:func:`dispose_return_units`). Whenever accepted
+goods are settled, :func:`_issue_return_credit_note` credits what was accepted
+and not yet credited, against the live invoice issued before the goods came
+back - exactly once per quantity.
+"""
+
 from __future__ import annotations
 
 import uuid
@@ -174,6 +189,17 @@ async def get_return(
 async def create_return(
     session: AsyncSession, tenant: TenantContext, payload: SalesReturnCreate
 ) -> SalesReturnDetail:
+    """Raise a DRAFT return of goods from one SALES dispatch that has left.
+
+    The dispatch and its named lines are locked, so two returns cannot claim the
+    same returnable quantity. A return warehouse, when named, must be an active
+    one of this company. Each dispatch line may appear once, must belong to the
+    dispatch and carry a returnable item, and may claim no more than it shipped
+    less what open (not cancelled) returns already claim. A serial-tracked line
+    must go to QC hold and name one unit per quantity, each shipped on that
+    line, of that item, still DISPATCHED and claimed by no open return; any
+    other line names no serials. Audited.
+    """
     returns = SalesReturnRepository(session, tenant)
     dispatch = await _lock_source_dispatch(returns, payload.dispatch_id)
     if dispatch.dispatch_type != DispatchType.SALES:
@@ -329,6 +355,18 @@ async def transition_return(
     *,
     reason: str | None = None,
 ) -> SalesReturnDetail:
+    """Move a return through its lifecycle: receive, close or cancel it.
+
+    The header and lines are locked and the transition re-checked under the
+    lock. Cancelling a draft needs a reason. Receiving posts the goods back
+    into the return warehouse (or the dispatch's) at the cost they left at;
+    serial units come back one by one straight onto QC hold, and the ordinary
+    lines that need QC go on hold in one posting with a RETURN inspection each.
+    Each dispatch line's returned quantity grows, never past what it shipped;
+    the dealer is told, and anything already accepted is credited. Closing
+    needs every serial unit dispositioned and every inspection settled, and
+    credits what was accepted. Every change is audited as a status change.
+    """
     repo = SalesReturnRepository(session, tenant)
     row = await repo.get_or_404(return_id)
     SALES_RETURN_LIFECYCLE.assert_transition(row.status, target)

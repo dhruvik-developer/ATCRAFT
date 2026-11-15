@@ -138,6 +138,18 @@ def push_claim_statement(
 async def _deliver_notification_push(
     notification_id: str, company_id: str, user_id: str
 ) -> dict[str, Any]:
+    """Send one notification to its user's browsers by Web Push, at most once.
+
+    The notification is claimed under a row lock - only for an active user with
+    a recent push-capable session, and only when push was requested and has not
+    been sent - by stamping ``push_delivered_at`` before anything leaves, so a
+    duplicate task finds it already delivered. Up to ten unexpired devices are
+    tried outside the transaction. A device the push service says is gone is
+    deleted, the others record success or failure, each only if the
+    subscription was not re-registered meanwhile. When every device asked for
+    a retry, the claim is withdrawn (without clearing an e-mail delivery's
+    stamp) and the task raises so Celery retries with backoff.
+    """
     nid, cid, uid = uuid.UUID(notification_id), uuid.UUID(company_id), uuid.UUID(user_id)
     if not settings.web_push_enabled:
         return {"delivered": False, "detail": "disabled"}
@@ -270,6 +282,20 @@ async def _deliver_notification_messaging(
     *,
     channel: NotificationChannel,
 ) -> dict[str, Any]:
+    """Send one notification by WhatsApp or SMS through its approved template, at most once.
+
+    Under a row lock on the notification (for an active user, when the channel
+    was requested and not yet sent) the attempt is refused - recorded as a
+    FAILED delivery and never retried - unless the user has a verified number
+    and opted in to the channel, the user's preference for this notification
+    type enables it, an active template exists for the type and channel, every
+    template parameter has a value, and the notification is not CRITICAL
+    (critical alerts are in-app only - notifications.service
+    SEVERITIES_IGNORING_PREFERENCES). Otherwise the channel's
+    sent marker is stamped as the claim, the provider is called outside the
+    transaction, and every outcome is recorded. A provider asking to retry
+    withdraws the claim and raises so Celery retries with backoff.
+    """
     nid, cid, uid = uuid.UUID(notification_id), uuid.UUID(company_id), uuid.UUID(user_id)
     if channel is NotificationChannel.WHATSAPP:
         enabled = settings.whatsapp_enabled

@@ -1,3 +1,16 @@
+"""Sales returns: goods a customer sends back against a SALES dispatch.
+
+A return names its dispatch and customer and moves DRAFT -> RECEIVED -> CLOSED,
+or DRAFT -> CANCELLED with a recorded reason. Each line claims part of one
+dispatch line (at most once per return) and, for a serial-tracked item, the
+named units that come back; ``accepted``, ``damaged`` and ``scrapped`` record
+each unit's disposition, and the CHECK constraints keep those three disjoint
+subsets of the returned units. ``credited_quantity`` is what credit notes have
+credited so far, never more than the line returned. ``receipt_transaction_id``
+names the ledger row that took the goods back in, which is what ties an
+ordinary line to its share of the original issue cost.
+"""
+
 from __future__ import annotations
 
 import uuid

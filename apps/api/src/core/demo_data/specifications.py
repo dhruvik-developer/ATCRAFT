@@ -137,6 +137,15 @@ async def _accessory_item(ctx: DemoContext, *, included: bool, uom_id: uuid.UUID
 
 
 async def seed(ctx: DemoContext) -> None:
+    """Populate the D5 specification attributes, category sets, item values and
+    accessory links once, under an advisory lock.
+
+    Once the stage has history it only registers what exists, so later edits,
+    removals, retirements and reordering by an operator survive a re-run.
+    Missing attributes are created; a category or item that already carries
+    specifications, or has had them changed, is left alone; only attributes
+    still active and of the expected value type are used.
+    """
     definitions = attribute_definitions(ctx)
     async with transaction(ctx.session):
         await advisory_xact_lock(ctx.session, MARKER, ctx.company_id)

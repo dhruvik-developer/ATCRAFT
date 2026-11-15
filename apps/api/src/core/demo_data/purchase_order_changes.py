@@ -37,6 +37,15 @@ from src.modules.users.models import User
 
 
 async def seed(ctx: DemoContext) -> None:
+    """Raise the D1 examples once: two requisitions pooled into one order by a
+    duplicate MERGE, an amendment of that order after it was sent, and a second
+    order raised over the duplicate warning and left awaiting approval.
+
+    If any marker already exists the stage only registers what it finds, so an
+    operator's later changes to these documents survive a re-run. It skips
+    itself when the packing manager, carton item or packaging warehouse is
+    missing.
+    """
     markers = [ctx.code("D1", name) for name in ("PR-A", "PR-B", "PO-POOL", "PO-DUPLICATE")]
     existing_requisitions = await _existing(ctx, PurchaseRequisition)
     existing_orders = await _existing(ctx, PurchaseOrder)

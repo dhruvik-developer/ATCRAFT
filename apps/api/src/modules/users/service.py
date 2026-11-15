@@ -946,6 +946,25 @@ class UserService:
     async def update_user(
         self, principal: Principal, user_id: uuid.UUID, payload: UserUpdate
     ) -> UserDetail:
+        """Change an account's profile, scopes and grants, and optionally set its password.
+
+        Only the fields the request sends change; a ``clear_*`` flag nulls its
+        reference, because an absent field and a null one both arrive as None.
+        Every authority check runs before anything is written: setting a
+        password needs the right to set one for this account, changing the
+        recovery address needs the password-reset right (it is the same power),
+        and direct grants and warehouse reach may only move within what the
+        caller may grant. Email and employee code must stay unique, and only
+        newly referenced branches, plants, departments, portal parties and
+        warehouses are checked - one the account already holds stays valid after
+        it is retired. The result must keep the account's roles legal for a
+        portal user and its category scope meaningful; empty lists are stored as
+        NULL ("no restriction"). A new recovery address burns open reset links
+        and ends every session; a new password must pass the policy, unlocks the
+        account, must be changed at next sign-in unless the request says
+        otherwise, and ends every session. Each kind of change gets its own audit
+        row, and revoked sessions are marked dead in the cache after commit.
+        """
         changes = payload.model_dump(exclude_unset=True)
         password = changes.pop("password", None)
         clear_branch = bool(changes.pop("clear_branch", False))

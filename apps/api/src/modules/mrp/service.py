@@ -1385,6 +1385,17 @@ async def shortage_report(
 def _conversion_target(
     suggestion: MrpSuggestion, requested: ConversionTarget | None
 ) -> ConversionTarget:
+    """The document a suggestion converts into: the one asked for, or its default.
+
+    The default is :data:`DEFAULT_CONVERSION_TARGET` for the suggestion's type,
+    except that a manufacture suggestion planned against an ASSEMBLY BOM
+    defaults to an assembly order. Refused: a transfer or reallocation into any
+    other document, or anything else into a stock transfer or reallocation
+    request; an assembly order from anything but a BOM-planned manufacture
+    suggestion; a production order from one; and a transfer or reallocation
+    suggestion missing the warehouses, donor or sales-order target it needs to
+    be raised automatically - those are created by hand.
+    """
     suggestion_type = MrpSuggestionType(suggestion.suggestion_type)
     target = (
         requested

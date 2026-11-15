@@ -1,3 +1,12 @@
+"""Render a credit note as an A4 PDF with ReportLab.
+
+Takes the note as the report worker reads it - number, date, currency,
+customer, its lines (HSN code, quantity, taxable amount, tax, total) and the
+totals with the round-off - and returns the file's bytes. Every value drawn
+into a paragraph is XML-escaped first, because ReportLab parses paragraph text
+as markup; table cells are plain strings and need no escaping.
+"""
+
 from __future__ import annotations
 
 import io

@@ -1,3 +1,12 @@
+"""Request and response shapes for customer credit notes.
+
+A note credits lines of one sales invoice, each by exactly one of quantity or
+taxable amount, and each invoice line at most once. A RETURN note must name the
+sales return it credits and credit quantities; no other note may name a return.
+Cancelling needs a reason of at least ``REASON_MIN_LENGTH`` characters. Reads
+name the invoice, the return and the items beside their ids.
+"""
+
 from __future__ import annotations
 
 import uuid

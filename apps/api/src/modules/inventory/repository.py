@@ -1807,6 +1807,16 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         job_work_outstanding_only: bool = False,
         qc_inspection_id: uuid.UUID | None = None,
     ) -> Select[tuple[StockSerial]]:
+        """The serial register's list statement, narrowed by every filter given.
+
+        Starts from the reader's warehouse-visible units, ordered by serial
+        number. ``serial_ids`` restricts to exactly those units (an empty list
+        matches none). A job-work order line or a QC inspection restricts to the
+        units that document names; ``job_work_outstanding_only`` further drops
+        units the vendor has already settled on a receipt - processed, returned
+        unprocessed, scrapped, or rejected other than for rework at the vendor.
+        A warehouse means the units still there, not every unit it ever held.
+        """
         stmt = self._visible()
         if serial_ids is not None:
             stmt = stmt.where(StockSerial.id.in_(serial_ids))

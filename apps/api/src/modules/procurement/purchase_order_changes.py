@@ -133,6 +133,20 @@ async def _apply_lines(
     incoming: Sequence[PurchaseOrderAmendLineIn],
     outgoing: Sequence[PurchaseOrderLine],
 ) -> list[PurchaseOrderLine]:
+    """Rewrite a locked order's lines to ``incoming``; return the lines it now has.
+
+    An incoming line naming ``line_id`` revises that line in place - its id
+    survives, it may not change its item, and every field the change omits keeps
+    the agreed term (choosing one discount form clears the other). A line without
+    one is added, and an outgoing line nothing names is deleted. Each line's
+    requisition sources are its explicit ``source_allocations``, or else the ones
+    it already had; a line may not carry more source quantity than its own, so a
+    reduction must say which demand it keeps. The result is held to the rules a
+    new order meets - purchasable items, valid requisition and quotation links,
+    source units, unique line numbers - and must keep the order's procurement
+    category. A retained line keeps the tax rate the vendor was sent, whatever
+    the item master says now. Totals and source-document links are recomputed.
+    """
     by_id = {line.id: line for line in outgoing}
     old_allocations = await sources.effective_allocations(session, tenant, outgoing)
     payloads: list[PurchaseOrderLineIn] = []
@@ -272,6 +286,17 @@ async def _revise_locked(
     *,
     allow_draft: bool = False,
 ) -> tuple[PurchaseOrder, list[PurchaseOrderLine]]:
+    """Revise a locked order's header terms and lines, and record before and after.
+
+    No order with receipt history can be revised; that needs a new order. An
+    approved, sent or acknowledged order is *amended*: its amendment number
+    rises, the approvals, the vendor's acknowledgement and commitment and any
+    duplicate confirmation are cleared, and it goes back to PENDING_APPROVAL -
+    the vendor (if it was sent) and the buyers are told. ``allow_draft`` also
+    admits a DRAFT or PENDING_APPROVAL order, which a duplicate merge revises in
+    place with no amendment and no new approval cycle. Either way the full
+    before/after values are audited with the reason.
+    """
     status = PurchaseOrderStatus(order.status)
     if status not in AMENDABLE_STATUSES and not (allow_draft and status in EDITABLE_PO_STATUSES):
         raise BusinessRuleError(f"{order.code} cannot be amended while it is {status}.")
@@ -488,6 +513,29 @@ async def resolve_duplicate(
     principal: Principal,
     payload: PurchaseOrderDuplicateResolutionRequest,
 ) -> PurchaseOrderDuplicateResolutionResult:
+    """Settle a proposed order that the duplicate check matched to an open one.
+
+    The draft is either a requisition conversion (the selected demand lines) or
+    a purchase order as keyed. Four actions, each needing its own right:
+
+    * ``CREATE_WITH_APPROVAL`` (purchase_order.create) - raise the draft as new
+      orders anyway, recording the reason as the duplicate acknowledgement.
+    * ``MERGE`` (purchase_order.update) - fold the draft into the candidate
+      order: a line with the same item and the same commercial terms takes the
+      extra quantity and its requisition sources, any other line is added; a
+      line with the same item on different terms is refused.
+    * ``INCREASE`` (purchase_order.update) - as MERGE, but only into the one
+      candidate line chosen, and only for that line's item.
+    * ``CANCEL_REQUEST`` (purchase_requisition.create) - cancel the selected
+      outstanding demand instead (see :func:`_cancel_demand`); for a keyed order
+      draft there is nothing stored, so it is simply discarded.
+
+    MERGE and INCREASE revise the candidate through :func:`_revise_locked`, so
+    an approved candidate goes back for approval. Every requisition, demand line
+    and (vendor, warehouse) pair involved is locked first, and the candidate
+    must still be at the version the user saw and still match the demand - a
+    stale preview is a conflict, never a silent merge.
+    """
     _assert_internal(tenant)
     permission = {
         "MERGE": Permission.PURCHASE_ORDER_UPDATE,
@@ -740,6 +788,14 @@ async def _cancel_demand(
     requisition_ids: Sequence[uuid.UUID],
     selected: set[uuid.UUID],
 ) -> PurchaseOrderDuplicateResolutionResult:
+    """Cancel the selected outstanding requisition demand instead of ordering it.
+
+    Each selected line must still be open and not fully ordered, on a
+    requisition in an open status that the user's warehouse scope covers. A
+    requisition left with every line cancelled and nothing ordered is itself
+    cancelled when it was only approved, or closed when it had been converted;
+    each touched requisition gets an audit row naming the lines and the reason.
+    """
     headers = await RequisitionRepository(session, tenant).lock_many(requisition_ids)
     missing = set(requisition_ids) - {header.id for header in headers}
     if missing:

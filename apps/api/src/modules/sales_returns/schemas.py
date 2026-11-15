@@ -1,3 +1,12 @@
+"""Request and response shapes for sales returns.
+
+A return is raised with one line per dispatch line being returned (a quantity,
+a reason code and, for serial-tracked items, the returning serials) and, after
+receipt, settled unit by unit through :class:`SalesReturnUnits`, where each
+serial takes exactly one disposition. Reads name the dispatch, customer, items
+and serial numbers beside their ids.
+"""
+
 from __future__ import annotations
 
 import uuid

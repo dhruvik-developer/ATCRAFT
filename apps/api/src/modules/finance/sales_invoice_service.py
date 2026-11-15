@@ -241,6 +241,21 @@ def _address(row: Any) -> str:
 async def preview_sales_invoice(
     session: AsyncSession, tenant: TenantContext, payload: SalesInvoiceCreate, *, lock: bool = False
 ) -> SalesInvoicePreview:
+    """Price the invoice a SALES dispatch would raise, without writing anything.
+
+    The dispatch must belong to a customer, be ready or have left, be linked to
+    its priced sales order (whose currency is the company's) and have no live
+    invoice. The invoice date - the request's, else the dispatch date, else
+    today - may not precede the order date or fall in a closed financial year.
+    Each dispatch line bills its shipped quantity less what came back, at the
+    order line's price and tax, with the order's discount apportioned to it,
+    and may not take the order line past what was dispatched (or, for a
+    consignment still being staged, past what is staged and still reserved).
+    Seller and buyer GST details come from the branch or company and the
+    order's addresses; the total is rounded and must stay positive. Issuing
+    calls this with ``lock`` to hold the customer, dispatch and order while
+    it writes.
+    """
     source = SalesInvoiceSourceRepository(session, tenant)
     repo = SalesInvoiceRepository(session, tenant)
     dispatch = await source.dispatch(payload.dispatch_id)
@@ -809,6 +824,20 @@ async def _set_sales_receipt_allocations(
     *,
     replace: bool,
 ) -> None:
+    """Set how much of a customer receipt settles each sales invoice.
+
+    ``requested`` maps invoice to amount. With ``replace`` it becomes the whole
+    allocation set (releasing a receipt is an empty replace); otherwise it
+    amends the named invoices and keeps the rest. The resulting set may not
+    exceed the receipt's amount. Every invoice gaining or losing an allocation
+    is locked, and each requested one must belong to the receipt's customer, be
+    in its currency, be issued or partially paid (a PAID invoice only when it
+    already holds this allocation) and have the amount outstanding - its total
+    less what is paid and what issued credit notes cover, with this receipt's
+    own earlier amount given back. Each invoice's paid amount and status, and
+    the receipt's allocated amount and status, follow from the result, and one
+    audit row records it.
+    """
     from src.modules.finance.models import PaymentAllocation
     from src.modules.finance.repository import PaymentAllocationRepository, PaymentRepository
     from src.modules.finance.service import (
