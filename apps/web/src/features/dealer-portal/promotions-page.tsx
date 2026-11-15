@@ -19,7 +19,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/overlays'
-import { Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
+import { Badge, Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { ItemPicker } from '@/features/inventory/pickers'
@@ -44,8 +44,20 @@ import { bannerPayload, offerPayload } from './promotion-payloads'
 const BANNER_IMAGE_TYPES: readonly string[] = ['image/jpeg', 'image/png', 'image/webp']
 
 type Kind = 'banners' | 'offers'
-type Promotion = SchemaOf<'DealerBannerRead'> | SchemaOf<'DealerOfferRead'>
+/** A banner as staff read it: with whether dealers are shown its image. */
+type Banner = SchemaOf<'DealerBannerStaffRead'>
+type Promotion = Banner | SchemaOf<'DealerOfferRead'>
 type Lifecycle = 'activate' | 'deactivate' | 'retire'
+
+/**
+ * A banner dealers are not shown because its image lapsed - past its retention
+ * date, or removed - whatever its status says (docs/assumptions.md §PROMO-1).
+ * Its status stays ACTIVE, so without this the list read as live. Choosing a
+ * new image is what brings it back; a retired banner needs neither.
+ */
+function imageLapsed(row: Promotion): boolean {
+  return 'image_live' in row && !row.image_live && row.status !== 'ARCHIVED'
+}
 
 function OfferPreview({ id }: { id: string }) {
   const [open, setOpen] = useState(false)
@@ -320,11 +332,18 @@ function PromotionForm({
                     disabled={!can(P.DOCUMENT_UPLOAD)}
                     className="mt-1"
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {imageId
-                      ? 'The current image will be kept unless you upload a replacement.'
-                      : 'Choose a JPEG, PNG or WebP image.'}
-                  </p>
+                  {existingBanner && imageLapsed(existingBanner) && !imageFile ? (
+                    <p className="mt-1 text-xs text-warning">
+                      Dealers are not shown this banner: its image has lapsed. Upload a replacement
+                      to show it again.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {imageId
+                        ? 'The current image will be kept unless you upload a replacement.'
+                        : 'Choose a JPEG, PNG or WebP image.'}
+                    </p>
+                  )}
                   {!can(P.DOCUMENT_UPLOAD) && (
                     <p className="mt-1 text-sm text-muted-foreground">
                       File upload access is required to add a banner image.
@@ -527,7 +546,12 @@ export default function PromotionsPage() {
       {
         accessorKey: 'status',
         header: 'Status',
-        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+        cell: ({ row }) => (
+          <div className="flex flex-wrap items-center gap-1">
+            <StatusBadge status={row.original.status} />
+            {imageLapsed(row.original) && <Badge variant="warning">Image lapsed</Badge>}
+          </div>
+        ),
         enableSorting: false,
       },
       {

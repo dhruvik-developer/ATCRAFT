@@ -261,4 +261,41 @@ describe('catalog images and promotion scope', () => {
     const toasts = screen.getByRole('region', { name: 'Notifications' })
     expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
+
+  it('says which banners dealers are not shown because their image lapsed', async () => {
+    // PROMO-1 withdraws a banner from every dealer once its image lapses and
+    // leaves its status alone, so the list read ACTIVE for a banner nobody saw.
+    const banner = {
+      code: 'LIVE',
+      title: 'New collection',
+      subtitle: null,
+      image_document_id: 'image-live',
+      link_kind: 'NONE',
+      link_id: null,
+      audience_price_type: null,
+      valid_from: null,
+      valid_to: null,
+      sort_order: 0,
+      status: 'ACTIVE',
+    }
+    const view = renderScreen(<PromotionsPage />, {
+      permissions: [P.PROMOTION_VIEW, P.PROMOTION_MANAGE],
+      routes: {
+        'GET /promotions/banners': page([
+          { ...banner, id: 'live', image_live: true },
+          { ...banner, id: 'lapsed', code: 'LAPSED', title: 'Old season', image_live: false },
+        ]),
+      },
+    })
+
+    const lapsed = (await screen.findByText('LAPSED')).closest('tr')!
+    const live = screen.getByText('LIVE').closest('tr')!
+    expect(within(lapsed).getByText('Image lapsed')).toBeVisible()
+    expect(within(live).queryByText('Image lapsed')).toBeNull()
+
+    await view.user.click(within(lapsed).getByRole('button', { name: 'Edit' }))
+    expect(
+      within(screen.getByRole('dialog')).getByText(/dealers are not shown this banner/i),
+    ).toBeVisible()
+  })
 })
