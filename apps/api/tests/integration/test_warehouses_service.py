@@ -2,8 +2,9 @@
 
 These cover the behaviour only a database can prove: the recursive ancestor walk
 that keeps the hierarchy a tree, the single-default rule, tenant isolation, the
-cascade from a retired warehouse to its bins, and the raw-SQL stock probe -
-both branches of the ``to_regclass`` guard in front of it.
+cascade from a retired warehouse to its bins, the raw-SQL stock probe - both
+branches of the ``to_regclass`` guard in front of it - and the reference lookup
+the stock-document modules share instead of each keeping a copy.
 
 Balance rows are built through the inventory module's own model. This module was
 written before inventory existed and used to create a stand-in table instead; a
@@ -26,6 +27,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.clock import utcnow
 from src.core.deps import TenantContext
 from src.core.errors import (
     BusinessRuleError,
@@ -40,6 +42,7 @@ from src.modules.audit.models import AuditLog
 from src.modules.inventory.models import InventoryBalance
 from src.modules.organization.models import Branch
 from src.modules.warehouses.models import StorageLocation, Warehouse
+from src.modules.warehouses.repository import WarehouseLookupRepository
 from src.modules.warehouses.schemas import (
     StorageLocationCreate,
     StorageLocationFilters,
@@ -648,6 +651,62 @@ class TestListing:
         options = await service.list_options(None)
 
         assert [option.code for option in options] == ["ZZ-01", "AA-01"]
+
+
+# -----------------------------------------------------------------------------
+# The reference lookup assembly, job work, packing and quality share
+# -----------------------------------------------------------------------------
+
+
+class TestWarehouseLookup:
+    async def test_it_answers_this_companys_live_stores_active_or_not(
+        self, session: AsyncSession, tenant: TenantContext, other_tenant: TenantContext
+    ) -> None:
+        active = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-01"
+        )
+        inactive = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-02", is_active=False
+        )
+        retired = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-03", deleted_at=utcnow()
+        )
+        foreign = await seed_support.seed_warehouse(
+            session, company_id=other_tenant.company_id, code="RM-01"
+        )
+        unknown = uuid.uuid4()
+
+        found = await WarehouseLookupRepository(session, tenant).load(
+            [active.id, inactive.id, retired.id, foreign.id, unknown, active.id]
+        )
+
+        # The inactive store comes back so its caller can refuse it by code; the
+        # retired, foreign and unknown ids are absent, which each caller words as 404.
+        assert found == {active.id: ("RM-01", True), inactive.id: ("RM-02", False)}
+
+    async def test_no_ids_is_no_answer(self, session: AsyncSession, tenant: TenantContext) -> None:
+        assert await WarehouseLookupRepository(session, tenant).load([]) == {}
+
+    async def test_it_is_not_narrowed_by_warehouse_assignments(
+        self, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        """docs/security.md applies the assignment policy to procurement and
+        production destinations; the movement engine re-checks every movement."""
+        assigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-01"
+        )
+        unassigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="FG-01"
+        )
+        restricted = TenantContext(
+            company_id=tenant.company_id,
+            user_id=tenant.user_id,
+            allowed_warehouse_ids=(assigned.id,),
+        )
+
+        found = await WarehouseLookupRepository(session, restricted).load([unassigned.id])
+
+        assert found == {unassigned.id: ("FG-01", True)}
 
 
 # -----------------------------------------------------------------------------

@@ -147,7 +147,6 @@ from src.modules.assembly.repository import (
     ComponentAvailabilityRepository,
     ItemLookupRepository,
     SerialLookupRepository,
-    WarehouseLookupRepository,
 )
 from src.modules.assembly.schemas import (
     READY_FOR_PACKING_MAX,
@@ -181,6 +180,7 @@ from src.modules.inventory.service import (
 )
 from src.modules.products.models import Item
 from src.modules.sales.repository import SalesOrderRepository
+from src.modules.warehouses.repository import WarehouseLookupRepository
 
 log = get_logger(__name__)
 

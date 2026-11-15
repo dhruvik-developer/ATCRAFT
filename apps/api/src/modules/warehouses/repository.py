@@ -350,6 +350,42 @@ class WarehouseRepository(BaseRepository[Warehouse]):
         return affected_rows(await self.session.execute(stmt))
 
 
+class WarehouseLookupRepository(BaseRepository[Warehouse]):
+    """The reference check a stock document makes before it names a warehouse.
+
+    Assembly, job work, packing and quality each refuse a warehouse that is not
+    this company's live store (404) or that is inactive (a refusal naming its
+    code), so they read the same two facts the same way - one definition here
+    rather than four identical copies.
+
+    It is deliberately *not* narrowed by the principal's warehouse assignments,
+    unlike :meth:`WarehouseRepository._scoped`: docs/security.md ("Warehouse
+    assignments on stock documents and movements") applies that policy to the
+    procurement and production destination lookups, and the movement engine
+    re-checks every movement against it before it locks a balance.
+    """
+
+    model = Warehouse
+
+    async def load(self, warehouse_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, bool]]:
+        """Batched id -> (code, is_active) for this company's live warehouses.
+
+        One statement however many ids are asked for; an id that is another
+        company's, retired or unknown is simply absent, so the caller words the
+        404 and an inactive store comes back for the caller to refuse by code.
+        """
+        if not warehouse_ids:
+            return {}
+        stmt = select(Warehouse.id, Warehouse.code, Warehouse.is_active).where(
+            Warehouse.company_id == self.tenant.company_id,
+            Warehouse.deleted_at.is_(None),
+            Warehouse.id.in_(list(dict.fromkeys(warehouse_ids))),
+        )
+        return {
+            row.id: (row.code, row.is_active) for row in (await self.session.execute(stmt)).all()
+        }
+
+
 class StorageLocationRepository(BaseRepository[StorageLocation]):
     """Persistence for :class:`~src.modules.warehouses.models.StorageLocation`."""
 
@@ -531,5 +567,6 @@ class StorageLocationRepository(BaseRepository[StorageLocation]):
 __all__ = [
     "MAX_HIERARCHY_WALK",
     "StorageLocationRepository",
+    "WarehouseLookupRepository",
     "WarehouseRepository",
 ]

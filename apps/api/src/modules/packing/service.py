@@ -139,7 +139,6 @@ from src.modules.packing.repository import (
     PackingSpecRepository,
     SalesOrderLookupRepository,
     SerialLookupRepository,
-    WarehouseLookupRepository,
 )
 from src.modules.packing.schemas import (
     READY_FOR_DISPATCH_MAX,
@@ -181,6 +180,7 @@ from src.modules.products.models import Item, ItemGroup
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.repository import ReportSnapshotRepository
+from src.modules.warehouses.repository import WarehouseLookupRepository
 
 log = get_logger(__name__)
 

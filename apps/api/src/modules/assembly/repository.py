@@ -60,7 +60,6 @@ from src.modules.inventory.models import (
     StockSerial,
 )
 from src.modules.products.models import Item
-from src.modules.warehouses.models import Warehouse
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,25 +129,6 @@ class ItemLookupRepository(BaseRepository[Item]):
                 default_warehouse_id=row.default_warehouse_id,
             )
             for row in rows
-        }
-
-
-class WarehouseLookupRepository(BaseRepository[Warehouse]):
-    """Existence and activity checks for the two warehouses on the header."""
-
-    model = Warehouse
-
-    async def load(self, warehouse_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, bool]]:
-        """Batched id -> (code, is_active). Both warehouses in one statement."""
-        if not warehouse_ids:
-            return {}
-        stmt = select(Warehouse.id, Warehouse.code, Warehouse.is_active).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.deleted_at.is_(None),
-            Warehouse.id.in_(list(dict.fromkeys(warehouse_ids))),
-        )
-        return {
-            row.id: (row.code, row.is_active) for row in (await self.session.execute(stmt)).all()
         }
 
 
@@ -739,5 +719,4 @@ __all__ = [
     "ItemLookupRepository",
     "SerialFacts",
     "SerialLookupRepository",
-    "WarehouseLookupRepository",
 ]

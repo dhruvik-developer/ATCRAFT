@@ -67,7 +67,6 @@ from src.modules.packing.schemas import (
 )
 from src.modules.products.models import Item, ItemGroup
 from src.modules.sales.models import SalesOrder, SalesOrderLine
-from src.modules.warehouses.models import Warehouse
 
 
 class PackingSpecRepository:
@@ -341,24 +340,6 @@ class ItemLookupRepository(BaseRepository[Item]):
             )
             for row in rows
         ], pagination
-
-
-class WarehouseLookupRepository(BaseRepository[Warehouse]):
-    """Existence and activity checks for the warehouse on the header."""
-
-    model = Warehouse
-
-    async def load(self, warehouse_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, bool]]:
-        if not warehouse_ids:
-            return {}
-        stmt = select(Warehouse.id, Warehouse.code, Warehouse.is_active).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.deleted_at.is_(None),
-            Warehouse.id.in_(list(dict.fromkeys(warehouse_ids))),
-        )
-        return {
-            row.id: (row.code, row.is_active) for row in (await self.session.execute(stmt)).all()
-        }
 
 
 class CustomerLookupRepository(BaseRepository[Customer]):
@@ -1016,5 +997,4 @@ __all__ = [
     "SalesOrderLookupRepository",
     "SerialFacts",
     "SerialLookupRepository",
-    "WarehouseLookupRepository",
 ]
