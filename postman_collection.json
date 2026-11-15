@@ -24245,7 +24245,7 @@
         {
           "name": "List dealer banners",
           "request": {
-            "description": "List dealer banners",
+            "description": "Every banner of this company's, each with `image_live`: an ACTIVE banner whose image is not live is not shown to dealers.",
             "header": [],
             "method": "GET",
             "url": {

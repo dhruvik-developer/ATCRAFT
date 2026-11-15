@@ -1900,6 +1900,51 @@ async def test_a_banner_whose_image_has_lapsed_is_withdrawn_from_the_dealer(
     assert sorted(statuses.all()) == [DealerBannerStatus.ACTIVE] * 3
 
 
+async def test_staff_see_which_active_banners_dealers_are_no_longer_shown(
+    api_client, session, tenant, storage, unique_code
+):
+    # The banners above stay ACTIVE once their image lapses, and the staff list
+    # said ACTIVE and nothing else: nobody could tell which ones dealers had
+    # stopped seeing. The staff read carries the dealer list's own image test.
+    promotions = PromotionService(session, tenant)
+    images = {
+        "live": await stored(session, tenant, PNG + b"monsoon range", "image/png", "live.png"),
+        "lapsed": await stored(session, tenant, PNG + b"last season", "image/png", "old.png"),
+        "purged": await stored(session, tenant, PNG + b"swept", "image/png", "gone.png"),
+    }
+    prefix = unique_code("LAPSE")
+    banners: dict[str, str] = {}
+    for order, (name, image_id) in enumerate(images.items()):
+        created = await promotions.create(
+            "banners",
+            DealerBannerCreate(
+                code=f"{prefix}-{order}",
+                title=f"The {name} banner",
+                image_document_id=image_id,
+                status=DealerBannerStatus.ACTIVE,
+                sort_order=order,
+            ),
+        )
+        banners[name] = str(created.id)
+    await session.execute(
+        update(Document)
+        .where(Document.id == images["lapsed"])
+        .values(expires_at=utcnow() - timedelta(minutes=1))
+    )
+    await session.execute(delete(Document).where(Document.id == images["purged"]))
+
+    listed = ok(await api_client.get("/promotions/banners", params={"search": prefix}))
+
+    assert {row["id"]: (row["status"], row["image_live"]) for row in listed} == {
+        banners["live"]: ("ACTIVE", True),
+        banners["lapsed"]: ("ACTIVE", False),
+        banners["purged"]: ("ACTIVE", False),
+    }
+    for name, live in (("live", True), ("lapsed", False), ("purged", False)):
+        read = ok(await api_client.get(f"/promotions/banners/{banners[name]}"))
+        assert (read["status"], read["image_live"]) == ("ACTIVE", live), name
+
+
 # -----------------------------------------------------------------------------
 # Staff promotion management: banners
 # -----------------------------------------------------------------------------

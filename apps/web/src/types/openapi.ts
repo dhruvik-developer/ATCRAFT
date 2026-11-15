@@ -7818,7 +7818,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List dealer banners */
+        /**
+         * List dealer banners
+         * @description Every banner of this company's, each with `image_live`: an ACTIVE banner whose image is not live is not shown to dealers.
+         */
         get: operations["list_banners_api_v1_promotions_banners_get"];
         put?: never;
         /** Create a dealer banner */
@@ -12407,6 +12410,21 @@ export interface components {
         /** ApiResponse[DealerBannerRead] */
         ApiResponse_DealerBannerRead_: {
             data?: components["schemas"]["DealerBannerRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[DealerBannerStaffRead] */
+        ApiResponse_DealerBannerStaffRead_: {
+            data?: components["schemas"]["DealerBannerStaffRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -19580,6 +19598,48 @@ export interface components {
              * Format: uuid
              */
             image_document_id: string;
+            /** Link Id */
+            link_id: string | null;
+            link_kind: components["schemas"]["DealerBannerLinkKind"];
+            /** Sort Order */
+            sort_order: number;
+            status: components["schemas"]["DealerBannerStatus"];
+            /** Subtitle */
+            subtitle: string | null;
+            /** Title */
+            title: string;
+            /** Valid From */
+            valid_from: string | null;
+            /** Valid To */
+            valid_to: string | null;
+        };
+        /**
+         * DealerBannerStaffRead
+         * @description A banner as staff list and read it: with whether dealers are shown its image.
+         *
+         *     ``status`` alone hid it: a banner whose image has lapsed is withdrawn from
+         *     every dealer while it stays ACTIVE here (docs/assumptions.md §PROMO-1), and
+         *     choosing a live image is what brings it back.
+         */
+        DealerBannerStaffRead: {
+            audience_price_type: components["schemas"]["PriceType"] | null;
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Image Document Id
+             * Format: uuid
+             */
+            image_document_id: string;
+            /**
+             * Image Live
+             * @description Whether the dealer portal serves this banner's image: a JPEG, PNG or WebP of this company's, not past its retention date. While it is false, dealers are not shown the banner, whatever its status.
+             */
+            image_live: boolean;
             /** Link Id */
             link_id: string | null;
             link_kind: components["schemas"]["DealerBannerLinkKind"];
@@ -28042,6 +28102,23 @@ export interface components {
         PaginatedResponse_DealerBannerRead_: {
             /** Data */
             data?: components["schemas"]["DealerBannerRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[DealerBannerStaffRead] */
+        PaginatedResponse_DealerBannerStaffRead_: {
+            /** Data */
+            data?: components["schemas"]["DealerBannerStaffRead"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -111398,7 +111475,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginatedResponse_DealerBannerRead_"];
+                    "application/json": components["schemas"]["PaginatedResponse_DealerBannerStaffRead_"];
                 };
             };
             /** @description Malformed request */
@@ -111642,7 +111719,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_DealerBannerRead_"];
+                    "application/json": components["schemas"]["ApiResponse_DealerBannerStaffRead_"];
                 };
             };
             /** @description Malformed request */

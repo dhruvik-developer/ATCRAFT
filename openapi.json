@@ -2428,6 +2428,33 @@
         "title": "ApiResponse[DealerBannerRead]",
         "type": "object"
       },
+      "ApiResponse_DealerBannerStaffRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DealerBannerStaffRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[DealerBannerStaffRead]",
+        "type": "object"
+      },
       "ApiResponse_DealerCartRead_": {
         "properties": {
           "data": {
@@ -19631,6 +19658,118 @@
           "status"
         ],
         "title": "DealerBannerRead",
+        "type": "object"
+      },
+      "DealerBannerStaffRead": {
+        "description": "A banner as staff list and read it: with whether dealers are shown its image.\n\n``status`` alone hid it: a banner whose image has lapsed is withdrawn from\nevery dealer while it stays ACTIVE here (docs/assumptions.md §PROMO-1), and\nchoosing a live image is what brings it back.",
+        "properties": {
+          "audience_price_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image_document_id": {
+            "format": "uuid",
+            "title": "Image Document Id",
+            "type": "string"
+          },
+          "image_live": {
+            "description": "Whether the dealer portal serves this banner's image: a JPEG, PNG or WebP of this company's, not past its retention date. While it is false, dealers are not shown the banner, whatever its status.",
+            "title": "Image Live",
+            "type": "boolean"
+          },
+          "link_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Id"
+          },
+          "link_kind": {
+            "$ref": "#/components/schemas/DealerBannerLinkKind"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DealerBannerStatus"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid To"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "title",
+          "subtitle",
+          "image_document_id",
+          "link_kind",
+          "link_id",
+          "audience_price_type",
+          "sort_order",
+          "valid_from",
+          "valid_to",
+          "status",
+          "image_live"
+        ],
+        "title": "DealerBannerStaffRead",
         "type": "object"
       },
       "DealerBannerStatus": {
@@ -43566,6 +43705,33 @@
           }
         },
         "title": "PaginatedResponse[DealerBannerRead]",
+        "type": "object"
+      },
+      "PaginatedResponse_DealerBannerStaffRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DealerBannerStaffRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[DealerBannerStaffRead]",
         "type": "object"
       },
       "PaginatedResponse_DealerCatalogItem_": {
@@ -181685,6 +181851,7 @@
     },
     "/api/v1/promotions/banners": {
       "get": {
+        "description": "Every banner of this company's, each with `image_live`: an ACTIVE banner whose image is not live is not shown to dealers.",
         "operationId": "list_banners_api_v1_promotions_banners_get",
         "parameters": [
           {
@@ -181750,7 +181917,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_DealerBannerRead_"
+                  "$ref": "#/components/schemas/PaginatedResponse_DealerBannerStaffRead_"
                 }
               }
             },
@@ -182198,7 +182365,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_DealerBannerRead_"
+                  "$ref": "#/components/schemas/ApiResponse_DealerBannerStaffRead_"
                 }
               }
             },

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import func, literal, or_, select, union_all
+from sqlalchemy import Exists, func, literal, or_, select, union_all
 
 from src.common.repository import BaseRepository
 from src.core.deps import TenantContext
@@ -25,6 +26,38 @@ class DealerBannerRepository(BaseRepository[DealerBanner]):
     entity_label = "Dealer banner"
     searchable_fields = ("code", "title")
 
+    def _image_live(self, now: datetime) -> Exists:
+        """Whether a banner's image is one ``/dealer-portal/images/{id}`` serves.
+
+        A JPEG, PNG or WebP of this company's, not past its retention date
+        (``document_not_expired``); an image row the purge sweep or a person has
+        removed is not one either. The dealer's banner list and the staff read
+        both ask this, so they cannot disagree about a banner.
+        """
+        return (
+            select(Document.id)
+            .where(
+                Document.company_id == self.tenant.company_id,
+                Document.id == DealerBanner.image_document_id,
+                Document.mime_type.in_(IMAGE_MIME_TYPES),
+                document_not_expired(now),
+            )
+            .exists()
+        )
+
+    async def with_live_images(
+        self, banner_ids: Sequence[uuid.UUID], *, now: datetime
+    ) -> set[uuid.UUID]:
+        """Which of ``banner_ids`` have an image the dealer portal serves, in one query."""
+        if not banner_ids:
+            return set()
+        stmt = select(DealerBanner.id).where(
+            DealerBanner.company_id == self.tenant.company_id,
+            DealerBanner.id.in_(list(banner_ids)),
+            self._image_live(now),
+        )
+        return set((await self.session.scalars(stmt)).all())
+
     async def active(
         self, price_type: str, on_date: date, params: PageParams, *, now: datetime
     ) -> tuple[list[DealerBanner], OffsetPagination]:
@@ -41,16 +74,6 @@ class DealerBannerRepository(BaseRepository[DealerBanner]):
         no next one to take its place; staff still see it, ACTIVE, and choose a
         new image to bring it back. docs/assumptions.md §PROMO-1.
         """
-        image_live = (
-            select(Document.id)
-            .where(
-                Document.company_id == self.tenant.company_id,
-                Document.id == DealerBanner.image_document_id,
-                Document.mime_type.in_(IMAGE_MIME_TYPES),
-                document_not_expired(now),
-            )
-            .exists()
-        )
         stmt = self._scoped().where(
             DealerBanner.status == DealerBannerStatus.ACTIVE,
             or_(DealerBanner.valid_from.is_(None), DealerBanner.valid_from <= on_date),
@@ -59,7 +82,7 @@ class DealerBannerRepository(BaseRepository[DealerBanner]):
                 DealerBanner.audience_price_type.is_(None),
                 DealerBanner.audience_price_type == price_type,
             ),
-            image_live,
+            self._image_live(now),
         )
         return await self.list_page(params, stmt=stmt, order_by=DealerBanner.sort_order.asc())
 

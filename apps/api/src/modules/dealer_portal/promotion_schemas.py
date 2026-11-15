@@ -83,6 +83,23 @@ class DealerBannerRead(BaseModel):
     status: DealerBannerStatus
 
 
+class DealerBannerStaffRead(DealerBannerRead):
+    """A banner as staff list and read it: with whether dealers are shown its image.
+
+    ``status`` alone hid it: a banner whose image has lapsed is withdrawn from
+    every dealer while it stays ACTIVE here (docs/assumptions.md §PROMO-1), and
+    choosing a live image is what brings it back.
+    """
+
+    image_live: bool = Field(
+        description=(
+            "Whether the dealer portal serves this banner's image: a JPEG, PNG or WebP of "
+            "this company's, not past its retention date. While it is false, dealers are "
+            "not shown the banner, whatever its status."
+        )
+    )
+
+
 class DealerBannerUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

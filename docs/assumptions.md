@@ -5182,7 +5182,10 @@ banner whose image has lapsed, or whose image row the purge sweep or a person
 has removed, is withdrawn from every dealer, and the page's total counts only
 what is listed. Its status does not change: staff still list it as ACTIVE, and
 choosing a live image brings it back, since activating or editing a banner
-already refuses an image that is not live.
+already refuses an image that is not live. The staff list and read
+(`GET /promotions/banners`, `GET /promotions/banners/{id}`) carry `image_live`,
+asked by the same predicate, so a banner dealers are no longer shown is
+visible as one rather than as an ordinary ACTIVE row.
 
 **Why.** The image route reads the banner's image as a live document and
 answers 404 once its retention date passes, while the banner list went on
@@ -5193,9 +5196,12 @@ Retiring or deactivating it automatically was not chosen: a promotion's status
 moves only through an audited transition that a person gives a reason for.
 
 **Where.** `src/modules/dealer_portal/promotion_repository.py` -
-`DealerBannerRepository.active`; `src/modules/documents/repository.py` -
+`DealerBannerRepository._image_live`, read by `active` and `with_live_images`;
+`src/modules/dealer_portal/promotion_service.py` - `PromotionService._staff_banner_reads`
+(`DealerBannerStaffRead`); `src/modules/documents/repository.py` -
 `document_not_expired`. `tests/api/test_dealer_portal_routes_http.py` -
-`test_a_banner_whose_image_has_lapsed_is_withdrawn_from_the_dealer`.
+`test_a_banner_whose_image_has_lapsed_is_withdrawn_from_the_dealer`,
+`test_staff_see_which_active_banners_dealers_are_no_longer_shown`.
 
 **Impact if wrong.** To show such a banner without its image, drop the
 predicate and make `image_document_id` nullable on the dealer's read, which the

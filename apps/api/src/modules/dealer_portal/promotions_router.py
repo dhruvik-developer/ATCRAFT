@@ -22,6 +22,7 @@ from src.modules.dealer_portal.models import DealerBannerStatus
 from src.modules.dealer_portal.promotion_schemas import (
     DealerBannerCreate,
     DealerBannerRead,
+    DealerBannerStaffRead,
     DealerBannerUpdate,
     DealerOfferCreate,
     DealerOfferPreview,
@@ -153,35 +154,42 @@ async def preview_offer(
 
 @router.get(
     "/banners",
-    response_model=PaginatedResponse[DealerBannerRead],
+    response_model=PaginatedResponse[DealerBannerStaffRead],
     dependencies=[require_permission(Permission.PROMOTION_VIEW)],
     summary="List dealer banners",
+    description=(
+        "Every banner of this company's, each with `image_live`: an ACTIVE banner whose "
+        "image is not live is not shown to dealers."
+    ),
 )
 async def list_banners(
     session: DbSession,
     tenant: Tenant,
     params: PageDep,
     search: Annotated[str | None, Query(max_length=120)] = None,
-) -> PaginatedResponse[DealerBannerRead]:
+) -> PaginatedResponse[DealerBannerStaffRead]:
     rows, page = await PromotionService(session, tenant).list_promotions(
         "banners", params, search=search
     )
     return PaginatedResponse(
-        data=[DealerBannerRead.model_validate(row.model_dump()) for row in rows], pagination=page
+        data=[DealerBannerStaffRead.model_validate(row.model_dump()) for row in rows],
+        pagination=page,
     )
 
 
 @router.get(
     "/banners/{identity}",
-    response_model=ApiResponse[DealerBannerRead],
+    response_model=ApiResponse[DealerBannerStaffRead],
     dependencies=[require_permission(Permission.PROMOTION_VIEW)],
     summary="Get one dealer banner",
 )
 async def get_banner(
     identity: uuid.UUID, session: DbSession, tenant: Tenant
-) -> ApiResponse[DealerBannerRead]:
+) -> ApiResponse[DealerBannerStaffRead]:
     row = await PromotionService(session, tenant).get("banners", identity)
-    return ApiResponse[DealerBannerRead].ok(DealerBannerRead.model_validate(row.model_dump()))
+    return ApiResponse[DealerBannerStaffRead].ok(
+        DealerBannerStaffRead.model_validate(row.model_dump())
+    )
 
 
 @router.post(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from src.modules.dealer_portal.promotion_repository import PromotionRepository
 from src.modules.dealer_portal.promotion_schemas import (
     DealerBannerCreate,
     DealerBannerRead,
+    DealerBannerStaffRead,
     DealerBannerUpdate,
     DealerOfferCreate,
     DealerOfferRead,
@@ -107,11 +109,33 @@ class PromotionService:
         self, resource: Resource, params: PageParams, *, search: str | None = None
     ) -> tuple[list[PromotionRead], OffsetPagination]:
         rows, page = await self.repo.list_promotions(resource, params, search)
+        if resource == "banners":
+            return [*await self._staff_banner_reads(rows)], page
         return [promotion_read(row) for row in rows], page
 
     async def get(self, resource: Resource, identity: uuid.UUID) -> PromotionRead:
         row = await self._repository(resource).get_or_404(identity)
+        if isinstance(row, DealerBanner):
+            (read,) = await self._staff_banner_reads([row])
+            return read
         return promotion_read(row)
+
+    async def _staff_banner_reads(
+        self, rows: Sequence[DealerBanner]
+    ) -> list[DealerBannerStaffRead]:
+        """``rows`` as staff read them: each with whether dealers are shown its image.
+
+        A banner whose image has lapsed stays ACTIVE but is withdrawn from every
+        dealer (docs/assumptions.md §PROMO-1); without this the staff list showed
+        it as live. One query for the page, by the predicate the dealer list uses.
+        """
+        live = await self.repo.banners.with_live_images([row.id for row in rows], now=utcnow())
+        return [
+            DealerBannerStaffRead(
+                **DealerBannerRead.model_validate(row).model_dump(), image_live=row.id in live
+            )
+            for row in rows
+        ]
 
     async def create(self, resource: Resource, payload: PromotionCreate) -> PromotionRead:
         async with transaction(self.session):
