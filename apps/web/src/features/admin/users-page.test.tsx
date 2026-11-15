@@ -1080,6 +1080,74 @@ describe('deactivation', () => {
   })
 })
 
+describe('a failed role list is said once on each screen', () => {
+  // The users list, the new-user form and the Assign roles dialog share one
+  // role read, and TanStack keeps one `meta` per query - written by whichever
+  // of them rendered last. With the dialogs opting out of the toast and the
+  // list not, render order decided whether a failure was toasted beside the
+  // dialog's own LoadError. Each screen now says it in place, and none toasts.
+  const ROLES_DOWN = fail(503, 'SERVICE_UNAVAILABLE', 'Roles are unavailable')
+
+  function renderWithToasts(permissions: string[], routes: RouteTable) {
+    return renderScreen(
+      <>
+        <UsersPage />
+        <Toaster />
+      </>,
+      { permissions, errorNets: true, routes: { ...baseRoutes(), ...routes } },
+    )
+  }
+
+  function toastAlerts() {
+    return within(screen.getByRole('region', { name: 'Notifications' })).queryAllByRole('alert')
+  }
+
+  it('says it above the list, with a retry, where the filter would otherwise just be empty', async () => {
+    let reads = 0
+    const { user } = renderWithToasts(READ_ONLY, {
+      'GET /roles': () => (++reads === 1 ? ROLES_DOWN : page([STORES_ROLE])),
+    })
+
+    const headline = await screen.findByText('Could not load the role list')
+    expect(headline.closest('[role="alert"]')).toHaveTextContent('Roles are unavailable')
+    expect(toastAlerts()).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await settled()
+    expect(screen.queryByText('Could not load the role list')).toBeNull()
+  })
+
+  it('says it in the Assign roles dialog, and toasts it nowhere', async () => {
+    const { user } = renderWithToasts([...READ_ONLY, P.PERMISSION_ASSIGN], {
+      'GET /roles': ROLES_DOWN,
+      'GET /users/u-priya': ok({ ...userRow(), allowed_category_ids: [], roles: [STORES_ROLE] }),
+    })
+    await screen.findByText('Could not load the role list')
+
+    await user.click(await screen.findByRole('button', { name: 'Actions for Priya Shah' }))
+    await user.click(await screen.findByRole('menuitem', { name: /assign roles/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('Could not load the role list')).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Try again' })).toBeVisible()
+    expect(toastAlerts()).toHaveLength(0)
+  })
+
+  it('says it in the new-user form, and toasts it nowhere', async () => {
+    const { user } = renderWithToasts([...READ_ONLY, P.USER_CREATE], {
+      'GET /roles': ROLES_DOWN,
+      'GET /organization/departments': page([]),
+    })
+    await screen.findByText('Could not load the role list')
+
+    await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText(/the role list could not be loaded/i)).toBeVisible()
+    expect(toastAlerts()).toHaveLength(0)
+  })
+})
+
 describe('the states the list can be in', () => {
   it('says the list is empty rather than rendering an empty grid', async () => {
     renderUsers(READ_ONLY, { ...baseRoutes([]), 'GET /users': page([]) })

@@ -180,6 +180,30 @@ describe('messaging administration', () => {
     )
   })
 
+  it('sends back only the fields the update defines, whatever else the read carried', async () => {
+    // The update refuses an unknown key, and the draft is seeded from the read.
+    // A field the read model gains must not ride back on every save as a 422.
+    const { user, fetch } = renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW, P.SETTINGS_MANAGE],
+      routes: {
+        ...routes(),
+        'GET /notifications/channel-templates': ok([
+          { ...templates[0], id: 'mapping-1', updated_at: '2026-11-01T09:00:00Z' },
+        ]),
+        'PUT /notifications/channel-templates': ok(templates),
+      },
+    })
+
+    await screen.findByLabelText('Approved template name')
+    await user.click(screen.getByRole('button', { name: 'Save templates' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('PUT', '/notifications/channel-templates')).toEqual({
+        templates: [templates[0]],
+      }),
+    )
+  })
+
   it('refuses a new mapping with no template name and sends nothing', async () => {
     // Add seeds a blank name; the API refuses it as `templates.1`, a field
     // error the global handler leaves to the page.

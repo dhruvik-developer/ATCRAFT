@@ -24,9 +24,15 @@ import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { NOTIFICATION_TYPES } from '@/features/notifications/notification-types'
+import type { SchemaOf } from '@/types/api'
 
-type Channel = 'WHATSAPP' | 'SMS'
-type TemplateParameter = 'title' | 'body' | 'code' | 'link' | 'amount' | 'date'
+/** One mapping as `GET /notifications/channel-templates` answers it. */
+type MessagingTemplate = SchemaOf<'NotificationChannelTemplateRead'>
+/** One mapping as `PUT /notifications/channel-templates` takes it. */
+type MessagingTemplateUpdate = SchemaOf<'NotificationChannelTemplateUpdate'>
+type Channel = MessagingTemplate['channel']
+type TemplateParameter = MessagingTemplate['parameters'][number]
+type NotificationType = MessagingTemplate['notification_type']
 
 const TEMPLATE_PARAMETERS: TemplateParameter[] = ['title', 'body', 'code', 'link', 'amount', 'date']
 
@@ -38,17 +44,6 @@ function parseParameters(value: string): TemplateParameter[] {
     if (parameter) parsed.push(parameter)
   }
   return parsed
-}
-
-interface MessagingTemplate {
-  channel: Channel
-  notification_type: string
-  template_name: string | null
-  template_id: string | null
-  language: string
-  parameters: TemplateParameter[]
-  sms_text: string | null
-  is_active: boolean
 }
 
 interface DeliveryRecord {
@@ -115,6 +110,27 @@ function refusedTemplates(error: unknown): { rows: Record<number, string[]>; lis
   return { rows, list }
 }
 
+/**
+ * One mapping as the save sends it: the update model's fields, named.
+ *
+ * The draft is seeded from the rows the read answered, and the update refuses a
+ * key it does not define (`extra="forbid"`). Sent back as read, a field the
+ * read model gained - an id, a timestamp - would turn every save into a 422
+ * naming a field nothing on the page shows.
+ */
+function templateUpdate(template: MessagingTemplate): MessagingTemplateUpdate {
+  return {
+    channel: template.channel,
+    notification_type: template.notification_type,
+    template_name: template.template_name,
+    template_id: template.template_id,
+    language: template.language,
+    parameters: template.parameters,
+    sms_text: template.sms_text,
+    is_active: template.is_active,
+  }
+}
+
 function updateTemplate(
   templates: MessagingTemplate[],
   index: number,
@@ -131,7 +147,7 @@ export default function MessagingPage() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<MessagingTemplate[]>([])
   const [channel, setChannel] = useState<Channel>('WHATSAPP')
-  const [notificationType, setNotificationType] = useState<string>(NOTIFICATION_TYPES[0])
+  const [notificationType, setNotificationType] = useState<NotificationType>(NOTIFICATION_TYPES[0])
   /** Set by the first Save, so a row being filled in is not called wrong while it is typed. */
   const [saveAttempted, setSaveAttempted] = useState(false)
 
@@ -172,7 +188,9 @@ export default function MessagingPage() {
 
   const save = useMutation({
     mutationFn: () =>
-      api.put<MessagingTemplate[]>('/notifications/channel-templates', { templates: draft }),
+      api.put<MessagingTemplate[]>('/notifications/channel-templates', {
+        templates: draft.map(templateUpdate),
+      }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.notifications.channelTemplates })
       await queryClient.invalidateQueries({ queryKey: queryKeys.notifications.messagingDeliveries })
@@ -297,7 +315,7 @@ export default function MessagingPage() {
               className="mt-1.5 w-auto max-w-80"
               value={notificationType}
               disabled={!canManage}
-              onChange={(event) => setNotificationType(event.target.value)}
+              onChange={(event) => setNotificationType(event.target.value as NotificationType)}
             >
               {NOTIFICATION_TYPES.map((type) => (
                 <option key={type} value={type}>

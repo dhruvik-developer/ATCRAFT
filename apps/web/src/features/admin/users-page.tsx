@@ -28,7 +28,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import { ConfirmDialog, FieldError, LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -386,6 +386,18 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
   return (
     <>
       <div className="mb-3 flex justify-end">{newUserButton}</div>
+
+      {/* Said here, because nothing else on the list would: the role filter is
+          simply empty and the Roles column falls back to bare codes. */}
+      {roles.error && (
+        <LoadError
+          className="mb-3"
+          title="Could not load the role list"
+          error={roles.error}
+          onRetry={() => void roles.refetch()}
+          retrying={roles.isFetching}
+        />
+      )}
 
       <DataTable
         columns={columns}

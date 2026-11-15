@@ -193,7 +193,16 @@ export function useDepartmentTreeOptions(enabled = true) {
   return useSharedDepartmentTreeOptions<DepartmentRow>(enabled)
 }
 
-/** Every role, for the assignment checklist. Bounded by design. */
+/**
+ * Every role, for the assignment checklist. Bounded by design.
+ *
+ * Every screen that reads it says a failed read itself - the users list above
+ * its table, the user dialogs where the roles would be - so the shell never
+ * toasts it as well. That is decided here rather than per caller: the list and
+ * a dialog over it share this one query, and TanStack keeps one `meta` per
+ * query, written by whichever observer rendered last - so a per-caller choice
+ * left render order to decide whether a failure was said once or twice.
+ */
 export function useRoleOptions(enabled = true) {
   return useQuery({
     queryKey: queryKeys.users.roles,
@@ -212,6 +221,7 @@ export function useRoleOptions(enabled = true) {
     },
     staleTime: staleTimes.reference,
     enabled,
+    meta: { suppressErrorToast: true },
   })
 }
 
