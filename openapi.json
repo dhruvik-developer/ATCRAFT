@@ -18958,8 +18958,15 @@
             "title": "Collections Mtd"
           },
           "dispatches_in_transit": {
-            "title": "Dispatches In Transit",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatches In Transit"
           },
           "follow_ups_due": {
             "anyOf": [
@@ -19023,16 +19030,37 @@
             "title": "Mrp Shortage Count"
           },
           "open_sales_orders": {
-            "title": "Open Sales Orders",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Sales Orders"
           },
           "overdue_deliveries": {
-            "title": "Overdue Deliveries",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overdue Deliveries"
           },
           "overdue_sales_orders": {
-            "title": "Overdue Sales Orders",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overdue Sales Orders"
           },
           "payables_due_amount": {
             "anyOf": [
@@ -19059,17 +19087,38 @@
             "title": "Payables Overdue Amount"
           },
           "pending_purchase_orders": {
-            "title": "Pending Purchase Orders",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Purchase Orders"
           },
           "pending_purchase_value": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Pending Purchase Value",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Purchase Value"
           },
           "production_in_progress": {
-            "title": "Production In Progress",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Production In Progress"
           },
           "purchase_orders_awaiting_approval": {
             "anyOf": [
@@ -19083,8 +19132,15 @@
             "title": "Purchase Orders Awaiting Approval"
           },
           "qc_pending": {
-            "title": "Qc Pending",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Pending"
           },
           "receivables_amount": {
             "anyOf": [
@@ -19135,21 +19191,19 @@
             "title": "Stock Refreshed At"
           },
           "stock_value": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Stock Value",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Value"
           }
         },
         "required": [
-          "open_sales_orders",
-          "overdue_sales_orders",
-          "stock_value",
-          "pending_purchase_orders",
-          "pending_purchase_value",
-          "production_in_progress",
-          "qc_pending",
-          "dispatches_in_transit",
-          "overdue_deliveries",
           "generated_at"
         ],
         "title": "DashboardRead",

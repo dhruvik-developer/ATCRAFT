@@ -317,6 +317,10 @@ export function useWorkCentreOptions(enabled = true) {
   })
 }
 
+/**
+ * The one parameter set the active machine register is read with, whole or
+ * scoped to a centre: one cache entry per question, never one per screen.
+ */
 const MACHINE_OPTION_PARAMS = {
   limit: LOOKUP_LIST_LIMIT,
   is_active: true,
@@ -324,6 +328,36 @@ const MACHINE_OPTION_PARAMS = {
   sort_by: 'code',
   sort_dir: 'asc',
 } as const
+
+/**
+ * The whole active machine register, for the machine field on a production
+ * booking and the routing operation's machine picker, which share the cache
+ * entry - so whole `MachineRead` rows, not the three fields the booking draws.
+ *
+ * Soft-failing: a booking that records output must still be possible when the
+ * register is not readable by this account, so the field simply offers nothing
+ * rather than the dialog refusing to open. The keys come from `queryKeys`, as
+ * the scoped sibling below takes them: these params carry no `work_center_id`,
+ * so the two cannot collide.
+ */
+export function useMachineOptions(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.routing.machines(MACHINE_OPTION_PARAMS),
+    queryFn: async ({ signal }): Promise<MachineOption[]> => {
+      try {
+        const page = await api.getPage<MachineOption>('/routing/machines', {
+          params: { ...MACHINE_OPTION_PARAMS },
+          signal,
+        })
+        return page.data
+      } catch (error) {
+        return emptyOnPermissionError<MachineOption>(error)
+      }
+    },
+    staleTime: staleTimes.reference,
+    enabled,
+  })
+}
 
 /**
  * The machines of one work centre.
@@ -334,10 +368,10 @@ const MACHINE_OPTION_PARAMS = {
  * reason a picker exists at all - the list is for choosing what runs next.
  *
  * Named for the scoping rather than `useMachineOptions`, which is the whole
- * register in `production-model.ts`. The two used to share that name one
- * directory apart with different signatures and different semantics, so an
- * import of the wrong one compiled wherever the argument happened to fit -
- * and here the wrong one silently drops the constraint the API enforces.
+ * register above. The two used to share that name one directory apart with
+ * different signatures and different semantics, so an import of the wrong one
+ * compiled wherever the argument happened to fit - and here the wrong one
+ * silently drops the constraint the API enforces.
  */
 export function useWorkCentreMachineOptions(workCentreId: string | null | undefined) {
   const params = { ...MACHINE_OPTION_PARAMS, work_center_id: workCentreId ?? '' }

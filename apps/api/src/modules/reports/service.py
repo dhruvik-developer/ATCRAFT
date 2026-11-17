@@ -1722,6 +1722,9 @@ REPORT_WAREHOUSE_SCOPED_KEYS = frozenset(
         ReportKey.STOCK_AVAILABILITY,
         ReportKey.INVENTORY_VALUATION,
         ReportKey.PRODUCT_PROFITABILITY,
+        ReportKey.DEAD_STOCK,
+        ReportKey.SCRAP_REGISTER,
+        ReportKey.CONSUMPTION_BY_DEPARTMENT,
     }
 )
 
@@ -1905,7 +1908,10 @@ def _job_sensitive_fields_accessible(
         return True
     parameters = snapshot.parameters or {}
     visible = parameters.get(REPORT_VISIBLE_FIELDS_PARAMETER)
-    if not isinstance(visible, list):
+    if not isinstance(visible, list) or any(
+        not isinstance(name, str) or name not in definition.row_model.model_fields
+        for name in visible
+    ):
         visible = list(definition.row_model.model_fields)
     return all(
         principal.has(permission)
@@ -2139,8 +2145,9 @@ async def purge_expired_snapshots(
     """Delete one bounded batch of lapsed snapshots. Returns how many went.
 
     Only the snapshot row: the artefact it points at is a ``documents`` row with
-    its own retention. Valuation rows retain their captured warehouse scope
-    until that module removes the document and clears the reference.
+    its own retention. Every file's permission, visible-column and warehouse
+    evidence survives until that module removes the document and clears the
+    reference.
     """
     repo = ReportSnapshotRepository(session, tenant)
     expired = await repo.list_expired(utcnow(), limit=limit)
@@ -2168,7 +2175,7 @@ async def purge_expired_snapshots(
 #: changes, because the payload is a plain JSON document in Redis: a payload
 #: written before a field existed would validate with the field missing and the
 #: screen would show a blank tile until the TTL expired.
-DASHBOARD_CACHE_VERSION = "v3"
+DASHBOARD_CACHE_VERSION = "v4"
 
 #: Which permission shows which finance and operations tile. A tile the caller
 #: may not see is returned as ``None`` rather than omitted, so the shape of the
@@ -2176,6 +2183,16 @@ DASHBOARD_CACHE_VERSION = "v3"
 #: The cache key carries a digest of the visible set: two principals with
 #: different permissions must never share one cached payload.
 DASHBOARD_TILE_PERMISSIONS: dict[str, Permission] = {
+    "open_sales_orders": Permission.SALES_ORDER_VIEW,
+    "overdue_sales_orders": Permission.SALES_ORDER_VIEW,
+    "stock_value": Permission.INVENTORY_VALUATION_VIEW,
+    "stock_refreshed_at": Permission.INVENTORY_VALUATION_VIEW,
+    "pending_purchase_orders": Permission.PURCHASE_ORDER_VIEW,
+    "pending_purchase_value": Permission.PURCHASE_ORDER_VIEW,
+    "production_in_progress": Permission.PRODUCTION_ORDER_VIEW,
+    "qc_pending": Permission.QC_VIEW,
+    "dispatches_in_transit": Permission.DISPATCH_VIEW,
+    "overdue_deliveries": Permission.DISPATCH_VIEW,
     "purchase_orders_awaiting_approval": Permission.PURCHASE_ORDER_VIEW,
     "inbound_purchase_orders_late": Permission.PURCHASE_ORDER_VIEW,
     "payables_due_amount": Permission.VENDOR_INVOICE_VIEW,
@@ -2226,9 +2243,14 @@ def _visible_trend_series(principal: Principal | None) -> tuple[str, ...]:
     )
 
 
-def _scope_digest(visible: tuple[str, ...]) -> str:
-    """Short, stable digest of a visible-field set for the cache key."""
-    return hashlib.sha256(",".join(visible).encode()).hexdigest()[:16]
+def _scope_digest(visible: tuple[str, ...], tenant: TenantContext) -> str:
+    """Share cached figures only when both authority and warehouse reach agree."""
+    warehouses = (
+        []
+        if tenant.is_superuser
+        else sorted({str(value) for value in tenant.allowed_warehouse_ids})
+    )
+    return hashlib.sha256(json.dumps((visible, warehouses)).encode()).hexdigest()[:16]
 
 
 async def dashboard(
@@ -2259,25 +2281,26 @@ async def dashboard(
         tenant.company_id,
         "tiles",
         DASHBOARD_CACHE_VERSION,
-        _scope_digest(visible),
+        _scope_digest(visible, tenant),
     )
 
     cached = await cache_get(cache_key)
-    if cached is not None:
-        return DashboardRead.model_validate(cached)
-
-    as_of = moment.date()
-    stmt = ReportQueryRepository(session, tenant).dashboard(
-        as_of=as_of, month_start=as_of.replace(day=1)
-    )
-    row = (await session.execute(stmt)).one()
-    values = {**dict(row._mapping), "generated_at": moment}
+    if cached is None:
+        as_of = moment.date()
+        stmt = ReportQueryRepository(session, tenant).dashboard(
+            as_of=as_of, month_start=as_of.replace(day=1)
+        )
+        row = (await session.execute(stmt)).one()
+        values = {**dict(row._mapping), "generated_at": moment}
+    else:
+        values = dict(cached)
     for field in DASHBOARD_TILE_PERMISSIONS:
         if field not in visible:
             values[field] = None
     tiles = DashboardRead.model_validate(values)
 
-    await cache_set(cache_key, tiles.model_dump(mode="json"), ttl=ttl)
+    if cached is None:
+        await cache_set(cache_key, tiles.model_dump(mode="json"), ttl=ttl)
     return tiles
 
 
@@ -2312,7 +2335,7 @@ async def dashboard_trends(
         DASHBOARD_CACHE_VERSION,
         date_from.isoformat(),
         date_to.isoformat(),
-        _scope_digest(visible),
+        _scope_digest(visible, tenant),
     )
 
     cached = await cache_get(cache_key)
@@ -2487,31 +2510,40 @@ def catalogue_report_document_read_policy(
         document_id,
         scope_key=REPORT_WAREHOUSE_SCOPE_PARAMETER,
         report_keys=tuple(REPORT_WAREHOUSE_SCOPED_KEYS),
-        entity_type=REPORT_DOCUMENT_ENTITY,
     )
 
 
-def production_cost_document_read_policy(
+def catalogue_report_permission_policy(
     tenant: TenantContext,
     principal: Principal | None,
     document_id: InstrumentedAttribute[Any],
 ) -> ColumnElement[bool] | None:
-    if principal is None or principal.has(Permission.ITEM_COST_VIEW):
+    if principal is None or principal.is_superuser:
         return None
-    return ReportSnapshotRepository.report_key_document_visibility(
-        tenant, document_id, report_key=ReportKey.PRODUCTION_COST
+    # Generic document access retains its existing document.view gate. The
+    # report's additional domain/column rights follow the bytes, so a grant
+    # removed after generation cannot be bypassed through a saved file ID.
+    denied_keys = tuple(
+        key
+        for key, definition in REPORT_CATALOGUE.items()
+        if definition.permission != Permission.REPORT_VIEW
+        and not principal.has(definition.permission)
     )
-
-
-def job_work_cost_document_read_policy(
-    tenant: TenantContext,
-    principal: Principal | None,
-    document_id: InstrumentedAttribute[Any],
-) -> ColumnElement[bool] | None:
-    if principal is None or principal.has(Permission.ITEM_COST_VIEW):
+    denied_fields = tuple(
+        (key, field, tuple(definition.row_model.model_fields))
+        for key, definition in REPORT_CATALOGUE.items()
+        if key not in denied_keys
+        for field, permission in definition.field_permissions
+        if not principal.has(permission)
+    )
+    if not denied_keys and not denied_fields:
         return None
-    return ReportSnapshotRepository.report_key_document_visibility(
-        tenant, document_id, report_key=ReportKey.JOB_WORK_COST
+    return ReportSnapshotRepository.catalogue_permission_visibility(
+        tenant,
+        document_id,
+        denied_keys=denied_keys,
+        denied_fields=denied_fields,
+        visible_fields_key=REPORT_VISIBLE_FIELDS_PARAMETER,
     )
 
 
@@ -2519,8 +2551,7 @@ register_document_read_policy("finance_valuation", valuation_document_read_polic
 register_document_read_policy(
     "catalogue_report_warehouse_scope", catalogue_report_document_read_policy
 )
-register_document_read_policy("production_cost_permission", production_cost_document_read_policy)
-register_document_read_policy("job_work_cost_permission", job_work_cost_document_read_policy)
+register_document_read_policy("catalogue_report_permissions", catalogue_report_permission_policy)
 
 # A file filed against a report job is one of this company's jobs - not another
 # company's, and not an id naming none. docs/assumptions.md §DOC-2.

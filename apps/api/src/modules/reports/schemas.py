@@ -811,22 +811,23 @@ class DashboardRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    open_sales_orders: int
-    overdue_sales_orders: int
-    stock_value: Decimal
-    pending_purchase_orders: int
-    pending_purchase_value: Decimal
-    production_in_progress: int
-    qc_pending: int
-    dispatches_in_transit: int
-    overdue_deliveries: int
+    # A withheld tile is null, including the original tile set. Zero remains a
+    # real business figure and cannot stand in for missing authority.
+    open_sales_orders: int | None = None
+    overdue_sales_orders: int | None = None
+    stock_value: Decimal | None = None
+    pending_purchase_orders: int | None = None
+    pending_purchase_value: Decimal | None = None
+    production_in_progress: int | None = None
+    qc_pending: int | None = None
+    dispatches_in_transit: int | None = None
+    overdue_deliveries: int | None = None
     #: When the underlying summary table was last refreshed. A tile drawn from a
     #: stale summary must be able to say so rather than looking live.
     stock_refreshed_at: datetime | None = None
     # --- finance and operations tiles added by E10b -------------------------
-    #: Every new field is optional so a cached payload written before the field
-    #: existed still validates; ``None`` also means "not shown to this principal",
-    #: which is why the cache key includes the visible tile set.
+    #: ``None`` means "not shown to this principal", which is why the cache key
+    #: includes the visible tile set as well as the warehouse assignments.
     purchase_orders_awaiting_approval: int | None = None
     inbound_purchase_orders_late: int | None = None
     payables_due_amount: Decimal | None = None

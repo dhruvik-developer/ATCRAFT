@@ -96,7 +96,7 @@ from src.core.validation import require_changes
 from src.modules.allocation import service as allocation
 from src.modules.allocation.models import DemandType
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import apply_transition, record_audit, snapshot
 from src.modules.dispatch.models import (
     DELIVERED_STATUSES,
     EDITABLE_STATUSES,
@@ -784,23 +784,16 @@ async def _transition(
     writes ``dispatches.status`` and exactly one place that writes the matching
     audit row (master rules section 73).
     """
-    current = DispatchStatus(dispatch.status)
-    DISPATCH_LIFECYCLE.assert_transition(current, target)
-    dispatch.status = target
-    repo.touch(dispatch)
-    await session.flush()
-
-    await record_status_change(
+    await apply_transition(
         session,
-        company_id=tenant.company_id,
+        tenant,
+        DISPATCH_LIFECYCLE,
+        dispatch,
+        target,
         entity_type=AUDIT_DISPATCH,
-        entity_id=dispatch.id,
-        entity_code=dispatch.code,
-        from_status=str(current),
-        to_status=str(target),
-        user_id=tenant.user_id,
-        action=action,
         reason=reason,
+        repo=repo,
+        action=action,
     )
     return dispatch
 

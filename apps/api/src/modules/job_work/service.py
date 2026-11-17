@@ -183,7 +183,7 @@ from src.core.validation import require_changes
 from src.modules.allocation.models import DemandType, ReservationType
 from src.modules.assembly.repository import AssemblyOrderRepository
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import apply_transition, record_audit, snapshot
 from src.modules.inventory.models import (
     StockBatchConversion,
     StockSerialConversion,
@@ -1043,23 +1043,16 @@ async def _transition(
     writes ``job_work_orders.status`` and exactly one place that writes the
     matching audit row (master rules section 73).
     """
-    current = JobWorkOrderStatus(order.status)
-    JOB_WORK_ORDER_LIFECYCLE.assert_transition(current, target)
-    order.status = target
-    repo.touch(order)
-    await session.flush()
-
-    await record_status_change(
+    await apply_transition(
         session,
-        company_id=tenant.company_id,
+        tenant,
+        JOB_WORK_ORDER_LIFECYCLE,
+        order,
+        target,
         entity_type=AUDIT_JOB_WORK_ORDER,
-        entity_id=order.id,
-        entity_code=order.code,
-        from_status=str(current),
-        to_status=str(target),
-        user_id=tenant.user_id,
-        action=action,
         reason=reason,
+        repo=repo,
+        action=action,
     )
     return order
 

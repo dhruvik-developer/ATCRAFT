@@ -167,7 +167,7 @@ from src.modules.assembly.schemas import (
     ReadyForPackingRow,
 )
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import apply_transition, record_audit, snapshot
 from src.modules.bom.engine import apply_scrap, is_explodable, line_requirement
 from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
 from src.modules.bom.repository import BomLineRepository, BomRepository
@@ -1043,23 +1043,16 @@ async def _transition(
     writes ``assembly_orders.status`` and exactly one place that writes the
     matching audit row (master rules section 73).
     """
-    current = AssemblyOrderStatus(order.status)
-    ASSEMBLY_ORDER_LIFECYCLE.assert_transition(current, target)
-    order.status = target
-    repo.touch(order)
-    await session.flush()
-
-    await record_status_change(
+    await apply_transition(
         session,
-        company_id=tenant.company_id,
+        tenant,
+        ASSEMBLY_ORDER_LIFECYCLE,
+        order,
+        target,
         entity_type=AUDIT_ASSEMBLY_ORDER,
-        entity_id=order.id,
-        entity_code=order.code,
-        from_status=str(current),
-        to_status=str(target),
-        user_id=tenant.user_id,
-        action=action,
         reason=reason,
+        repo=repo,
+        action=action,
     )
     return order
 

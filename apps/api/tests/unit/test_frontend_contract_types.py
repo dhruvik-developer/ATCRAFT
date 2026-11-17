@@ -62,6 +62,12 @@ from src.modules.products.schemas import (
     ItemSummaryWithCost,
     UomOut,
 )
+from src.modules.reports.schemas import (
+    DashboardRead,
+    DashboardTrendPoint,
+    DashboardTrendSeries,
+    DashboardTrendsRead,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -78,6 +84,10 @@ MIRRORS: tuple[tuple[str, str, type[BaseModel]], ...] = (
     # Every page load reads this one, and it is where company_name sat
     # declared-but-never-sent, rendering a blank line in the sidebar.
     ("features/auth/auth-context.tsx", "MeResponse", MeResponse),
+    ("features/dashboard/dashboard-page.tsx", "DashboardPayload", DashboardRead),
+    ("features/dashboard/dashboard-trends.tsx", "DashboardTrendsPayload", DashboardTrendsRead),
+    ("features/dashboard/dashboard-trends.tsx", "DashboardTrendPoint", DashboardTrendPoint),
+    ("features/dashboard/dashboard-trends.tsx", "DashboardTrendSeries", DashboardTrendSeries),
     ("features/items/item-model.ts", "ItemDetail", ItemDetailWithCost),
     ("features/items/item-model.ts", "ItemRow", ItemSummaryWithCost),
     ("features/items/item-model.ts", "ItemWarehouseStockRow", WarehouseStockRowWithCost),

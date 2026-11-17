@@ -70,7 +70,12 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money, to_quantity
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    apply_transition,
+    record_audit,
+    record_status_change,
+    snapshot,
+)
 from src.modules.organization.service import require_cost_centre
 from src.modules.routing.models import (
     DEFAULT_WORKING_HOURS_PER_DAY,
@@ -1680,23 +1685,16 @@ class RoutingService:
         exactly one place that can write ``routings.status`` and exactly one
         place that writes the matching audit row.
         """
-        current = RoutingStatus(routing.status)
-        ROUTING_LIFECYCLE.assert_transition(current, target)
-        routing.status = target
-        self.repo.touch(routing)
-        await self.session.flush()
-
-        await record_status_change(
+        await apply_transition(
             self.session,
-            company_id=self.tenant.company_id,
+            self.tenant,
+            ROUTING_LIFECYCLE,
+            routing,
+            target,
             entity_type=AUDIT_ROUTING,
-            entity_id=routing.id,
-            entity_code=routing.code,
-            from_status=str(current),
-            to_status=str(target),
-            user_id=self.tenant.user_id,
-            action=action,
             reason=reason,
+            repo=self.repo,
+            action=action,
         )
         return routing
 

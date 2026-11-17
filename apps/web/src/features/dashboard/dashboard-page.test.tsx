@@ -11,7 +11,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { cursorPage, ok, page, renderScreen, type RouteTable } from '@/test/harness'
+import { cursorPage, fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
 import DashboardPage from './dashboard-page'
@@ -32,7 +32,18 @@ const SUMMARY = {
 }
 
 function renderDashboard(permissions: string[], routes: RouteTable = {}) {
-  return renderScreen(<DashboardPage />, { permissions, routes })
+  return renderScreen(<DashboardPage />, {
+    permissions,
+    routes: {
+      'GET /reports/dashboard/trends': ok({
+        date_from: '2026-09-03',
+        date_to: '2026-09-04',
+        series: [],
+        generated_at: '2026-09-04T06:15:00Z',
+      }),
+      ...routes,
+    },
+  })
 }
 
 it('reads recent activity using the audit endpoint cursor contract', async () => {
@@ -66,6 +77,25 @@ describe('the summary is requested only with dashboard.view', () => {
     expect(screen.queryByText('Dispatches in transit')).toBeNull()
   })
 
+  it('shows an initial summary failure without claiming the account lacks panel permissions', async () => {
+    renderDashboard([P.DASHBOARD_VIEW, P.SALES_ORDER_VIEW], {
+      'GET /reports/dashboard': fail(
+        503,
+        'SERVICE_UNAVAILABLE',
+        'Dashboard is temporarily unavailable.',
+      ),
+    })
+
+    expect(await screen.findByText('Could not load the dashboard')).toBeVisible()
+    expect(screen.getByText(/^Dashboard is temporarily unavailable\./)).toBeVisible()
+    expect(screen.queryByText('Nothing to show on your dashboard')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'Your account does not hold the permissions these panels need. An administrator can grant them.',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
   it('never asks for the summary without the right, and offers no tile that could only show a dash', async () => {
     // Sign-in lands on `/` by default, so an account without `dashboard.view`
     // used to collect a 403 and a "Not permitted" toast on every visit.
@@ -74,6 +104,106 @@ describe('the summary is requested only with dashboard.view', () => {
     expect(await screen.findByText('Nothing to show on your dashboard')).toBeVisible()
     expect(screen.queryByText('Open sales orders')).toBeNull()
     expect(fetch.calls.some((call) => call.path === '/reports/dashboard')).toBe(false)
+  })
+})
+
+describe('legacy summary figures respect their owning permissions', () => {
+  const legacyRights = [
+    P.DASHBOARD_VIEW,
+    P.SALES_ORDER_VIEW,
+    P.INVENTORY_VALUATION_VIEW,
+    P.PURCHASE_ORDER_VIEW,
+    P.PRODUCTION_ORDER_VIEW,
+    P.QC_VIEW,
+    P.DISPATCH_VIEW,
+  ]
+  const legacyLabels = [
+    'Open sales orders',
+    'Overdue sales orders',
+    'Stock value',
+    'Open purchase orders',
+    'Production in progress',
+    'QC pending',
+    'Dispatches in transit',
+    'Overdue deliveries',
+  ]
+
+  it('withholds stock value from an inventory reader without the valuation right', async () => {
+    renderDashboard([P.DASHBOARD_VIEW, P.INVENTORY_VIEW], {
+      // An older cached response may still contain the value. The affordance
+      // must follow the current valuation permission even for that response.
+      'GET /reports/dashboard': ok(SUMMARY),
+    })
+
+    await screen.findByText(/^Summary tables last refreshed/)
+    expect(screen.queryByText('Stock value')).not.toBeInTheDocument()
+    expect(screen.queryByText(/On-hand at valuation/)).not.toBeInTheDocument()
+  })
+
+  it('shows a permitted valuation without linking to an inventory screen the account cannot open', async () => {
+    renderDashboard([P.DASHBOARD_VIEW, P.INVENTORY_VALUATION_VIEW], {
+      'GET /reports/dashboard': ok(SUMMARY),
+    })
+
+    await screen.findByText(/^Summary tables last refreshed/)
+    expect(screen.getByText('Stock value')).toBeVisible()
+    expect(screen.getByText(/On-hand at valuation/)).toBeVisible()
+    expect(screen.queryByRole('link', { name: /Stock value/ })).not.toBeInTheDocument()
+  })
+
+  it('links valuation to inventory when the account also holds the balance view right', async () => {
+    renderDashboard([P.DASHBOARD_VIEW, P.INVENTORY_VALUATION_VIEW, P.INVENTORY_VIEW], {
+      'GET /reports/dashboard': ok(SUMMARY),
+    })
+
+    await screen.findByText(/^Summary tables last refreshed/)
+    expect(screen.getByRole('link', { name: /Stock value/ })).toHaveAttribute('href', '/inventory')
+  })
+
+  it('drops every withheld legacy tile after loading instead of presenting an empty figure', async () => {
+    renderDashboard(legacyRights, {
+      'GET /reports/dashboard': ok({
+        ...SUMMARY,
+        open_sales_orders: null,
+        overdue_sales_orders: null,
+        stock_value: null,
+        stock_refreshed_at: null,
+        pending_purchase_orders: null,
+        pending_purchase_value: null,
+        production_in_progress: null,
+        qc_pending: null,
+        dispatches_in_transit: null,
+        overdue_deliveries: null,
+      }),
+    })
+
+    await screen.findByText(/^Summary tables last refreshed/)
+    for (const label of legacyLabels) expect(screen.queryByText(label)).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Key figures' })).not.toBeInTheDocument()
+  })
+
+  it('keeps zero counts and valuation as business facts, and leaves a withheld commitment unlabelled', async () => {
+    renderDashboard(legacyRights, {
+      'GET /reports/dashboard': ok({
+        ...SUMMARY,
+        open_sales_orders: 0,
+        overdue_sales_orders: 0,
+        stock_value: '0.00',
+        pending_purchase_orders: 0,
+        pending_purchase_value: null,
+        production_in_progress: 0,
+        qc_pending: 0,
+        dispatches_in_transit: 0,
+        overdue_deliveries: 0,
+      }),
+    })
+
+    await screen.findByText(/^Summary tables last refreshed/)
+    for (const label of legacyLabels) expect(screen.getByText(label)).toBeVisible()
+    expect(screen.getAllByText('0')).toHaveLength(7)
+    expect(screen.getByText('₹0')).toBeVisible()
+    expect(screen.queryByText(/committed$/)).not.toBeInTheDocument()
+    expect(screen.getByText('Approved and not yet fully received')).toBeVisible()
   })
 })
 
@@ -201,6 +331,20 @@ describe('the finance and operations tiles', () => {
               { day: '2026-09-04', value: '300.00' },
             ],
           },
+          {
+            series: 'dispatches',
+            points: [
+              { day: '2026-09-03', value: '0.00' },
+              { day: '2026-09-04', value: '3.50' },
+            ],
+          },
+          {
+            series: 'production_output',
+            points: [
+              { day: '2026-09-03', value: '1.25' },
+              { day: '2026-09-04', value: '0.00' },
+            ],
+          },
         ],
         generated_at: '2026-09-04T06:15:00Z',
       }),
@@ -209,6 +353,10 @@ describe('the finance and operations tiles', () => {
     expect(await screen.findByText('Last 30 days')).toBeVisible()
     expect(
       await screen.findByRole('img', { name: /^Sales invoiced: .* over the last 2 days$/ }),
+    ).toBeVisible()
+    expect(screen.getByRole('img', { name: 'Dispatches: 3.5 over the last 2 days' })).toBeVisible()
+    expect(
+      screen.getByRole('img', { name: 'Production output: 1.25 over the last 2 days' }),
     ).toBeVisible()
     // Collections was not returned, so it is absent rather than drawn flat.
     expect(screen.queryByRole('img', { name: /^Collections:/ })).toBeNull()

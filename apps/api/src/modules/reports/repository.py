@@ -288,19 +288,59 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
     """Persistence for generated reports and their job rows."""
 
     @staticmethod
-    def report_key_document_visibility(
+    def generated_report_identity(report_keys: Sequence[ReportKey]) -> ColumnElement[bool]:
+        """Recognize historical generated files after their job row was purged.
+
+        Names are only a conservative fallback for files whose authoritative
+        provenance no longer exists, never a substitute for a linked snapshot.
+        """
+        return and_(
+            Document.category == DocumentCategory.REPORT,
+            or_(
+                *(
+                    Document.file_name.startswith(
+                        f"{key.value.lower().replace('_', '-')}-", autoescape=True
+                    )
+                    for key in report_keys
+                )
+            ),
+            or_(Document.file_name.endswith(".xlsx"), Document.file_name.endswith(".pdf")),
+        ).is_(True)
+
+    @staticmethod
+    def catalogue_permission_visibility(
         tenant: TenantContext,
         document_id: InstrumentedAttribute[Any],
         *,
-        report_key: ReportKey,
+        denied_keys: Sequence[ReportKey],
+        denied_fields: Sequence[tuple[ReportKey, str, Sequence[str]]],
+        visible_fields_key: str,
     ) -> ColumnElement[bool]:
-        """Hide artefacts produced by one report key."""
-        linked = select(ReportSnapshot.id).where(
+        """Apply report and captured-column authority before document pagination."""
+        blocked: list[ColumnElement[bool]] = (
+            [ReportSnapshot.report_key.in_(list(denied_keys))] if denied_keys else []
+        )
+        captured = ReportSnapshot.parameters[visible_fields_key]
+        for key, field, known_fields in denied_fields:
+            # Missing/malformed legacy evidence means the file may contain all
+            # columns. Only a valid captured list proves this field was omitted.
+            omits_field = and_(
+                func.jsonb_typeof(captured) == "array",
+                captured.contained_by(cast(list(known_fields), JSONB)),
+                ~captured.contains(cast([field], JSONB)),
+            ).is_(True)
+            blocked.append(and_(ReportSnapshot.report_key == key, ~omits_field))
+        linked = (
             ReportSnapshot.company_id == tenant.company_id,
-            ReportSnapshot.report_key == report_key,
             ReportSnapshot.document_id == document_id,
         )
-        return ~exists(linked)
+        forbidden = select(ReportSnapshot.id).where(*linked, or_(*blocked))
+        identified = select(ReportSnapshot.id).where(*linked)
+        legacy_keys = sorted(set(denied_keys) | {key for key, _, _ in denied_fields})
+        orphan = and_(
+            ReportSnapshotRepository.generated_report_identity(legacy_keys), ~exists(identified)
+        )
+        return and_(~exists(forbidden), ~orphan)
 
     @staticmethod
     def catalogue_document_visibility(
@@ -309,7 +349,6 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
         *,
         scope_key: str,
         report_keys: Sequence[ReportKey],
-        entity_type: str,
     ) -> ColumnElement[bool]:
         """Hide generated stock reports when their captured scope exceeds access."""
         captured = ReportSnapshot.parameters[scope_key]
@@ -325,14 +364,19 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
             ReportSnapshot.report_key.in_(list(report_keys)),
             ReportSnapshot.parameters["task"].astext.is_(None),
             ReportSnapshot.document_id == document_id,
-            Document.entity_type == entity_type,
-            Document.entity_id == ReportSnapshot.id,
-            Document.category == DocumentCategory.REPORT,
         )
         forbidden = select(ReportSnapshot.id).where(*linked_snapshot, ~safe_scope)
-        tracked = select(ReportSnapshot.id).where(*linked_snapshot, safe_scope)
-        identified = select(ReportSnapshot.id).where(*linked_snapshot)
-        return and_(~exists(forbidden), or_(~exists(identified), exists(tracked)))
+        identified = select(ReportSnapshot.id).where(
+            ReportSnapshot.company_id == tenant.company_id,
+            ReportSnapshot.document_id == document_id,
+        )
+        # A finance valuation job shares the catalogue's filename prefix but
+        # has its own scope policy. Only a genuinely orphaned filename falls
+        # back to this conservative check.
+        orphan = and_(
+            ReportSnapshotRepository.generated_report_identity(report_keys), ~exists(identified)
+        )
+        return and_(~exists(forbidden), ~orphan)
 
     @staticmethod
     def valuation_document_visibility(
@@ -360,6 +404,10 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
         )
         forbidden = select(ReportSnapshot.id).where(*linked_snapshot, ~safe_scope)
         tracked = select(ReportSnapshot.id).where(*linked_snapshot, safe_scope)
+        identified = select(ReportSnapshot.id).where(
+            ReportSnapshot.company_id == tenant.company_id,
+            ReportSnapshot.document_id == document_id,
+        )
         # Older workbooks had no entity attachment. Their generated filename is
         # the remaining provenance when a historical cleanup removed the job.
         is_valuation = and_(
@@ -371,6 +419,7 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
                     Document.entity_id.is_(None),
                     Document.file_name.startswith("inventory-valuation-", autoescape=True),
                     Document.file_name.endswith(".xlsx", autoescape=True),
+                    ~exists(identified),
                 ),
             ),
         ).is_(True)
@@ -470,17 +519,10 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
             .where(
                 ReportSnapshot.expires_at.is_not(None),
                 ReportSnapshot.expires_at <= now,
-                # Scope evidence must outlive the workbook. The document FK is
-                # SET NULL when its owning module removes the artifact.
-                or_(
-                    ReportSnapshot.report_key.notin_(
-                        (
-                            ReportKey.INVENTORY_VALUATION,
-                            ReportKey.STOCK_AVAILABILITY,
-                        )
-                    ),
-                    ReportSnapshot.document_id.is_(None),
-                ),
+                # Permission, visible-column and warehouse evidence must
+                # outlive every artifact. The document FK is SET NULL when
+                # its owning module removes the file.
+                ReportSnapshot.document_id.is_(None),
             )
             .order_by(ReportSnapshot.expires_at.asc())
             .limit(limit)
@@ -3872,12 +3914,18 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         )
         stock_value = (
             select(func.coalesce(func.sum(InventorySummary.valuation_amount), 0))
-            .where(InventorySummary.company_id == company)
+            .where(
+                InventorySummary.company_id == company,
+                *warehouse_scope(self.tenant, InventorySummary.warehouse_id),
+            )
             .scalar_subquery()
         )
         stock_refreshed = (
             select(func.max(InventorySummary.refreshed_at))
-            .where(InventorySummary.company_id == company)
+            .where(
+                InventorySummary.company_id == company,
+                *warehouse_scope(self.tenant, InventorySummary.warehouse_id),
+            )
             .scalar_subquery()
         )
         pending_pos = (

@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,11 @@ from src.core.logging import (
 from src.modules.audit.models import AuditAction, AuditLog, CompanyApprovalSettings
 from src.modules.audit.repository import CompanyApprovalSettingsRepository
 from src.modules.audit.schemas import ApprovalSettingsRead, ApprovalSettingsUpdate
+
+if TYPE_CHECKING:
+    from src.common.repository import BaseRepository
+    from src.core.deps import TenantContext
+    from src.core.state_machine import S, StateMachine
 
 # Never persist these into old_values/new_values, whatever a caller passes.
 _NEVER_LOG = frozenset(
@@ -216,6 +221,47 @@ async def record_status_change(
     )
 
 
+async def apply_transition(
+    session: AsyncSession,
+    tenant: TenantContext,
+    machine: StateMachine[S],
+    document: Any,
+    target: S,
+    *,
+    entity_type: str,
+    reason: str,
+    repo: BaseRepository[Any],
+    action: AuditAction = AuditAction.STATUS_CHANGE,
+) -> None:
+    """Move ``document`` to ``target`` through ``machine``, and audit the move.
+
+    The one shape six modules' ``_transition`` helpers each wrote out: the edge
+    asserted before anything changes, the status written and the editor stamped
+    through ``repo``, one flush, then the status-change row naming both states.
+    ``document`` is any row with an ``id``, a ``code`` and a ``status`` holding
+    one of the machine's states. A transition that does more - opens an
+    approval, writes a verdict beside the status, stamps a sweep's actor, or
+    stages its flush for a batch - keeps a helper of its own.
+    """
+    current = type(machine.initial)(document.status)
+    machine.assert_transition(current, target)
+    document.status = target
+    repo.touch(document)
+    await session.flush()
+    await record_status_change(
+        session,
+        company_id=tenant.company_id,
+        entity_type=entity_type,
+        entity_id=document.id,
+        entity_code=document.code,
+        from_status=str(current),
+        to_status=str(target),
+        user_id=tenant.user_id,
+        action=action,
+        reason=reason,
+    )
+
+
 def snapshot(instance: Any, fields: list[str]) -> dict[str, Any]:
     """Capture named attributes of an ORM instance for before/after comparison."""
     return {f: getattr(instance, f, None) for f in fields}
@@ -349,6 +395,7 @@ __all__ = [
     "DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD",
     "DEFAULT_PO_DUAL_APPROVAL_AMOUNT",
     "DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT",
+    "apply_transition",
     "diff_values",
     "get_company_approval_settings",
     "record_audit",

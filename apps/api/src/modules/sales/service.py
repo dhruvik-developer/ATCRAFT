@@ -83,7 +83,7 @@ from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import apply_transition, record_audit, snapshot
 from src.modules.customers.models import Customer
 from src.modules.customers.service import assert_within_credit_limit, get_customer_for_order
 from src.modules.notifications.alerts import AlertCandidate
@@ -3273,23 +3273,16 @@ async def _transition(
     row (master rules section 73). ``repo`` only stamps the editor, so any
     tenant-scoped repository of the table will do.
     """
-    current = SalesOrderStatus(order.status)
-    SALES_ORDER_LIFECYCLE.assert_transition(current, target)
-    order.status = target
-    repo.touch(order)
-    await session.flush()
-
-    await record_status_change(
+    await apply_transition(
         session,
-        company_id=tenant.company_id,
+        tenant,
+        SALES_ORDER_LIFECYCLE,
+        order,
+        target,
         entity_type=AUDIT_SALES_ORDER,
-        entity_id=order.id,
-        entity_code=order.code,
-        from_status=str(current),
-        to_status=str(target),
-        user_id=tenant.user_id,
-        action=action,
         reason=reason,
+        repo=repo,
+        action=action,
     )
     return order
 

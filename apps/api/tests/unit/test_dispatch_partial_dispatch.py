@@ -215,7 +215,7 @@ async def test_every_hop_of_the_walk_is_the_sales_modules_own_transition(
 
     monkeypatch.setattr(dispatch_service, "transition_sales_order", transition)
     monkeypatch.setattr(
-        dispatch_service.SalesOrderLineRepository, "uninvoiced_line_count", nothing_uninvoiced
+        dispatch_service.FulfilledOrderLineRepository, "uninvoiced_line_count", nothing_uninvoiced
     )
     order = SimpleNamespace(id=uuid.uuid4(), code="SO-0007", status=SalesOrderStatus.ALLOCATED)
     tenant = TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())

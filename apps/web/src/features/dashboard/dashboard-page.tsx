@@ -38,6 +38,7 @@ import {
   Wallet,
   Wrench,
 } from 'lucide-react'
+import { lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 
 import { EmptyState, LoadError, PageHeader, StatTile, StatusBadge } from '@/components/shared'
@@ -56,18 +57,12 @@ import {
 import { entityLink } from '@/features/audit/audit-types'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
-import {
-  formatDateTime,
-  formatMoney,
-  formatNumber,
-  formatQuantity,
-  formatRelative,
-  humanise,
-  toDecimal,
-} from '@/lib/format'
+import { formatDateTime, formatMoney, formatNumber, formatRelative, humanise } from '@/lib/format'
 import { APPROVAL_PERMISSIONS, P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
+
+import type { DashboardTrendsPayload } from './dashboard-trends'
 
 // ---------------------------------------------------------- wire shapes ----
 
@@ -85,15 +80,15 @@ import type { DecimalString } from '@/types/api'
  * are dropped rather than drawn as an empty queue.
  */
 interface DashboardPayload {
-  open_sales_orders: number
-  overdue_sales_orders: number
-  pending_purchase_orders: number
-  pending_purchase_value: DecimalString
-  production_in_progress: number
-  qc_pending: number
-  dispatches_in_transit: number
-  overdue_deliveries: number
-  stock_value: DecimalString
+  open_sales_orders: number | null
+  overdue_sales_orders: number | null
+  pending_purchase_orders: number | null
+  pending_purchase_value: DecimalString | null
+  production_in_progress: number | null
+  qc_pending: number | null
+  dispatches_in_transit: number | null
+  overdue_deliveries: number | null
+  stock_value: DecimalString | null
   /** When the stock valuation summary behind `stock_value` was last rebuilt. */
   stock_refreshed_at?: string | null
   /** Exactly `PENDING_APPROVAL`: the queue that actually blocks buying. */
@@ -110,24 +105,6 @@ interface DashboardPayload {
   mrp_shortage_count?: number | null
   job_work_overdue?: number | null
   /** When these figures were computed. */
-  generated_at: string
-}
-
-interface DashboardTrendPoint {
-  day: string
-  value: DecimalString
-}
-
-interface DashboardTrendSeries {
-  series: string
-  points: DashboardTrendPoint[]
-}
-
-/** `GET /reports/dashboard/trends` (`DashboardTrendsRead`). */
-interface DashboardTrendsPayload {
-  date_from: string
-  date_to: string
-  series: DashboardTrendSeries[]
   generated_at: string
 }
 
@@ -197,186 +174,9 @@ function documentLink(entityType: string, entityId: string | null): string {
   return `/audit?${params.toString()}`
 }
 
-// --------------------------------------------------------------- trends ----
-
-/**
- * The four sparkline series, in display order, with the label and formatter each
- * one needs. The API returns the series it thinks this caller may read, so this
- * table is presentation only - a series missing from the payload is not drawn,
- * and never drawn as an empty line.
- */
-const TREND_SERIES: {
-  key: string
-  label: string
-  format: (value: DecimalString) => string
-}[] = [
-  {
-    key: 'sales_invoiced',
-    label: 'Sales invoiced',
-    format: (value) => formatMoney(value, { compact: true }),
-  },
-  {
-    key: 'collections',
-    label: 'Collections',
-    format: (value) => formatMoney(value, { compact: true }),
-  },
-  {
-    key: 'dispatches',
-    label: 'Dispatches',
-    format: (value) => formatQuantity(value),
-  },
-  {
-    key: 'production_output',
-    label: 'Production output',
-    format: (value) => formatQuantity(value),
-  },
-]
-
-const SPARK_WIDTH = 132
-const SPARK_HEIGHT = 34
-const SPARK_PADDING = 2
-
-/**
- * A small inline SVG line chart.
- *
- * Not `recharts`: this is thirty points and one path, and the chart library
- * costs a chunk boundary for a shape a dozen lines of SVG draw. It is also the
- * version that can be read by a test without a canvas or a resize observer.
- *
- * A flat series - thirty days of zero - is drawn along the middle rather than
- * the bottom, because a line pinned to the axis reads as missing data. The
- * `aria-label` carries the range and the total, which is what a reader who
- * cannot see the line needs from it.
- */
-function Sparkline({
-  points,
-  label,
-  total,
-}: {
-  points: DashboardTrendPoint[]
-  label: string
-  total: string
-}) {
-  const values = points.map((point) => toDecimal(point.value))
-  const highest = values.reduce(
-    (max, value) => (value.greaterThan(max) ? value : max),
-    toDecimal(0),
-  )
-  const lowest = values.reduce((min, value) => (value.lessThan(min) ? value : min), toDecimal(0))
-  const span = highest.minus(lowest)
-  const step = values.length > 1 ? (SPARK_WIDTH - SPARK_PADDING * 2) / (values.length - 1) : 0
-
-  const path = values
-    .map((value, index) => {
-      const ratio = span.isZero() ? 0.5 : value.minus(lowest).dividedBy(span).toNumber()
-      const x = SPARK_PADDING + index * step
-      const y = SPARK_HEIGHT - SPARK_PADDING - ratio * (SPARK_HEIGHT - SPARK_PADDING * 2)
-      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
-
-  return (
-    <svg
-      viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
-      className="h-9 w-full text-primary"
-      role="img"
-      aria-label={`${label}: ${total} over the last ${points.length} days`}
-      preserveAspectRatio="none"
-    >
-      <path
-        d={path}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  )
-}
-
-function TrendCards({
-  trends,
-  isLoading,
-}: {
-  trends: DashboardTrendsPayload | undefined
-  isLoading: boolean
-}) {
-  const series = trends?.series ?? []
-  const bySeries = new Map(series.map((entry) => [entry.series, entry]))
-
-  if (isLoading && series.length === 0) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Last 30 days</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-            {TREND_SERIES.map((config) => (
-              <div key={config.key}>
-                <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {config.label}
-                </p>
-                <Skeleton className="mt-1 h-9 w-full" />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  // No series at all means this account may read none of the four. The card is
-  // absent rather than a wall of four empty lines.
-  if (series.length === 0) return null
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Last 30 days</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          One figure per day, from the documents posted on that day. A day with no activity is zero,
-          not missing.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-          {TREND_SERIES.map((config) => {
-            const entry = bySeries.get(config.key)
-            if (!entry) return null
-            const total = entry.points.reduce(
-              (sum, point) => sum.plus(toDecimal(point.value)),
-              toDecimal(0),
-            )
-            const latest =
-              entry.points.length > 0 ? (entry.points[entry.points.length - 1]?.value ?? '0') : '0'
-            const totalText = total.toDecimalPlaces(2).toFixed()
-            return (
-              <div key={config.key}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {config.label}
-                  </p>
-                  <p className="shrink-0 text-sm font-semibold tabular-nums">
-                    {config.format(latest)}
-                  </p>
-                </div>
-                <Sparkline
-                  points={entry.points}
-                  label={config.label}
-                  total={config.format(totalText)}
-                />
-                <p className="text-2xs text-muted-foreground">
-                  Latest day, {config.format(totalText)} in total
-                </p>
-              </div>
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
+// Load chart code only when the separate request returns a visible series;
+// KPI tiles can paint first and an account with no series downloads none of it.
+const TrendCards = lazy(() => import('./dashboard-trends'))
 
 // ------------------------------------------------------------------ page ----
 
@@ -460,7 +260,7 @@ export default function DashboardPage() {
    * the field also reads as absent, which drops the tile rather than inventing
    * a zero.
    */
-  const shows = (value: unknown) => isLoading || (value !== null && value !== undefined)
+  const shows = (value: unknown) => isLoading || value != null
 
   const tiles = [
     {
@@ -472,7 +272,7 @@ export default function DashboardPage() {
       tone: 'default' as const,
       to: '/sales-orders',
       permissions: [P.SALES_ORDER_VIEW],
-      visible: true,
+      visible: shows(metrics?.open_sales_orders),
     },
     {
       key: 'stock-value',
@@ -486,9 +286,10 @@ export default function DashboardPage() {
         : 'On-hand at current valuation',
       icon: Boxes,
       tone: 'default' as const,
-      to: '/inventory',
-      permissions: [P.INVENTORY_VALUATION_VIEW, P.INVENTORY_VIEW],
-      visible: true,
+      // Balance navigation and valuation are independent permissions.
+      to: can(P.INVENTORY_VIEW) ? '/inventory' : undefined,
+      permissions: [P.INVENTORY_VALUATION_VIEW],
+      visible: shows(metrics?.stock_value),
     },
     {
       // This tile used to be labelled "POs awaiting approval" while counting
@@ -500,19 +301,20 @@ export default function DashboardPage() {
       value: formatNumber(metrics?.pending_purchase_orders),
       // The committed value is the number that decides whether this pipeline is
       // urgent: six orders worth a lakh is not six worth a crore.
-      hint: metrics
-        ? `${formatMoney(metrics.pending_purchase_value, { compact: true })} committed`
-        : 'Approved and not yet fully received',
+      hint:
+        metrics?.pending_purchase_value != null
+          ? `${formatMoney(metrics.pending_purchase_value, { compact: true })} committed`
+          : 'Approved and not yet fully received',
       icon: ShoppingCart,
       tone: 'default' as const,
       to: '/procurement/purchase-orders',
       permissions: [P.PURCHASE_ORDER_VIEW],
-      visible: true,
+      visible: shows(metrics?.pending_purchase_orders),
     },
     {
       key: 'po-approvals',
       label: 'POs awaiting approval',
-      value: formatNumber(metrics?.purchase_orders_awaiting_approval ?? undefined),
+      value: formatNumber(metrics?.purchase_orders_awaiting_approval),
       hint: 'Waiting on a decision before they can be sent',
       icon: ShieldCheck,
       tone: 'warning' as const,
@@ -523,7 +325,7 @@ export default function DashboardPage() {
     {
       key: 'inbound-purchase-orders-late',
       label: 'Inbound POs late',
-      value: formatNumber(metrics?.inbound_purchase_orders_late ?? undefined),
+      value: formatNumber(metrics?.inbound_purchase_orders_late),
       hint: 'Past the promised delivery date',
       icon: Clock,
       tone: 'destructive' as const,
@@ -580,7 +382,7 @@ export default function DashboardPage() {
     {
       key: 'follow-ups-due',
       label: 'Follow-ups due',
-      value: formatNumber(metrics?.follow_ups_due ?? undefined),
+      value: formatNumber(metrics?.follow_ups_due),
       hint: 'Next action due today or earlier',
       icon: CalendarClock,
       tone: 'warning' as const,
@@ -619,12 +421,12 @@ export default function DashboardPage() {
       tone: 'default' as const,
       to: '/production',
       permissions: [P.PRODUCTION_ORDER_VIEW],
-      visible: true,
+      visible: shows(metrics?.production_in_progress),
     },
     {
       key: 'mrp-shortages',
       label: 'MRP shortages',
-      value: formatNumber(metrics?.mrp_shortage_count ?? undefined),
+      value: formatNumber(metrics?.mrp_shortage_count),
       hint: 'Items short in the last MRP run',
       icon: PackageSearch,
       tone: 'warning' as const,
@@ -635,7 +437,7 @@ export default function DashboardPage() {
     {
       key: 'job-work-overdue',
       label: 'Job work overdue',
-      value: formatNumber(metrics?.job_work_overdue ?? undefined),
+      value: formatNumber(metrics?.job_work_overdue),
       hint: 'Challans past their expected return',
       icon: Wrench,
       tone: 'destructive' as const,
@@ -652,7 +454,7 @@ export default function DashboardPage() {
       tone: 'warning' as const,
       to: '/quality',
       permissions: [P.QC_VIEW],
-      visible: true,
+      visible: shows(metrics?.qc_pending),
     },
     {
       key: 'dispatches-in-transit',
@@ -663,7 +465,7 @@ export default function DashboardPage() {
       tone: 'default' as const,
       to: '/dispatch',
       permissions: [P.DISPATCH_VIEW],
-      visible: true,
+      visible: shows(metrics?.dispatches_in_transit),
     },
     {
       key: 'overdue-deliveries',
@@ -674,7 +476,7 @@ export default function DashboardPage() {
       tone: 'destructive' as const,
       to: '/dispatch',
       permissions: [P.DISPATCH_VIEW],
-      visible: true,
+      visible: shows(metrics?.overdue_deliveries),
     },
     {
       key: 'overdue-sales-orders',
@@ -685,7 +487,7 @@ export default function DashboardPage() {
       tone: 'destructive' as const,
       to: '/sales-orders',
       permissions: [P.SALES_ORDER_VIEW],
-      visible: true,
+      visible: shows(metrics?.overdue_sales_orders),
     },
     // A tile linking to a screen the user cannot open is a dead end, so tiles
     // follow the same view permissions as the sidebar. UX, not security. Every
@@ -747,7 +549,12 @@ export default function DashboardPage() {
       )}
 
       {/* ---------------------------------------------------------- trends -- */}
-      {canSeeSummary && <TrendCards trends={trends.data} isLoading={trends.isLoading} />}
+      {canSeeSummary && trends.isLoading && <Skeleton className="h-40 w-full" />}
+      {canSeeSummary && trends.data && (trends.data.series?.length ?? 0) > 0 && (
+        <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+          <TrendCards trends={trends.data} />
+        </Suspense>
+      )}
 
       {/* -------------------------------------------------------- approvals -- */}
       {showApprovals && (
@@ -903,7 +710,7 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {tiles.length === 0 && !showApprovals && !canSeeActivity && (
+      {tiles.length === 0 && !showApprovals && !canSeeActivity && !dashboard.error && (
         <EmptyState
           icon={AlertTriangle}
           title="Nothing to show on your dashboard"

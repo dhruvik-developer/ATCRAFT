@@ -25,16 +25,12 @@
  *    the kit list stores the part number as it was at release.
  */
 
-import { useQuery } from '@tanstack/react-query'
 import Decimal from 'decimal.js'
 
-import { api, emptyOnPermissionError } from '@/lib/api-client'
-import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
-import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
-import type { MachineOption, WorkOrderStatus } from './work-order-model'
+import type { WorkOrderStatus } from './work-order-model'
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -509,50 +505,4 @@ export function progressPercent(produced: DecimalString, planned: DecimalString)
   if (target.lessThanOrEqualTo(0)) return 0
   const pct = toDecimal(produced).div(target).times(100)
   return Math.min(100, Math.max(0, Number(pct.toDecimalPlaces(1).toFixed(1))))
-}
-
-// -------------------------------------------------------------- lookups -----
-
-/**
- * Machines, for the machine field on a production booking.
- *
- * Soft-failing: a booking that records output must still be possible when the
- * machine register is not readable by this account, so the field simply offers
- * nothing rather than the dialog refusing to open.
- */
-const MACHINE_REGISTER_PARAMS = {
-  limit: LOOKUP_LIST_LIMIT,
-  is_active: true,
-  with_total: false,
-  sort_by: 'code',
-  sort_dir: 'asc',
-} as const
-
-/**
- * The machine register behind the select on a production booking and the
- * routing operation's machine picker, which share the cache entry - so whole
- * `MachineRead` rows, not the three fields the booking draws.
- */
-export function useMachineOptions(enabled: boolean) {
-  return useQuery({
-    // From `queryKeys`, not a hand-written literal: the scoped sibling in
-    // `work-order-model.ts` keys the same endpoint through the same factory,
-    // and only a shared factory makes the two provably distinct - these params
-    // carry no `work_center_id`, so the keys cannot collide.
-    queryKey: queryKeys.routing.machines(MACHINE_REGISTER_PARAMS),
-    queryFn: async ({ signal }) => {
-      try {
-        return (
-          await api.getPage<MachineOption>('/routing/machines', {
-            params: { ...MACHINE_REGISTER_PARAMS },
-            signal,
-          })
-        ).data
-      } catch (error) {
-        return emptyOnPermissionError<MachineOption>(error)
-      }
-    },
-    staleTime: staleTimes.reference,
-    enabled,
-  })
 }

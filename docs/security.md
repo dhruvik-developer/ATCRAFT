@@ -651,6 +651,26 @@ when running a report and when reading its generic job. The finance-owned
 valuation export exception above remains limited to its verified creator and
 warehouse scope.
 
+Generic document lists, metadata and downloads also enforce each saved report's
+catalogue domain permission and the permissions for the columns captured in its
+file. A report generated without valuation columns remains readable without
+valuation permission; missing or malformed column evidence is treated as though
+all columns were exported. Revoking a right therefore also removes access to
+existing files. Snapshot permission and warehouse evidence survives the job's
+expiry until the linked document is removed. Recognizable legacy generated files
+without that evidence are withheld when the reader lacks the relevant right or
+warehouse reach.
+
+## Dashboard values
+
+`dashboard.view` opens the dashboard; every business tile additionally requires
+the permission for its underlying documents. Stock value and its refresh time
+require `inventory.valuation_view`, while the purchase commitment requires
+`purchase_order.view`. Withheld figures are `null`; authorized zero totals remain
+zero. Stock value and its refresh time are limited to the verified warehouse
+assignments. Dashboard cache keys include both visible fields and warehouse
+assignments, so narrowing either cannot reuse a broader cached position.
+
 ## Owned job-work challan files (E7b)
 
 An internal `job_work.view` holder may read and download a challan job they

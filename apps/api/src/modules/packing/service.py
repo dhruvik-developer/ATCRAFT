@@ -110,7 +110,12 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_quantity
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    apply_transition,
+    record_audit,
+    record_status_change,
+    snapshot,
+)
 from src.modules.inventory.models import SerialStatus, TransactionType
 from src.modules.inventory.service import MovementRequest, post_movements
 from src.modules.packing.models import (
@@ -809,23 +814,16 @@ async def _transition(
     PACKED as a set: it asserts and audits each order the same way, and stages
     the audit rows to flush them once.
     """
-    current = PackingOrderStatus(order.status)
-    PACKING_ORDER_LIFECYCLE.assert_transition(current, target)
-    order.status = target
-    repo.touch(order)
-    await session.flush()
-
-    await record_status_change(
+    await apply_transition(
         session,
-        company_id=tenant.company_id,
+        tenant,
+        PACKING_ORDER_LIFECYCLE,
+        order,
+        target,
         entity_type=AUDIT_PACKING_ORDER,
-        entity_id=order.id,
-        entity_code=order.code,
-        from_status=str(current),
-        to_status=str(target),
-        user_id=tenant.user_id,
-        action=action,
         reason=reason,
+        repo=repo,
+        action=action,
     )
     return order
 

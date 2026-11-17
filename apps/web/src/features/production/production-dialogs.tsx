@@ -77,13 +77,13 @@ import {
   PRIORITY_DEFAULT,
   outstandingQuantity,
   returnableQuantity,
-  useMachineOptions,
   type MaterialIssueDetail,
   type MaterialIssuePostResult,
   type ProductionComponent,
   type ProductionEntryResult,
   type ProductionOrderRow,
 } from './production-model'
+import { useMachineOptions } from './work-order-model'
 
 const WHOLE = /^\d{1,6}$/
 /** Minutes are a measured value on the wire, so decimals are legitimate. */

@@ -19379,7 +19379,7 @@ export interface components {
             /** Collections Mtd */
             collections_mtd?: string | null;
             /** Dispatches In Transit */
-            dispatches_in_transit: number;
+            dispatches_in_transit?: number | null;
             /** Follow Ups Due */
             follow_ups_due?: number | null;
             /**
@@ -19396,25 +19396,25 @@ export interface components {
             /** Mrp Shortage Count */
             mrp_shortage_count?: number | null;
             /** Open Sales Orders */
-            open_sales_orders: number;
+            open_sales_orders?: number | null;
             /** Overdue Deliveries */
-            overdue_deliveries: number;
+            overdue_deliveries?: number | null;
             /** Overdue Sales Orders */
-            overdue_sales_orders: number;
+            overdue_sales_orders?: number | null;
             /** Payables Due Amount */
             payables_due_amount?: string | null;
             /** Payables Overdue Amount */
             payables_overdue_amount?: string | null;
             /** Pending Purchase Orders */
-            pending_purchase_orders: number;
+            pending_purchase_orders?: number | null;
             /** Pending Purchase Value */
-            pending_purchase_value: string;
+            pending_purchase_value?: string | null;
             /** Production In Progress */
-            production_in_progress: number;
+            production_in_progress?: number | null;
             /** Purchase Orders Awaiting Approval */
             purchase_orders_awaiting_approval?: number | null;
             /** Qc Pending */
-            qc_pending: number;
+            qc_pending?: number | null;
             /** Receivables Amount */
             receivables_amount?: string | null;
             /** Receivables Outstanding */
@@ -19424,7 +19424,7 @@ export interface components {
             /** Stock Refreshed At */
             stock_refreshed_at?: string | null;
             /** Stock Value */
-            stock_value: string;
+            stock_value?: string | null;
         };
         /**
          * DashboardTrendPoint
