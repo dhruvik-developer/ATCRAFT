@@ -661,6 +661,22 @@ expiry until the linked document is removed. Recognizable legacy generated files
 without that evidence are withheld when the reader lacks the relevant right or
 warehouse reach.
 
+## Finance workbook files (trial balance, GSTR-1)
+
+The trial balance and GSTR-1 workbooks are document-only report jobs: a job row
+and a file, with no catalogue definition to name a right. Every read of one - its
+job status, its job download, and its file through the generic document list,
+metadata and download routes - requires the right its generating route demands:
+`ledger.view` for a trial balance, `gst_report.view` for GSTR-1
+(`DOCUMENT_REPORT_PERMISSIONS` in `src/modules/reports/service.py`, read by the
+job routes and the document read policy alike). `report.view` and
+`document.view`, which most operational presets hold, are not enough: the job
+routes answer the 404 of a job that does not exist and the document routes
+withhold the file. A recognizable workbook whose job row is gone is withheld by
+its generated file name, as other generated reports are. Whoever queued a
+workbook keeps it, because queuing required the same right and `report.export`;
+revoking the right removes access to existing workbooks.
+
 ## Dashboard values
 
 `dashboard.view` opens the dashboard; every business tile additionally requires

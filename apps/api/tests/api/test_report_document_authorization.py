@@ -12,7 +12,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -30,6 +30,7 @@ from src.core.deps import Principal, TenantContext, get_current_principal
 from src.core.permissions import Permission
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.service import DocumentService, resolve_storage_path
+from src.modules.finance import service as finance_service
 from src.modules.reports import service
 from src.modules.reports.models import InventorySummary, ReportKey, ReportSnapshot
 from src.modules.reports.repository import ReportSnapshotRepository
@@ -134,6 +135,10 @@ async def _assert_visible(
         (ReportKey.PRODUCT_PROFITABILITY, Permission.ITEM_COST_VIEW),
         (ReportKey.PRODUCTION_COST, Permission.ITEM_COST_VIEW),
         (ReportKey.JOB_WORK_COST, Permission.ITEM_COST_VIEW),
+        # Rendered finance workbooks have no catalogue definition to name a
+        # right; theirs is the one their generating route demands.
+        (ReportKey.TRIAL_BALANCE, Permission.LEDGER_VIEW),
+        (ReportKey.GSTR1, Permission.GST_REPORT_VIEW),
     ],
 )
 @pytest.mark.parametrize("legacy_attachment", [False, True])
@@ -219,6 +224,73 @@ async def test_finance_valuation_task_cannot_bypass_its_right_through_generic_do
     await _assert_visible(api_client, document, payload, visible=False)
     _read_as(principal, Permission.INVENTORY_VALUATION_VIEW)
     await _assert_visible(api_client, document, payload, visible=True)
+
+
+#: The rendered finance workbooks: the parameters finance queues each with, and
+#: the right its generating route demands beside ``report.export``.
+FINANCE_WORKBOOKS = [
+    pytest.param(
+        ReportKey.TRIAL_BALANCE,
+        finance_service.trial_balance_export_parameters(date(2026, 9, 30)),
+        Permission.LEDGER_VIEW,
+        id="trial-balance",
+    ),
+    pytest.param(
+        ReportKey.GSTR1,
+        finance_service.gstr1_export_parameters(date(2026, 4, 1), date(2026, 4, 30)),
+        Permission.GST_REPORT_VIEW,
+        id="gstr1",
+    ),
+]
+
+
+@pytest.mark.parametrize(("key", "parameters", "permission"), FINANCE_WORKBOOKS)
+async def test_a_finance_workbook_job_needs_its_domain_right_beside_report_view(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    key: ReportKey,
+    parameters: dict[str, Any],
+    permission: Permission,
+) -> None:
+    from src.main import app
+
+    snapshot, document, payload = await _artifact(session, tenant, key, parameters=parameters)
+    status_url = f"/reports/jobs/{snapshot.id}"
+    download_url = f"{status_url}/download"
+
+    # A store keeper's rights - report.view and document.view, neither the
+    # ledger nor the GST returns - even as the job's own creator: the job is
+    # one that does not exist on both job routes, as any job out of reach is,
+    # and the generic document routes withhold its file the same way.
+    _read_as(principal, Permission.REPORT_VIEW)
+    for url in (status_url, download_url):
+        refused = await api_client.get(url)
+        assert refused.status_code == 404, refused.text
+        assert refused.json()["error"]["code"] == "JOB_NOT_FOUND"
+        assert "confidential report fixture" not in refused.text
+    await _assert_visible(api_client, document, payload, visible=False)
+
+    # A colleague holding the right shares the job and its file.
+    _read_as(principal, Permission.REPORT_VIEW, permission)
+    assert (await api_client.get(status_url)).status_code == 200
+    shared = await api_client.get(download_url)
+    assert shared.status_code == 200, shared.text
+    assert shared.content == payload
+    await _assert_visible(api_client, document, payload, visible=True)
+
+    # Whoever queued it keeps it with exactly the rights queuing it needed.
+    exporter = replace(
+        principal,
+        is_superuser=False,
+        permissions=frozenset({str(permission), str(Permission.REPORT_EXPORT)}),
+    )
+    app.dependency_overrides[get_current_principal] = lambda: exporter
+    assert (await api_client.get(status_url)).status_code == 200
+    owned = await api_client.get(download_url)
+    assert owned.status_code == 200, owned.text
+    assert owned.content == payload
 
 
 async def test_profitability_permission_does_not_widen_captured_warehouse_scope(
@@ -325,7 +397,15 @@ async def test_access_evidence_outlives_the_job_until_its_file_is_deleted(
     assert await service.purge_expired_snapshots(session, tenant) == 1
 
 
-@pytest.mark.parametrize("key", [ReportKey.INVENTORY_VALUATION, ReportKey.PRODUCT_PROFITABILITY])
+@pytest.mark.parametrize(
+    "key",
+    [
+        ReportKey.INVENTORY_VALUATION,
+        ReportKey.PRODUCT_PROFITABILITY,
+        ReportKey.TRIAL_BALANCE,
+        ReportKey.GSTR1,
+    ],
+)
 async def test_recognizable_legacy_report_without_a_job_still_requires_its_domain_right(
     api_client: AsyncClient,
     session: AsyncSession,

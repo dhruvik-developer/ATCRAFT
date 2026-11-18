@@ -1113,9 +1113,46 @@ if _document_only_defined:  # pragma: no cover - a coding error, caught before t
         f"{sorted(str(k) for k in _document_only_defined)}"
     )
 
+#: What reading a rendered finance workbook needs beside report access. These
+#: are document-only keys - a job row and a file, no catalogue definition - so
+#: no ``ReportDefinition.permission`` names a right for them, and ``report.view``
+#: alone opened a trial balance or a GSTR-1 someone else had queued, on the job
+#: routes and the generic document routes alike. Each is the right its
+#: generating route demands beside ``report.export``, so whoever queued one
+#: already holds it.
+DOCUMENT_REPORT_PERMISSIONS: dict[ReportKey, Permission] = {
+    ReportKey.TRIAL_BALANCE: Permission.LEDGER_VIEW,
+    ReportKey.GSTR1: Permission.GST_REPORT_VIEW,
+}
+_catalogue_right_elsewhere = set(DOCUMENT_REPORT_PERMISSIONS) - DOCUMENT_ONLY_REPORT_KEYS
+if _catalogue_right_elsewhere:  # pragma: no cover - a coding error, caught before the app serves
+    raise RuntimeError(
+        "reports: a catalogue report's right belongs on its definition: "
+        f"{sorted(str(k) for k in _catalogue_right_elsewhere)}"
+    )
+
 
 def definition_for(key: ReportKey) -> ReportDefinition:
     return REPORT_CATALOGUE[key]
+
+
+def report_domain_permission(key: ReportKey) -> Permission | None:
+    """The right reading ``key``'s jobs and files needs beyond report access.
+
+    A catalogue report's definition names it; a rendered finance workbook's is
+    in :data:`DOCUMENT_REPORT_PERMISSIONS`. ``None`` when report access is
+    enough. The job routes and the generic document read policy both ask here,
+    so the two cannot disagree about which reports a reader may open.
+    """
+    definition = REPORT_CATALOGUE.get(key)
+    if definition is None:
+        return DOCUMENT_REPORT_PERMISSIONS.get(key)
+    return None if definition.permission == Permission.REPORT_VIEW else definition.permission
+
+
+def _report_domain_held(key: ReportKey, principal: Principal) -> bool:
+    required = report_domain_permission(key)
+    return required is None or principal.has(required)
 
 
 def descriptors(principal: Principal | None = None) -> list[ReportDescriptorRead]:
@@ -1872,12 +1909,9 @@ async def _accessible_job(
             _is_scoped_catalogue_report(snapshot)
             and not _catalogue_report_scope_still_accessible(snapshot, principal)
         )
-        or (
-            snapshot is not None
-            and snapshot.report_key in REPORT_CATALOGUE
-            and REPORT_CATALOGUE[snapshot.report_key].permission != Permission.REPORT_VIEW
-            and not principal.has(REPORT_CATALOGUE[snapshot.report_key].permission)
-        )
+        # The report's own right - its definition's, or a finance workbook's -
+        # on every read, the creator's included: a revoked right closes the job.
+        or not _report_domain_held(snapshot.report_key, principal)
         or (
             snapshot is not None
             and snapshot.report_key in REPORT_CATALOGUE
@@ -2522,12 +2556,13 @@ def catalogue_report_permission_policy(
         return None
     # Generic document access retains its existing document.view gate. The
     # report's additional domain/column rights follow the bytes, so a grant
-    # removed after generation cannot be bypassed through a saved file ID.
+    # removed after generation cannot be bypassed through a saved file ID. A
+    # rendered finance workbook's right is asked of the same source as a
+    # catalogue report's, so the job routes and this policy agree.
     denied_keys = tuple(
         key
-        for key, definition in REPORT_CATALOGUE.items()
-        if definition.permission != Permission.REPORT_VIEW
-        and not principal.has(definition.permission)
+        for key in ReportKey
+        if (required := report_domain_permission(key)) is not None and not principal.has(required)
     )
     denied_fields = tuple(
         (key, field, tuple(definition.row_model.model_fields))
@@ -2575,6 +2610,7 @@ __all__ = [
     "DASHBOARD_TREND_SERIES",
     "DEAD_STOCK_DAYS",
     "DOCUMENT_DOWNLOAD_URL_TEMPLATE",
+    "DOCUMENT_REPORT_PERMISSIONS",
     "JOB_DOWNLOAD_URL_TEMPLATE",
     "JOB_STATUS_URL_TEMPLATE",
     "NEVER_MOVED_BUCKET",
@@ -2634,6 +2670,7 @@ __all__ = [
     "queue_report_export",
     "ratio",
     "refresh_inventory_summary",
+    "report_domain_permission",
     "run_report",
     "snapshot_rows",
     "start_snapshot",
