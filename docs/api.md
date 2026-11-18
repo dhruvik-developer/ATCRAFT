@@ -203,10 +203,11 @@ Stable strings the frontend switches on. Renaming one is a breaking change.
 | Jobs | `JOB_NOT_FOUND` `JOB_FAILED` |
 
 Reserved, not emitted: `NEGATIVE_STOCK_BLOCKED` `RESERVATION_NOT_FOUND`
-`JOB_FAILED`. They are members of `ErrorCode`, so a client may switch on them,
+`JOB_FAILED` `TENANT_MISMATCH`. They are members of `ErrorCode`, so a client may switch on them,
 but no route raises them today - a shortfall is `INSUFFICIENT_STOCK`, a
 missing reservation `NOT_FOUND`, and a failed job reads back as a job whose
-status is `FAILED`, not as an error. This table and the reserved list are checked against
+status is `FAILED`, not as an error. A record in another tenant is `NOT_FOUND`,
+because confirming it exists would itself be a leak. This table and the reserved list are checked against
 `ErrorCode` and the source by `tests/unit/test_api_doc_contract.py`.
 
 Five of these are easy to mishandle:

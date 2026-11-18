@@ -287,13 +287,6 @@ class CsrfValidationError(AuthorizationError):
     message = "The request could not be verified. Reload the page and try again."
 
 
-class TenantMismatchError(AuthorizationError):
-    code = ErrorCode.TENANT_MISMATCH
-    # Phrased as "not found" to the user: confirming a record exists in another
-    # tenant is itself a leak.
-    message = "The requested record does not exist."
-
-
 class RateLimitedError(AppError):
     status_code = 429
     code = ErrorCode.RATE_LIMITED
@@ -435,7 +428,6 @@ __all__ = [
     "RateLimitedError",
     "SelfApprovalError",
     "StockLockTimeoutError",
-    "TenantMismatchError",
     "TokenExpiredError",
     "ValidationError",
     "duplicate_code",

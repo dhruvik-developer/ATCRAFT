@@ -52,12 +52,6 @@ UNREAD_ALLOWED: dict[str, str] = {
         "origin 'MIGRATION', and the constant names that vocabulary beside "
         "LAYER_ORIGIN_RECONCILIATION"
     ),
-    "core/errors.py::TenantMismatchError": (
-        "raised by nothing since Principal.assert_same_tenant was deleted, but it is "
-        "the only source naming ErrorCode.TENANT_MISMATCH, which docs/api.md lists as "
-        "sent; delete it in the commit that moves that code to the document's "
-        "'Reserved, not emitted' list"
-    ),
 }
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
