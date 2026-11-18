@@ -121,27 +121,27 @@ AUDIT_ROLE = "role"
 # Decisions this module makes explicitly
 # -----------------------------------------------------------------------------
 
-# ASSUMPTION: "holding SUPER_ADMIN" means either the ``is_superuser`` flag or
-# membership of a usable role whose code is in this set. Both routes reach the
-# same authority, so a guard that only looked at one of them could be walked
-# around by using the other.
+# ASSUMPTION (docs/assumptions.md §USER-2): "holding SUPER_ADMIN" means either the
+# ``is_superuser`` flag or membership of a usable role whose code is in this set. Both routes
+# reach the same authority, so a guard that only looked at one of them could be walked around by
+# using the other.
 SUPER_ADMIN_ROLE_CODES: frozenset[str] = frozenset({"SUPER_ADMIN"})
 
-# ASSUMPTION: the SUPER_ADMIN role is immutable - its name, description,
-# permission set and active flag cannot be edited, and it cannot be retired. It
-# is the role the "last administrator" guard is defined in terms of, so allowing
-# it to be emptied of permissions would defeat that guard while leaving it
-# nominally intact. Other system roles remain editable, as section 81 requires.
+# ASSUMPTION (docs/assumptions.md §USER-2): the SUPER_ADMIN role is immutable - its name,
+# description, permission set and active flag cannot be edited, and it cannot be retired. It is
+# the role the "last administrator" guard is defined in terms of, so allowing it to be emptied
+# of permissions would defeat that guard while leaving it nominally intact. Other system roles
+# remain editable, as section 81 requires.
 IMMUTABLE_ROLE_CODES: frozenset[str] = frozenset({"SUPER_ADMIN"})
 
-# ASSUMPTION: ``is_superuser`` is not settable through this API at all. It
-# bypasses every permission check in the system, so it is set by the seed and by
-# a database-level operation only. The alternative - exposing it behind a
-# permission - means one compromised administrative account becomes a platform
-# compromise.
+# ASSUMPTION (docs/assumptions.md §USER-2): ``is_superuser`` is not settable through this API at
+# all. It bypasses every permission check in the system, so it is set by the seed and by a
+# database-level operation only. The alternative - exposing it behind a permission - means one
+# compromised administrative account becomes a platform compromise.
 SUPERUSER_FLAG_IS_API_SETTABLE = False
 
-# ASSUMPTION: the privilege guard applies symmetrically. Granting a permission
+# ASSUMPTION (docs/assumptions.md §USER-2): the privilege guard applies
+# symmetrically. Granting a permission
 # you do not hold is escalation; *revoking* one you do not hold is tampering
 # with an account more privileged than your own, which is how a low-privileged
 # administrator locks out the people who could stop them. Both are refused, so

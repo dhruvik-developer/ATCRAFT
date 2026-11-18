@@ -266,7 +266,11 @@ A separate rule exempts nobody: above the company's dual-approval limit a
 purchase order needs two signatures, and the second must come from a different
 user than the first - a superuser or `SUPER_ADMIN` included
 (`src/modules/procurement/service.py`; `docs/database.md`, configurable approval
-rules).
+rules). The limit is applied at the moment of the decision, not when the order
+was raised. Once a first signature is recorded the second stays mandatory even if
+a later settings change raises the limit above the order's total: an approval
+cannot be half-withdrawn by a threshold change. Only a revision of the order
+clears the signature and starts the decision again.
 
 **Impact if wrong.** A small plant with one buyer cannot approve their own
 purchase orders and needs a second account. Easy to relax; harder to add later
@@ -324,6 +328,12 @@ recorded reason.
 **Why.** Price rounding and freight allocation cause small legitimate price
 variances. A quantity variance is not a rounding artefact — it means the invoice
 disagrees with what was physically accepted.
+
+**Which quantity is the basis.** When the invoice names a goods receipt, that
+receipt's accepted quantity per order line is compared. When it does not, the
+order line's *cumulative* accepted quantity across its receipts is used, which is
+the right basis for a consolidated bill covering several deliveries and the only
+one available when the receipt is not identified.
 
 **Where.** `src/modules/finance/service.py` — `match_invoice`.
 
@@ -447,7 +457,12 @@ expressed as a policy object rather than hardcoded comparisons.
 ## 12. BOM effectivity and phantom items
 
 **Assumed.** Only `APPROVED` BOMs whose effectivity window contains the
-as-of date are exploded. A `PHANTOM` BOM is exploded through — the phantom item
+as-of date are exploded, with one exception: a root structure the caller names
+explicitly (`bom_id`) is exploded whatever its status, so an engineer can check
+a draft before submitting it. Every level below that root is still resolved
+strictly from `APPROVED` structures effective on the as-of date, and the status
+actually used is reported on the result, so a draft explosion cannot be mistaken
+for the plan of record. A `PHANTOM` BOM is exploded through — the phantom item
 itself never appears as a requirement line, only its children.
 
 **Why.** Standard MRP semantics. A phantom exists to structure the drawing, not
@@ -2053,7 +2068,8 @@ labels.
 **Where.** `src/modules/inventory/service.py` - `BATCH_FLOW`,
 `quarantine_batch`, `activate_batch`, `_expire`, `sweep_expiry`,
 `BATCH_ISSUE_BLOCKED`; `src/modules/inventory/repository.py` -
-`StockBatchRepository.companies_with_batches`.
+`companies_with_expiring_batches`, which the expiry sweep in
+`src/workers/tasks/maintenance.py` calls to find the companies it must visit.
 
 **Impact if wrong.** If expiry should be a warning rather than a hard block, the
 enforcement point is `validate_movement`; removing it would let expired stock be
@@ -5725,3 +5741,47 @@ extend `approve_order` to confirmed orders and open the request again from
 `update_order`. If a smaller quantity should keep the discount per unit instead,
 scale the flat amount in `_update_confirmed` - that changes the agreed terms, so
 it needs its own decision.
+
+---
+
+## §USER-2. What "super administrator" means, and the four rules that guard it
+
+**Assumed.** Four constants in `src/modules/users/service.py` settle who holds
+platform administration and what the API may do about it.
+
+- `SUPER_ADMIN_ROLE_CODES` (`{"SUPER_ADMIN"}`): an account holds super-admin
+  authority when its `is_superuser` flag is set *or* it belongs to a usable role
+  whose code is in that set. Both routes reach the same authority, so every guard
+  (`holds_super_admin` for a target account, `caller_holds_super_admin` for the
+  caller) tests both. The last-administrator guard counts holders by the same
+  codes.
+- `IMMUTABLE_ROLE_CODES` (`{"SUPER_ADMIN"}`): that role cannot be edited - name,
+  description, permission set and active flag - and cannot be retired; the
+  service refuses with a business-rule error naming the code. Other system roles
+  remain editable.
+- `SUPERUSER_FLAG_IS_API_SETTABLE` (`False`): the API never sets `is_superuser`.
+  A user is always created with it off, and it is set by the seed or a
+  database-level operation only.
+- `REQUIRE_AUTHORITY_TO_REVOKE` (`True`): the privilege guard is symmetric. A
+  change to an account's permissions or warehouse assignment is checked over the
+  symmetric difference of the before and after sets, so taking away a permission
+  or warehouse the caller does not hold is refused as granting one is. The
+  warehouse guard also uses it to refuse limiting an account that may use every
+  warehouse.
+
+**Why.** The flag bypasses every permission check, so exposing it behind a
+permission would turn one compromised administrative account into a platform
+compromise. The `SUPER_ADMIN` role is what the last-administrator guard is
+defined in terms of, so emptying it of permissions would defeat that guard while
+leaving it nominally intact. Refusing revocation as well as grant stops a
+low-privileged administrator locking out the people who could stop them (section
+37 is the same reasoning applied to passwords).
+
+**Where.** `src/modules/users/service.py` - the four constants and the functions
+that read them (`holds_super_admin`, `caller_holds_super_admin`,
+`_assert_mutable`, the permission-delta and warehouse-assignment guards).
+
+**Impact if wrong.** Adding a second super-admin role code is a one-line change to
+the first constant. Making the flag settable, or allowing revocation without
+authority, is a deliberate loosening of the security model and needs a decision
+of its own.

@@ -685,12 +685,12 @@ async def explode(
     ``bom_id`` names a specific structure to start from; otherwise the approved
     structure effective on ``as_of`` is resolved.
 
-    ASSUMPTION: an explicitly named root structure is exploded whatever its
-    status, so an engineer can check a draft before submitting it. Every level
-    *below* the root is resolved strictly from APPROVED structures whose
-    effectivity window contains ``as_of`` (database.md section 5), and the
-    status actually used is reported on the result so a draft explosion cannot
-    be mistaken for the plan of record.
+    ASSUMPTION (docs/assumptions.md section 12): an explicitly named root
+    structure is exploded whatever its status, so an engineer can check a draft before
+    submitting it. Every level *below* the root is resolved strictly from APPROVED structures
+    whose effectivity window contains ``as_of`` (database.md section 5), and the status actually
+    used is reported on the result so a draft explosion cannot be mistaken for the plan of
+    record.
 
     ``source`` is an injection point for tests; production callers leave it
     unset and get the database-backed source.

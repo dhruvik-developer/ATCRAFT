@@ -3289,7 +3289,8 @@ async def transition_purchase_order(
                 principal, order.last_amended_by_id, "A purchase order revision"
             )
 
-            # ASSUMPTION: apply the current limit at the approval decision. If a
+            # ASSUMPTION (docs/assumptions.md section 2): apply the current
+            # limit at the approval decision. If a
             # first signature is already recorded, keep the second signature
             # mandatory even if a later settings change raises the limit; only a
             # revision clears evidence and starts the decision again.

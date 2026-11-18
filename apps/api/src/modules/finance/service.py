@@ -3040,7 +3040,8 @@ async def match_invoice(
     refused at the gate never entered the company's custody and must not be
     paid for (docs/assumptions.md section 18).
 
-    ASSUMPTION: when the invoice names a goods receipt, that receipt's accepted
+    ASSUMPTION (docs/assumptions.md section 5): when the invoice names a goods
+    receipt, that receipt's accepted
     quantity per order line is the basis. When it does not, the order line's
     *cumulative* accepted quantity is used instead - which is the right basis
     for a consolidated monthly bill covering several deliveries, and the only
