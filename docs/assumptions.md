@@ -5170,7 +5170,16 @@ provenance its download and its worker check, so another report's job is not
 one, the catalogue's tabular valuation included) and `job_work_challan` (job
 work). The repository is the one every read of that record goes through, so a scope it
 applies holds here too: a warehouse outside the caller's own assignment is as
-absent as on the warehouse list. It runs after the attach policy (§DOC-1), so a caller without `item.update` is
+absent as on the warehouse list. A report job is held to more than the company:
+filed against through `POST /documents`, a `report_snapshot` or
+`inventory_valuation` must be a job the caller may open, by the check
+`GET /reports/jobs/{id}` applies (the report's own right, its creator's export
+right, the captured warehouse scope). One they may not open answers exactly as
+an unknown id does - `404 JOB_NOT_FOUND` with `Report job not found: <id>.` for
+a `report_snapshot`, as the job route answers, and
+`Inventory valuation not found: <id>.` for a valuation job - so the upload
+cannot say which ids are jobs.
+It runs after the attach policy (§DOC-1), so a caller without `item.update` is
 refused 403 first. A type no module knows is stored as given, as before.
 Modules that file against their own typed record (a purchase order's shared
 files, a generated PDF) call the upload without a principal, or write the row
@@ -5190,6 +5199,8 @@ registers an attach policy, so the documents module imports none of the
 modules whose records it can be filed against.
 
 **Where.** `src/common/document_access.py` - `register_document_entity_resolver`,
+`register_document_entity_access` (for a caller with a principal it replaces the
+resolver: reports' `accessible_job`, finance's `_accessible_valuation_job`),
 `assert_entity_held`; the registrations beside each `*_DOCUMENT_ENTITY` in
 `src/modules/{products,quality,packing,reports,procurement,vendors,sales,warehouses,job_work}/service.py`
 and `src/modules/finance/{sales_invoice_service,credit_note_service,service}.py`;
@@ -5200,12 +5211,16 @@ the owners' constants. `tests/unit/test_document_entity_resolvers.py` lists the
 types filed through the upload, and fails if a listed type loses its resolver,
 a resolver is registered for a type it does not list, a type the Documents
 page suggests or the report worker files under has none, or the route's
-description names a different set.
+description names a different set - and if the types held to the filer's own
+access are other than the two report-job types.
+`tests/api/test_document_attach_policy_http.py` files against both as a store
+keeper (404) and as someone who may open the job (201).
 
 **Impact if wrong.** Remove a registration to accept any id under that type
 again. To hold another entity type to its records, register its owner's
 `get_or_404`, list the type in the guard and name it in the route's
-description.
+description. Remove an access-check registration to hold a report job to the
+company alone again.
 
 ## §PROMO-1. A banner whose image has lapsed is not shown to dealers
 

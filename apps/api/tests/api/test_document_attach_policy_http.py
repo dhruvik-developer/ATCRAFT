@@ -12,7 +12,8 @@ under any other entity type stays inside the company. A file filed against an
 item, an inspection, a vendor, a warehouse or a record the report worker files
 a generated document against that is another company's, or no record at all,
 is refused before a byte is stored, and so is a warehouse outside the caller's
-own assignment and a report job of another kind (docs/assumptions.md §DOC-2).
+own assignment, a report job of another kind and a report job the caller may
+not open (docs/assumptions.md §DOC-2).
 
 Fixtures hand back ids, never ORM rows: an expected failure rolls its savepoint
 back and expires what was loaded before it (CLAUDE.md).
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -455,7 +457,15 @@ async def test_a_file_is_filed_against_this_companys_valuation_job_and_no_other_
     catalogue_valuation = await report_job(session, tenant, ReportKey.INVENTORY_VALUATION)
     theirs = await valuation_export(session, foreign)
     refused = (other_report, catalogue_valuation, theirs)
-    sign_in(holding(principal, Permission.DOCUMENT_UPLOAD))
+    # A valuation reader: whoever files against a job must be able to open it.
+    sign_in(
+        holding(
+            principal,
+            Permission.DOCUMENT_UPLOAD,
+            Permission.REPORT_VIEW,
+            Permission.INVENTORY_VALUATION_VIEW,
+        )
+    )
 
     for refused_id in refused:
         error = error_of(
@@ -470,3 +480,89 @@ async def test_a_file_is_filed_against_this_companys_valuation_job_and_no_other_
     assert await filed_against(session, own) == 1
     assert [await filed_against(session, refused_id) for refused_id in refused] == [0, 0, 0]
     assert len(stored_files(storage)) == 1
+
+
+async def test_filing_against_a_report_job_needs_one_the_caller_may_open(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    foreign: TenantContext,
+    storage: Path,
+) -> None:
+    # GET /reports/jobs/{id} tells a store keeper - report.view, no ledger.view -
+    # that a trial balance's job does not exist. Filing against it answered 201,
+    # so the upload said which ids were jobs. It now answers what the job route
+    # does: one 404 for that job, another company's and an id naming nothing.
+    ledger = await report_job(
+        session,
+        tenant,
+        ReportKey.TRIAL_BALANCE,
+        finance_service.trial_balance_export_parameters(date(2026, 9, 30)),
+    )
+    theirs = await report_job(session, foreign, ReportKey.QC_REJECTION)
+    refused = (ledger, theirs, uuid.uuid4())
+    sign_in(preset(principal, "STORE_KEEPER"))
+
+    for refused_id in refused:
+        error = error_of(
+            await upload(api_client, "report_snapshot", refused_id, "notes.png"),
+            404,
+            "JOB_NOT_FOUND",
+        )
+        assert error["message"] == f"Report job not found: {refused_id}."
+    # Refused before a byte was read: no row, and nothing left on disk.
+    assert [await filed_against(session, refused_id) for refused_id in refused] == [0, 0, 0]
+    assert stored_files(storage) == []
+
+    # The same keeper still files against a job they may open...
+    open_job = await report_job(session, tenant, ReportKey.QC_REJECTION)
+    filed = data_of(await upload(api_client, "report_snapshot", open_job, "notes.png"), 201)
+    assert (filed["entity_type"], filed["entity_id"]) == ("report_snapshot", str(open_job))
+    # ...and a ledger reader against the trial balance.
+    sign_in(
+        holding(
+            principal, Permission.DOCUMENT_UPLOAD, Permission.REPORT_VIEW, Permission.LEDGER_VIEW
+        )
+    )
+    filed = data_of(await upload(api_client, "report_snapshot", ledger, "notes.png"), 201)
+    assert (filed["entity_type"], filed["entity_id"]) == ("report_snapshot", str(ledger))
+    assert len(stored_files(storage)) == 2
+
+
+async def test_filing_against_a_valuation_job_needs_one_the_caller_may_open(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    storage: Path,
+) -> None:
+    # A store keeper holds report.view but not inventory.valuation_view, so the
+    # job route answers 404 for this company's valuation export; the upload
+    # answers the same 404 it gives an id naming nothing.
+    own = await valuation_export(session, tenant)
+    nothing = uuid.uuid4()
+    sign_in(preset(principal, "STORE_KEEPER"))
+
+    for refused_id in (own, nothing):
+        error = error_of(
+            await upload(api_client, "inventory_valuation", refused_id, "notes.png"),
+            404,
+            "NOT_FOUND",
+        )
+        assert error["message"] == f"Inventory valuation not found: {refused_id}."
+    assert await filed_against(session, own) == 0
+    assert stored_files(storage) == []
+
+    # Whoever queued it files against it with the rights queuing it needed.
+    sign_in(
+        holding(
+            principal,
+            Permission.DOCUMENT_UPLOAD,
+            Permission.INVENTORY_VALUATION_VIEW,
+            Permission.REPORT_EXPORT,
+        )
+    )
+    filed = data_of(await upload(api_client, "inventory_valuation", own, "notes.png"), 201)
+    assert (filed["entity_type"], filed["entity_id"]) == ("inventory_valuation", str(own))
+    assert await filed_against(session, own) == 1

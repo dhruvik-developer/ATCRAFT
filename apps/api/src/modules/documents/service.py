@@ -639,14 +639,19 @@ class DocumentService:
         document against any entity type and id: when that type's owner
         registered an attach policy, its right is required, and when it
         registered an entity resolver, the id must be a record of it this
-        company holds - both before anything is read or stored. A module filing
+        company holds - or, where it registered an access check, one this
+        caller may open - all before anything is read or stored. A module filing
         against its own typed record, which it has just read, gates its route
         itself and passes none.
         """
         if principal is not None:
             assert_may_attach(principal, payload.entity_type)
             await assert_entity_held(
-                self.session, self.tenant, payload.entity_type, payload.entity_id
+                self.session,
+                self.tenant,
+                payload.entity_type,
+                payload.entity_id,
+                principal=principal,
             )
         moment = utcnow()
         mime_type = normalise_mime_type(upload_file.content_type)

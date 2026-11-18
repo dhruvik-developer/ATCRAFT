@@ -78,7 +78,10 @@ from sqlalchemy import Select, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
-from src.common.document_access import register_document_entity_resolver
+from src.common.document_access import (
+    register_document_entity_access,
+    register_document_entity_resolver,
+)
 from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.currency import assert_customer_currency
@@ -309,10 +312,31 @@ async def _held_valuation_job(
     return job
 
 
+async def _accessible_valuation_job(
+    session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
+) -> ReportSnapshot:
+    """A valuation export job ``principal`` may open, refused exactly as an absent one.
+
+    What filing a document against a valuation job needs of a person: the
+    access its job routes check. No job, another report's job and a job out of
+    this caller's reach answer one 404, or the difference would say which ids
+    are valuation jobs.
+    """
+    try:
+        job = await reports_service.accessible_job(session, tenant, principal, job_id)
+    except NotFoundError:
+        raise NotFoundError(VALUATION_JOB_LABEL, job_id) from None
+    if not reports_service.is_valuation_export(job):
+        raise NotFoundError(VALUATION_JOB_LABEL, job_id)
+    return job
+
+
 # A file filed against a valuation job is one of this company's valuation jobs -
 # not another company's, not another report's job - the catalogue's tabular
-# valuation among them - and not an id naming none. docs/assumptions.md §DOC-2.
+# valuation among them - and not an id naming none; filed by a person, one they
+# may open. docs/assumptions.md §DOC-2.
 register_document_entity_resolver(VALUATION_DOCUMENT_ENTITY, _held_valuation_job)
+register_document_entity_access(VALUATION_DOCUMENT_ENTITY, _accessible_valuation_job)
 
 #: Label used on an open item that is not yet due. Kept out of
 #: :data:`AGEING_BUCKET_LABELS` because "not due" is not an age.

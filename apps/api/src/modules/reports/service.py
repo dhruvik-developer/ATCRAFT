@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.document_access import (
+    register_document_entity_access,
     register_document_entity_resolver,
     register_document_read_policy,
 )
@@ -1892,9 +1893,14 @@ def _owns_gstr1_export(snapshot: ReportSnapshot, principal: Principal) -> bool:
     )
 
 
-async def _accessible_job(
+async def accessible_job(
     session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
 ) -> ReportSnapshot:
+    """The job row ``principal`` may open, or the 404 of a job that does not exist.
+
+    What both job routes check, and what a person filing a document against a
+    report job is held to (``register_document_entity_access`` below).
+    """
     snapshot = await ReportSnapshotRepository(session, tenant).get(job_id)
     if (
         snapshot is None
@@ -1957,7 +1963,7 @@ def _job_sensitive_fields_accessible(
 async def get_accessible_job(
     session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
 ) -> ReportJobRead:
-    return job_read(await _accessible_job(session, tenant, principal, job_id))
+    return job_read(await accessible_job(session, tenant, principal, job_id))
 
 
 async def open_job_download(
@@ -1970,7 +1976,7 @@ async def open_job_download(
     Existing report readers retain their document-view requirement. No
     caller-provided document id is accepted on this path.
     """
-    snapshot = await _accessible_job(session, tenant, principal, job_id)
+    snapshot = await accessible_job(session, tenant, principal, job_id)
     owns_export = (
         _owns_valuation_export(snapshot, principal)
         or _owns_job_work_challan_export(snapshot, principal)
@@ -2596,6 +2602,9 @@ register_document_entity_resolver(
         snapshot_id
     ),
 )
+# Filed by a person, one they may open: a job the job routes answer 404 for
+# answers the same 404 here, or a 201 would say which ids are jobs.
+register_document_entity_access(REPORT_DOCUMENT_ENTITY, accessible_job)
 
 
 __all__ = [
@@ -2635,6 +2644,7 @@ __all__ = [
     "ReportContext",
     "ReportDefinition",
     "SummaryRefreshResult",
+    "accessible_job",
     "ageing_bucket",
     "available_minutes",
     "build_context",

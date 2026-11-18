@@ -376,7 +376,12 @@ into `ORDER BY`.
 - filing against an entity type whose owner registered an attach policy needs
   that right too, checked before a byte is read: the dealer catalogue publishes
   every image filed against a sellable item, so `entity_type=item` needs
-  `item.update` (docs/assumptions.md §DOC-1).
+  `item.update` (docs/assumptions.md §DOC-1);
+- filing against a report job (`report_snapshot`, `inventory_valuation`) needs
+  the access that reading the job needs, checked before a byte is read: a job
+  the caller may not open answers the job route's 404, exactly as an unknown or
+  another company's id does, so the upload cannot reveal which ids are jobs
+  (docs/assumptions.md §DOC-2).
 
 The ASGI request-body limit counts received bytes even when `Content-Length`
 is absent or incorrect. Multipart resources and partially written files are

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common import document_access
 from src.common.document_access import assert_entity_held, document_entity_resolver
-from src.core.deps import TenantContext
+from src.core.deps import Principal, TenantContext
 from src.core.errors import NotFoundError
 from src.modules.documents.router import upload_document
 from src.modules.finance.credit_note_service import CREDIT_NOTE_DOCUMENT_ENTITY
@@ -85,6 +85,12 @@ FILED_THROUGH_UPLOAD = (
     CHALLAN_DOCUMENT_ENTITY,
 )
 
+#: Entity types whose records are report jobs. ``GET /reports/jobs/{id}``
+#: answers 404 for a job its caller may not open, so filing against one needs
+#: that same access, not only a job this company holds - or a 201 where the job
+#: route says 404 tells the filer which ids are jobs.
+HELD_TO_THE_FILERS_ACCESS = (REPORT_DOCUMENT_ENTITY, VALUATION_DOCUMENT_ENTITY)
+
 #: A type no module knows, which ``POST /documents`` stores as given.
 UNKNOWN_ENTITY_TYPE = "drawing_register"
 
@@ -130,6 +136,17 @@ def _session() -> AsyncSession:
 
 def _tenant() -> TenantContext:
     return TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+
+
+def _filer() -> Principal:
+    return Principal(
+        user_id=uuid.uuid4(),
+        company_id=uuid.uuid4(),
+        email="filer@atcraft.test",
+        full_name="Document Filer",
+        is_superuser=False,
+        permissions=frozenset(),
+    )
 
 
 def test_every_entity_type_a_person_files_through_the_upload_resolves() -> None:
@@ -257,3 +274,45 @@ async def test_a_held_record_and_an_unresolved_entity_type_are_accepted(monkeypa
     await assert_entity_held(_session(), _tenant(), None, None)
 
     assert held == [record]
+
+
+def test_a_report_job_is_held_to_what_the_filer_may_open() -> None:
+    assert sorted(document_access._entity_access_checks) == sorted(HELD_TO_THE_FILERS_ACCESS)
+    # A module filing against its own job passes no principal and is resolved
+    # as before, so each of these types keeps its resolver too.
+    assert unresolved(HELD_TO_THE_FILERS_ACCESS) == []
+
+
+async def test_a_filer_is_held_to_the_access_check_and_a_module_to_the_resolver(
+    monkeypatch,
+) -> None:
+    seen: list[tuple[str, uuid.UUID]] = []
+
+    async def held(session: AsyncSession, tenant: TenantContext, entity_id: uuid.UUID) -> object:
+        seen.append(("resolver", entity_id))
+        return object()
+
+    async def out_of_reach(
+        session: AsyncSession, tenant: TenantContext, principal: Principal, entity_id: uuid.UUID
+    ) -> object:
+        seen.append(("access", entity_id))
+        raise NotFoundError("Test drawing", entity_id)
+
+    monkeypatch.setitem(document_access._entity_resolvers, "test_drawing", held)
+    monkeypatch.setitem(document_access._entity_access_checks, "test_drawing", out_of_reach)
+    record = uuid.uuid4()
+
+    with pytest.raises(NotFoundError) as refused:
+        await assert_entity_held(_session(), _tenant(), "test_drawing", record, principal=_filer())
+    # The check alone decides for a filer: it refuses an id naming nothing too,
+    # because a resolver's differently worded 404 beside it would be an oracle.
+    assert refused.value.message == f"Test drawing not found: {record}."
+    assert seen == [("access", record)]
+
+    # A module filing against its own record passes no principal: resolved.
+    await assert_entity_held(_session(), _tenant(), "test_drawing", record)
+    # A type with a resolver and no access check resolves a filer as before.
+    monkeypatch.delitem(document_access._entity_access_checks, "test_drawing")
+    await assert_entity_held(_session(), _tenant(), "test_drawing", record, principal=_filer())
+
+    assert seen == [("access", record), ("resolver", record), ("resolver", record)]

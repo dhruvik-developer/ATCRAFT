@@ -17,6 +17,14 @@ no foreign key - it cannot have one, the type is polymorphic - so without one a
 file was filed against another company's record or an id naming none, with
 201, and listed nowhere. The generic upload resolves before it reads a byte; an
 entity type no module resolves is stored as given (docs/assumptions.md §DOC-2).
+
+Entity access checks hold a person filing against a type to the records they
+may open there, where the owner's read route refuses more than the company
+does: a report job answers 404 on ``GET /reports/jobs/{id}`` to a caller who may
+not open it, and a 201 for filing against that id told them it was a job. For a
+caller with a principal, a registered check replaces the resolver, so it must
+refuse an id naming nothing and another company's record with the very 404 it
+gives a record out of reach - two differently worded 404s are the same oracle.
 """
 
 import uuid
@@ -41,6 +49,14 @@ _attach_policies: dict[str, Permission] = {}
 #: in practice that repository's ``get_or_404``. Awaited for that refusal alone.
 DocumentEntityResolver = Callable[[AsyncSession, TenantContext, uuid.UUID], Awaitable[object]]
 _entity_resolvers: dict[str, DocumentEntityResolver] = {}
+
+#: Reads one record of an entity type for the person filing against it, through
+#: the check its owner's read route applies, raising one ``NotFoundError`` for a
+#: missing id, another company's and a record this person may not open.
+DocumentEntityAccessCheck = Callable[
+    [AsyncSession, TenantContext, Principal, uuid.UUID], Awaitable[object]
+]
+_entity_access_checks: dict[str, DocumentEntityAccessCheck] = {}
 
 
 def register_document_read_policy(name: str, policy: DocumentReadPolicy) -> None:
@@ -89,18 +105,39 @@ def document_entity_resolver(entity_type: str | None) -> DocumentEntityResolver 
     return None if entity_type is None else _entity_resolvers.get(entity_type)
 
 
+def register_document_entity_access(entity_type: str, check: DocumentEntityAccessCheck) -> None:
+    """Hold a person filing under ``entity_type`` to the records they may open there."""
+    _entity_access_checks[entity_type] = check
+
+
+def document_entity_access_check(entity_type: str | None) -> DocumentEntityAccessCheck | None:
+    """The check a person filing under ``entity_type`` passes, or ``None`` when none is."""
+    return None if entity_type is None else _entity_access_checks.get(entity_type)
+
+
 async def assert_entity_held(
     session: AsyncSession,
     tenant: TenantContext,
     entity_type: str | None,
     entity_id: uuid.UUID | None,
+    *,
+    principal: Principal | None = None,
 ) -> None:
     """Refuse to file a document against a record this company does not hold.
 
     404 ``NOT_FOUND`` naming the record, the same for an unknown id and another
-    company's, as every tenant-scoped read answers. An entity type no module
-    resolves - and no entity at all - is accepted as given.
+    company's, as every tenant-scoped read answers. A person (``principal``)
+    filing under a type whose owner registered an access check is held to it
+    instead, which refuses a record they may not open with that same 404. An
+    entity type no module resolves - and no entity at all - is accepted as given.
     """
+    if entity_id is None:
+        return
+    if principal is not None:
+        check = document_entity_access_check(entity_type)
+        if check is not None:
+            await check(session, tenant, principal, entity_id)
+            return
     resolver = document_entity_resolver(entity_type)
-    if resolver is not None and entity_id is not None:
+    if resolver is not None:
         await resolver(session, tenant, entity_id)
