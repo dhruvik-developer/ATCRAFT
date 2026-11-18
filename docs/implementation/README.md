@@ -32,7 +32,10 @@ The [26 October local release verification](release-verification-20261026.md)
 records the populated portal/responsive/accessibility checks, patched web/proxy
 runtime, seed and restore proofs. D4 DSC/PAdES remains deferred pending the
 signing/legal model. Application-wide standards checks are recorded in the
-[22–23 October verification](development-standards-20261022.md); local setup and
+[22–23 October verification](development-standards-20261022.md) and the
+[8–18 November standards pass](development-standards-20261118.md); the
+[17 November production hardening](production-hardening-20261117.md) records the
+dashboard and saved-report permission fixes. Local setup and
 the repeatable demonstration seed are documented in the
 [local seed workflow](../local-seed-data.md). The D4/PAdES compliance and
 procurement plan is in
