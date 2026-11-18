@@ -84,6 +84,7 @@ import { toast } from '@/lib/toast'
 import {
   CATALOGUE_ENTITY_TYPE,
   DOCUMENT_CATEGORIES,
+  ENTITY_TYPE_LABELS,
   ENTITY_TYPE_PATTERN,
   FILE_KINDS,
   KNOWN_ENTITY_TYPES,
@@ -160,6 +161,8 @@ function retentionOf(doc: DocumentRow): { label: string; expired: boolean } {
 interface UploadErrors {
   file?: string
   entity?: string
+  /** The API's 404 for a record id this company does not hold, shown on that field. */
+  record?: string
   expires?: string
 }
 
@@ -224,6 +227,12 @@ function UploadDialog({
       // The mutation cache stays quiet for a 422 with field detail on the
       // understanding that the form shows it.
       if (!(error instanceof ApiError)) return
+      // A record id nobody holds is a 404 naming the record; it belongs on the id
+      // field, so the alert does not say it a second time.
+      if (error.status === 404 && entityType.trim() !== '') {
+        setErrors({ record: error.message })
+        return
+      }
       const fields = error.fieldErrors
       const joined = (...keys: string[]) => {
         const messages = keys.flatMap((key) => fields[key] ?? [])
@@ -364,7 +373,7 @@ function UploadDialog({
               />
               <datalist id="document-entity-type-options">
                 {KNOWN_ENTITY_TYPES.map((entry) => (
-                  <option key={entry} value={entry} />
+                  <option key={entry} value={entry} label={ENTITY_TYPE_LABELS[entry]} />
                 ))}
               </datalist>
             </div>
@@ -376,9 +385,11 @@ function UploadDialog({
                 autoComplete="off"
                 className="mt-1.5 font-mono text-xs"
                 value={entityId}
-                aria-invalid={Boolean(errors.entity)}
+                aria-invalid={Boolean(errors.entity || errors.record)}
+                aria-describedby={errors.record ? 'document-entity-id-error' : undefined}
                 onChange={(event) => setEntityId(event.target.value)}
               />
+              <FieldError id="document-entity-id-error" message={errors.record} />
             </div>
           </div>
           <p className="-mt-2 text-xs text-muted-foreground">
@@ -421,7 +432,7 @@ function UploadDialog({
             </div>
           </div>
 
-          {upload.error && (
+          {upload.error && !errors.record && (
             <Alert variant="destructive">
               <AlertTitle>Could not store the file</AlertTitle>
               {/* A model-level 422 belongs to no field, and nothing else would say it. */}
@@ -1003,7 +1014,7 @@ export default function DocumentsPage() {
               />
               <datalist id="documents-entity-type-options">
                 {KNOWN_ENTITY_TYPES.map((entry) => (
-                  <option key={entry} value={entry} />
+                  <option key={entry} value={entry} label={ENTITY_TYPE_LABELS[entry]} />
                 ))}
               </datalist>
 

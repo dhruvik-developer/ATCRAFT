@@ -156,13 +156,52 @@ export const ENTITY_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * The nouns this system actually files documents under today.
+ * The record types the API resolves, so a record id filed under one is checked
+ * against this company's own records (404 otherwise): the registry behind
+ * `register_document_entity_resolver`, and the list in the upload endpoint's
+ * description. `test_document_entity_resolvers.py` fails when this list names a
+ * type nothing resolves.
  *
- * Suggestions, not a closed set: any snake_case noun is accepted, and a module
- * that starts attaching files tomorrow will invent its own. Offering the known
- * ones saves typing without pretending the list is exhaustive.
+ * Suggestions, not a closed set: the API stores any other snake_case noun as
+ * given, so the field stays free text. Offering the resolvable ones saves
+ * typing without pretending the list is exhaustive.
  */
-export const KNOWN_ENTITY_TYPES = ['qc_inspection', 'packing_order', 'report_snapshot'] as const
+export const KNOWN_ENTITY_TYPES = [
+  'item',
+  'qc_inspection',
+  'purchase_order',
+  'goods_receipt',
+  'purchase_return',
+  'vendor',
+  'sales_order',
+  'sales_invoice',
+  'credit_note',
+  'warehouse',
+  'packing_order',
+  'report_snapshot',
+  'inventory_valuation',
+  'job_work_challan',
+] as const
+
+export type KnownEntityType = (typeof KNOWN_ENTITY_TYPES)[number]
+
+/** What a person calls each record type; the snake_case noun is what is stored. */
+export const ENTITY_TYPE_LABELS = {
+  item: 'Item',
+  qc_inspection: 'QC inspection',
+  purchase_order: 'Purchase order',
+  goods_receipt: 'Goods receipt',
+  purchase_return: 'Purchase return',
+  vendor: 'Vendor',
+  sales_order: 'Sales order',
+  sales_invoice: 'Sales invoice',
+  credit_note: 'Credit note',
+  warehouse: 'Warehouse',
+  packing_order: 'Packing order',
+  report_snapshot: 'Report snapshot',
+  inventory_valuation: 'Inventory valuation',
+  job_work_challan: 'Job-work challan',
+} as const satisfies Record<KnownEntityType, string>
 
 /**
  * The record type the dealer catalogue publishes from. Every JPEG, PNG or WebP

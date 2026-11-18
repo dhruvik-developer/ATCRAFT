@@ -8,15 +8,17 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
 import { fail, page, renderScreen, type RouteHandler } from '@/test/harness'
 
+import { KNOWN_ENTITY_TYPES } from './document-model'
 import DocumentsPage from './documents-page'
 
-async function uploadRefusedWith(response: RouteHandler) {
+async function uploadRefusedWith(response: RouteHandler, record?: { type: string; id: string }) {
   const view = renderScreen(
     <>
       <DocumentsPage />
@@ -36,6 +38,10 @@ async function uploadRefusedWith(response: RouteHandler) {
     within(dialog).getByLabelText(/^File/),
     new File(['%PDF-1.7'], 'certificate.pdf', { type: 'application/pdf' }),
   )
+  if (record) {
+    await view.user.type(within(dialog).getByLabelText('Attach to record type'), record.type)
+    await view.user.type(within(dialog).getByLabelText('Record id'), record.id)
+  }
   await view.user.click(within(dialog).getByRole('button', { name: 'Upload' }))
   await waitFor(() => expect(view.fetch.calls.some((call) => call.method === 'POST')).toBe(true))
   return dialog
@@ -106,6 +112,41 @@ describe('a refused upload', () => {
       ),
     ).toBeVisible()
     expect(within(dialog).queryByText('Some fields need attention.')).not.toBeInTheDocument()
+    expect(toastAlerts()).toHaveLength(0)
+  })
+})
+
+describe('the record an upload is attached to', () => {
+  it('offers every record type the API resolves, with a name a person would use', async () => {
+    renderScreen(<DocumentsPage />, {
+      permissions: [P.DOCUMENT_VIEW, P.DOCUMENT_UPLOAD],
+      routes: { 'GET /documents': page([]) },
+    })
+    const openers = await screen.findAllByRole('button', { name: 'Upload a file' })
+    await userEvent.click(openers[0] as HTMLElement)
+    await screen.findByRole('dialog')
+
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>('#document-entity-type-options option'),
+    )
+    expect(options.map((option) => option.value)).toEqual([...KNOWN_ENTITY_TYPES])
+    expect(options.map((option) => option.value)).toContain('purchase_order')
+    expect(options.find((option) => option.value === 'goods_receipt')?.label).toBe('Goods receipt')
+    expect(options.every((option) => option.label !== '')).toBe(true)
+  })
+
+  it("puts the API's 404 on the record id field, once", async () => {
+    const dialog = await uploadRefusedWith(
+      fail(404, 'NOT_FOUND', 'Purchase order 3f2a not found.'),
+      { type: 'purchase_order', id: '0197c2a4-5b1e-7c3d-8a9b-0123456789ab' },
+    )
+
+    const message = await within(dialog).findByText('Purchase order 3f2a not found.')
+    expect(message).toBeVisible()
+    expect(within(dialog).getByLabelText('Record id')).toHaveAccessibleDescription(
+      'Purchase order 3f2a not found.',
+    )
+    expect(within(dialog).queryByText('Could not store the file')).not.toBeInTheDocument()
     expect(toastAlerts()).toHaveLength(0)
   })
 })
