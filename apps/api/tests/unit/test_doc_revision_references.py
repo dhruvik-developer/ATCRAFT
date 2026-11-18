@@ -45,12 +45,8 @@ _SQUASH_NOTE = re.compile(r"docs/implementation/migration-squash-\d{8}\.md")
 #: Retired revisions a document names on purpose, as history: what a section
 #: once added, the former head a pre-squash database must sit at, the revision a
 #: rehearsal migrated to. Each entry is a sentence someone checked says "retired",
-#: "formerly" or "before the squash" - or, for CLAUDE.md, one only its owner may
-#: reword.
+#: "formerly" or "before the squash".
 HISTORY: Mapping[str, frozenset[str]] = {
-    # "now part of baseline migration 20261021_0100" - the October baseline,
-    # itself squashed on 8 November; CLAUDE.md is the owner's to correct.
-    "CLAUDE.md": frozenset({"20261021_0100"}),
     # The revision a pre-squash database must record before it is stamped.
     "ONE-BOX-RUNBOOK.md": frozenset({"20261126_0100"}),
     "docs/deployment.md": frozenset({"20261126_0100"}),

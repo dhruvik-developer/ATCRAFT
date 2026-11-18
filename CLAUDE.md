@@ -463,9 +463,8 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   `features/items/item-model.ts` is declared by hand rather than as
   `SchemaOf<'...'>`, so `tsc` checks it against no contract at all. When
   `items.valuation_method` was dropped from the API (now part of baseline
-  migration `20261021_0100`; every item is FIFO) - the interface kept declaring
-  it and
-  `item-detail-page.tsx` kept drawing a "Valuation" row from it. `humanise`
+  migration `20261127_0100`; every item is FIFO) - the interface kept declaring
+  it and `item-detail-page.tsx` kept drawing a "Valuation" row from it. `humanise`
   returns `'-'` for `undefined`, so every item in the ERP showed a labelled row
   with a dash in it for months, on a screen people read daily, with a green
   build the whole time. The reason the shape is hand-written at all is worth
@@ -541,7 +540,13 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   signed interpreter. When a tool fails with "An Application Control policy
   has blocked this file", read `Microsoft-Windows-CodeIntegrity/Operational`
   before suspecting the code, and route the tool through `python -m` rather
-  than skipping it.
+  than skipping it. On 15 November 2026, after a five-day pause, it refused
+  mypy 2.3.1's mypyc-compiled core, so the pre-push hook's mypy step failed
+  before checking anything. The venv now runs mypy's pure-Python wheel
+  (`mypy-2.3.1-py3-none-any.whl`, whose hash `requirements-dev.lock` pins):
+  `mypy --version` reports `compiled: no` and `mypy src` takes about two
+  minutes. Fix such a block in the venv only; the locks stay as CI and the
+  image need them.
 - **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
   `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
   box at its single-line max-content width, so the inner wrap never fires and
@@ -592,6 +597,59 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   not versioned, so a fresh checkout needs it set again. `git ls-remote` proves
   nothing about this on a public repository; `git push --dry-run origin
   refs/remotes/origin/develop:refs/heads/develop` authenticates and pushes nothing.
+- **FastAPI 0.141 stopped copying an included router's routes, which emptied a
+  route guard.** `include_router` now appends one lazy `_IncludedRouter` that
+  keeps the original router and the prefix it was included under, so
+  `[r for r in router.routes if isinstance(r, APIRoute)]` over a router that
+  includes others returns nothing. `test_http_route_conventions.py` iterated
+  exactly that and passed having checked zero routes until 8 November 2026.
+  `tests/route_support.py` walks the inclusions with their prefixes, raises on
+  any entry it does not recognise, and `assert_matches_contract` compares what it
+  found with `openapi.json`. A route guard enumerates through it, or it checks
+  nothing the next time FastAPI's internals move.
+- **Two agents in one checkout share more than the working tree.** While a
+  commit's hooks run, pre-commit hides every other unstaged change in the tree
+  and restores it about a minute later, and the pre-push hook does the same for
+  its whole run when the tree is dirty as it starts; an agent that edits a file
+  meanwhile can lose the edit when the restore conflicts, and a test run in that
+  window tests code that is not there. The index is shared too: a plain
+  `git commit` takes whatever the other agent has staged. Commit with
+  `git commit --only <paths>`, and push only when no agent is editing.
+- **A focused test run is not the push gate.** `reportFieldErrors` began naming
+  a refused field in words (`Produced quantity: ...`) while an unrelated
+  production screen test still pinned the raw key, and the full Vitest run in
+  pre-push refused the push for everyone. When a shared helper's output changes,
+  grep the whole test tree for the old output and run every file that asserts
+  it. The pre-push hook runs only the unit suites, so the same mistake in a
+  database or browser test lands on develop and fails in CI instead: unifying
+  the self-approval refusal as 403 `APPROVAL_REQUIRED` left four HTTP tests
+  pinning the old 422, and folding two charts' screen-reader tables into one
+  component kept the variant with `sr-only` on the `<table>` - a table is never
+  narrower than its content and `overflow` does not clip it, so the hidden table
+  widened the 320px finance page and the e2e layout journey failed. When you
+  fold copies into one shared component, compare what each copy did first.
+- **structlog's defaults render a logged traceback with rich and every frame's
+  locals.** A test that builds the app without its lifespan never calls
+  `configure_logging`, so it logs through structlog's default `ConsoleRenderer`:
+  6-7 s per unhandled error through the real app, and over 45 s with a large
+  object in a frame. `tests/conftest.py` configures the application's logging
+  for the whole session, and `tests/unit/test_session_logging.py` fails if a
+  session logs under the defaults again.
+- **A generated file regenerated in a shared tree captures whatever is
+  uncommitted.** `openapi.json`, `postman_collection.json` and
+  `apps/web/src/types/openapi.ts` are produced from the working tree, not from
+  HEAD. A frontend refactor ran `npm run contract:types` while another change to
+  the upload route's description sat uncommitted in `openapi.json`, and committed
+  the regenerated types with its own work: HEAD's types then described a contract
+  HEAD did not have, and the `contract-types-web` hook refused the next push for
+  everyone. Before committing a generated file, diff it and commit only what
+  your own change produced.
+- **A refusal added to an API changes every screen that sends that request.**
+  Stopping a warehouse-restricted administrator from granting "every
+  warehouse", which is what an omitted `allowed_warehouse_ids` means, was right;
+  but the user form never sent the field, so afterwards those administrators
+  could not create a user from the screen at all. Before tightening a write, find the
+  screens that call it and check what they send.
 
 ## Things not to do
 
