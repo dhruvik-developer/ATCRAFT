@@ -1079,13 +1079,26 @@ in the `AVAILABLE` pool; a release landing it elsewhere leaves the unit
 recorded at, compared by warehouse **and** bin, but only where the movement states
 a bin.
 
+A unit may be registered ahead of its goods - a label keyed from a packing
+list - and is registered `IN_STOCK`, because the vocabulary has no "expected"
+state; its first receipt is the `IN_STOCK -> IN_STOCK` self edge. Only the
+ledger tells such a label from a unit already received, so a second receipt of
+a received unit is refused (`already_received` in `serial_transition`). A
+registration's position is recorded exactly as stated: one naming a bin and no
+warehouse is checked (the bin is this company's, in a store the caller is
+assigned to) but no warehouse is inferred from it, and one placed at warehouse
+level has no bin. A recorded warehouse or bin that is NULL gives a movement
+nothing to disagree with, so that half of the comparison is skipped.
+
 **Why.** Clearing the position on issue or dispatch destroyed the last-known
 location, which is the first thing anyone wants during a recall — and three other
 modules read `warehouse_id` as a liveness check, so clearing it broke them.
 Status already carries "is it still ours".
 
 **Where.** `src/modules/inventory/service.py` — `MovementEngine._advance_serial`,
-`serial_transition`, `assert_unit_is_where_the_movement_is`.
+`serial_transition`, `SERIAL_FLOW`, `assert_unit_is_where_the_movement_is`,
+`TraceabilityService._validate_serial_position`;
+`src/modules/inventory/repository.py` — `LedgerRepository.received_serial_ids`.
 
 **Impact if wrong.** Reports that ask "where is this unit" answer with the last
 place it was seen rather than `NULL` once it has shipped. Consumers must read
@@ -4619,14 +4632,7 @@ contexts use an empty assignment; user-driven operations retain the caller's
 assignment. This clarifies existing assignment semantics without changing the
 database schema.
 
-The serial register follows the same policy. A restricted user lists, opens and
-prints labels only for units positioned in an assigned warehouse, and may
-register a unit only at an assigned warehouse or at a bin inside one (403
-`SCOPE_DENIED` otherwise). A unit with no warehouse yet - a label registered
-ahead of the goods - is in no store and stays visible to everyone in the
-company. The movement engine and the documents' own unit checks resolve units
-under their own rules and are not narrowed by the reader's assignment
-(`StockSerialRepository._visible`).
+The serial register follows the same policy (§WH-3).
 
 ## §D1-3. Planning provenance records causes, not quantity allocations
 
@@ -5461,6 +5467,32 @@ storage locations.
 
 **Impact if wrong.** A site that genuinely needs more levels raises the constant.
 
+## §WH-3. The serial register follows the warehouse assignment, and a unit with no warehouse is in no store
+
+**Assumed.** A user restricted to some warehouses lists, opens and prints labels
+only for units positioned in an assigned warehouse, and may register a unit only
+at an assigned warehouse or at a bin inside one (403 `SCOPE_DENIED` otherwise).
+A unit with no warehouse yet - a label registered ahead of the goods - is in no
+store and stays visible to everyone in the company. The movement engine and the
+documents' own unit checks resolve units under their own warehouse rules and are
+not narrowed by the reader's assignment.
+
+**Why.** The register would otherwise tell a user assigned to one store which
+units sit in which bins of another, the position the balance screens already
+hide from them, and a unit they registered in a store they are not assigned to
+would be one they could never read back. A unit nobody has positioned is in no
+store, so no assignment can claim it. A movement must never lose a unit to the
+reader's scope.
+
+**Where.** `src/modules/inventory/repository.py` -
+`StockSerialRepository._visible`; `src/modules/inventory/service.py` -
+`TraceabilityService._validate_serial_position`.
+
+**Impact if wrong.** If a unit with no warehouse should be hidden from
+restricted users, drop the `warehouse_id IS NULL` arm of `_visible`; only an
+unrestricted user could then read or print a label registered ahead of its
+goods.
+
 ## §PROD-1. A job may draw or book 10% beyond plan, and carries at most 500 components
 
 **Assumed.** A production order may issue up to 10% more of a component than its
@@ -5621,6 +5653,191 @@ a physical count is created.
 
 **Impact if wrong.** Raise the constant, knowing the count is built in one
 transaction.
+
+## §INV-2. Held and damaged stock sit inside on-hand; transit, job work and scrap outside it
+
+**Assumed.** A position's `on_hand_quantity` counts the stock physically there:
+the free pool - available and returned stock, part of which may be reserved -
+and the QC-held and damaged sub-pools (`ON_HAND_STATES`). Stock in transit, out
+at a job-work vendor or set aside as scrap is still the company's, but sits
+outside on-hand in a column of its own. A `QC_HOLD` or `QC_RELEASE` therefore moves
+stock between sub-pools and leaves `on_hand_quantity` alone
+(`ON_HAND_NEUTRAL_TYPES`); the ledger keeps the signs the contract gives those
+two types, which describe their effect on the available pool. A stock
+transfer's quantity is held on the **destination** balance's
+`in_transit_quantity` from dispatch until receipt, not on the source's.
+
+**Why.** The contract names the columns but not their relationship. The
+generated `available_quantity` is `on_hand - reserved - qc_hold - damaged`,
+which holds only if held and damaged stock are part of on-hand: a hold that also
+reduced on-hand would subtract the same quantity twice. Counting transit, job
+work or scrap inside on-hand would double count ownership; leaving held stock
+outside it would hide it from availability. Stock in transit is no longer at the
+source, and the destination is where a storekeeper or a planner asks what is
+coming.
+
+**Where.** `src/modules/inventory/models.py` - `ON_HAND_STATES`,
+`ON_HAND_NEUTRAL_TYPES`, `STATE_BUCKETS`, `InventoryBalance.available_quantity`,
+`StockTransfer`; `src/modules/inventory/service.py` -
+`StockTransferService.dispatch`.
+
+**Impact if wrong.** If a hold should physically move stock into a QC warehouse
+instead - the other defensible model - it becomes a transfer and leaves
+`ON_HAND_NEUTRAL_TYPES`. Holding transit on the source would change both
+transfer legs and every report that reads the destination's in-transit figure.
+
+## §INV-3. An arrival opens a new FIFO layer, priced by a fixed precedence and dated when it lands
+
+**Assumed.** Every arrival - a receipt, a return, a reversal, a transfer's
+inbound leg - opens a **new** cost layer, and a consumed layer is never
+re-opened, so returned goods join the back of the queue. A layer that needs a
+price takes the first positive figure of: the cost the movement states, the
+item's standard cost, what the position's remaining stock cost, and the
+position's last derived cost (`inbound_unit_cost`) - the precedence the weighted
+average used before FIFO. A document that knows what it issued passes that cost
+back, as a production return and a stock transfer do; a return that names no
+cost is priced by the same precedence, so at the item's standard cost when it
+has one. A layer opened at a transfer's destination is dated at the arrival, not
+at the original purchase, and the layers a transfer carries are opened in the
+order the source gave them up, so the UUIDv7 tiebreaker consumes them at the
+destination in source-FIFO order. An emptied position keeps its last derived
+`average_cost` rather than falling to zero; its `stock_value` is zero either
+way.
+
+**Why.** Re-opening a consumed layer would rewrite history that consumption rows
+and costed ledger entries already point at, and would put returned goods at the
+front of the queue when they are the newest thing on the shelf. Reordering the
+price precedence would silently re-value every module that posts a receipt
+without naming a cost - production output, assembly output, a QC release. FIFO
+is a property of a stock position: at the destination the goods arrived today,
+and stock already standing there is older and goes first. An emptied position
+has no layers to derive a new figure from, and its last known cost is what an
+adjustment or a count re-books stock at.
+
+**Where.** `src/modules/inventory/service.py` - `inbound_unit_cost`,
+`derive_average_cost`, `MovementEngine._write_layers`;
+`src/modules/inventory/models.py` - `InventoryBalance.average_cost`.
+
+**Impact if wrong.** A business that transfers stock often enough for the two to
+diverge may want each layer to keep its original `received_at` across a
+transfer, so the company consumes by acquisition date wherever the goods are;
+that is a change to `_write_layers` alone. A return priced at standard cost
+changes the position's value by the difference from what the goods first cost;
+a caller that knows the number should pass it.
+
+## §INV-4. A departure costs what its layers held, and layers that disagree with the stock are repaired
+
+**Assumed.** An outbound movement is costed from the layers it consumes, oldest
+first. It ignores any unit cost the caller supplies while the position has a
+cost of its own; a supplied cost is used only when there is nothing to draw on
+(`outbound_unit_cost`). Before a movement is costed, a position whose open
+layers do not add up to its `on_hand_quantity` - stock that predates FIFO
+valuation and that the backfill missed, or a movement an older deployment posted
+without touching a layer - is repaired in **either** direction: a shortfall
+becomes one layer at the position's recorded `average_cost` (the item's standard
+cost when that is zero), dated before every other layer there, and an excess is
+consumed oldest first. Each repair logs a warning and writes an audit row
+against the balance naming the direction, the quantity and the value. The scrap
+queue is repaired by the same rules against `scrap_quantity`. Whatever the
+layers still cannot cover is priced by the outbound precedence rather than
+refused.
+
+**Why.** Letting the caller's number through would let a document drain a
+position of value by quoting a low price. A repair at the position's own average
+invents nothing: the balance already claimed `on_hand x average_cost`. An excess
+was once left unrepaired as "a visible discrepancy", and it was not visible: the
+next ordinary posting recomputed `stock_value` from the layers and inflated the
+position back up. So both directions are repaired and neither is silent.
+Refusing to move stock that is physically present over a valuation gap would be
+worse than a bounded, visible error in its cost.
+
+**Where.** `src/modules/inventory/service.py` - `consume_layers`,
+`outbound_unit_cost`, `MovementEngine._reconcile_layers`,
+`MovementEngine._audit_reconciliation`.
+
+**Impact if wrong.** If a gap between the layers and the stock should stop the
+movement until someone investigates, `_reconcile_layers` raises instead of
+repairing, and every movement at such a position is refused until then.
+
+## §INV-5. An inactive item, warehouse or bin gives stock up but takes none in
+
+**Assumed.** Master-data policy - an inactive item, warehouse or bin, and the
+batch requirement of §23 - gates only a movement that starts stock **into** a
+position: one with no resolved source pool, and not the arrival of a transfer
+already in transit (`gates_policy`). A deactivated item or warehouse, or a
+retired bin, may still give its stock up. The serial requirement is the
+deliberate exception: it also gates every departure that changes the unit's
+status, because `serial_id` is not part of the balance grain (§23). A stock
+transfer's dispatch checks the destination with the active-flag rules its
+receipt would apply; the receipt itself is held only to the rules about the
+position being real - the row exists, it is this company's, the bin is in the
+warehouse, the lot and units belong to the item - and not to policy that changed
+while the goods travelled.
+
+**Why.** A rule that refuses an outbound movement does not make the stock
+conform to the flag; it makes the stock unreachable behind it, which is worse
+than what the flag prevents. A transfer has no way out of `IN_TRANSIT` except
+`RECEIVED`, so a rule that could refuse the arrival after the dispatch posted
+would strand the goods in the destination's in-transit figure, on a document
+nobody can close. Refusing at dispatch is safe: nothing has moved, and the
+document can still be cancelled.
+
+**Where.** `src/modules/inventory/service.py` - `validate_movement`
+(`gates_policy`), `MovementEngine._validate_grain` (`receiving=True`).
+
+**Impact if wrong.** If a deactivated item must not leave either, the refusal
+belongs on the deactivation while stock remains, not on the movement. Booking
+arriving goods into a retired position is deliberate: the operator can then
+transfer them out or write them off.
+
+## §INV-6. A unit returned to a vendor is DISPATCHED, one adjusted out is SCRAPPED, a customer return is RETURNED
+
+**Assumed.** `SERIAL_MOVEMENT_TARGETS` fixes the status each movement type leaves
+a serial-tracked unit in. Three entries are judgement calls: a purchase return
+leaves the unit `DISPATCHED`, an adjustment decrease leaves it `SCRAPPED`, and a
+customer return lands it `RETURNED` rather than `IN_STOCK`. A QC hold, a QC
+release and a scrap disposal leave the status alone; the two legs of a transfer
+set `IN_TRANSIT` and then `IN_STOCK` (§25), and a count shortage sets `MISSING`
+(§E8b-4).
+
+**Why.** The contract fixes both vocabularies but not the mapping between them.
+It has no vendor-return state, and a unit sent back to its vendor has genuinely
+left the company. It has no "lost" state either, and leaving a written-off unit
+`IN_STOCK` is the defect the mapping exists to prevent. A unit that has been out
+to a customer should be distinguishable from one that never left; a QC release
+into the available pool later resolves it to `IN_STOCK` (section 30).
+
+**Where.** `src/modules/inventory/service.py` - `SERIAL_MOVEMENT_TARGETS`, read by
+`serial_transition` and by the serial gate in `validate_movement` (§23).
+
+**Impact if wrong.** If a vendor return or a write-off needs a state of its own,
+add it to `SerialStatus` and change the entry; the gate and the lifecycle read
+the same mapping, so they move together.
+
+## §INV-7. A count posts against the stock it finds, and records the drift
+
+**Assumed.** Confirming a physical count re-reads each position under the
+posting's row lock and posts `counted - current`, not `counted - snapshot`. A
+line whose stock moved between the sheet's snapshot and the confirmation is
+still posted, and the movement is listed in the confirmation's audit entry
+(`drifted_positions`) rather than refused pending a recount. A line whose stock
+drifted back to the counted quantity posts nothing and reports a variance value
+of zero, although its `variance_quantity`, measured against the snapshot, is not
+zero. Each line's `variance_value`, and the sheet's total, are restated from the
+ledger rows the engine wrote.
+
+**Why.** Between the snapshot and the confirmation other documents legitimately
+moved stock, and posting against the snapshot would silently reverse each of
+them and call it a count variance. The count is the physical fact, and the
+system should end up agreeing with it. Refusing a drifted line would make the
+sheet unfinishable in any warehouse that is still working; a long drift list is
+the signal that the count is worth repeating. A line that posts nothing wrote
+nothing off, so it reports nothing written off.
+
+**Where.** `src/modules/inventory/service.py` - `PhysicalCountService.confirm`.
+
+**Impact if wrong.** If a drifted line must be recounted, `confirm` refuses while
+the drift list is non-empty, which needs the warehouse frozen for every count.
 
 ## §PRIORITY-1. A sales or purchase priority is 1 to 9, 5 by default
 

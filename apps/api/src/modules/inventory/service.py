@@ -778,9 +778,9 @@ def consume_layers(
     ``remaining_quantity`` at zero, because the consumption rows point at it and
     it is the evidence for what that issue cost.
 
-    ASSUMPTION: ``uncovered_quantity`` is what the layers could not account
-    for, and it is priced rather than refused. In a healthy position it is
-    always zero: on-hand can never go negative (the check
+    ASSUMPTION (docs/assumptions.md §INV-4): ``uncovered_quantity`` is what the
+    layers could not account for, and it is priced rather than refused. In a
+    healthy position it is always zero: on-hand can never go negative (the check
     constraint, not just the service), and every movement that changes on-hand
     changes the layers by the same amount, so the two cannot come apart. It is
     not zero when a position's layers were never built - stock that predates
@@ -835,13 +835,14 @@ def inbound_unit_cost(
 ) -> Decimal:
     """What one unit of an arrival costs when the layer to open needs a price.
 
-    ASSUMPTION: the precedence is the caller's stated cost, then the item's
-    standard cost, then what the position's remaining stock cost, then its last
-    derived cost. It is the precedence the weighted average used before FIFO and
-    it is kept deliberately: FIFO changes which cost *leaves* a position, not
-    where an unpriced arrival gets its price from, and reordering it here would
-    silently re-value every module that posts a receipt without naming a cost -
-    production output, assembly output, a QC release.
+    ASSUMPTION (docs/assumptions.md §INV-3): the precedence is the caller's
+    stated cost, then the item's standard cost, then what the position's
+    remaining stock cost, then its last derived cost. It is the precedence the
+    weighted average used before FIFO and it is kept deliberately: FIFO changes
+    which cost *leaves* a position, not where an unpriced arrival gets its price
+    from, and reordering it here would silently re-value every module that posts
+    a receipt without naming a cost - production output, assembly output, a QC
+    release.
 
     What that means for a round trip is worth stating rather than hiding. A
     document that knows what it issued passes that cost back and the round trip
@@ -871,11 +872,11 @@ def outbound_unit_cost(
     but still have to put a number on the ledger row - a QC hold, a scrapping of
     stock already at a job-work vendor.
 
-    ASSUMPTION unchanged from the weighted average: an outbound movement ignores
-    any unit cost the caller supplies while the position has a cost of its own.
-    A supplied cost is used only when there is nothing to draw on. Letting the
-    caller's number through would let a document drain a position of value by
-    quoting a low price.
+    ASSUMPTION (docs/assumptions.md §INV-4), unchanged from the weighted
+    average: an outbound movement ignores any unit cost the caller supplies
+    while the position has a cost of its own. A supplied cost is used only when
+    there is nothing to draw on. Letting the caller's number through would let a
+    document drain a position of value by quoting a low price.
     """
     return _first_positive(position_basis, average_before, movement_unit_cost, fallback_cost)
 
@@ -1335,9 +1336,9 @@ def find_shortfall(
     return None
 
 
-# ASSUMPTION: master-data policy gates the *start* of a movement into a
-# position, never the *completion* of one that is already under way, and never
-# the *exit* of a quantity the position already holds.
+# ASSUMPTION (docs/assumptions.md §INV-5): master-data policy gates the *start* of
+# a movement into a position, never the *completion* of one that is already under
+# way, and never the *exit* of a quantity the position already holds.
 #
 # The exit half is the one this rule kept losing. Whichever flag is at stake -
 # inactive item, retired bin, batch tracking, serial tracking - a rule that can
@@ -1483,9 +1484,10 @@ def validate_movement(
     # decision was taken, and checked, at dispatch.
     gates_policy = source_state is None and not movement.completes_in_transit
 
-    # ASSUMPTION: a deactivated item or warehouse may still give stock up, but
-    # may not take any in. Refusing outbound movements too would strand existing
-    # stock behind a flag, which is worse than the thing the flag prevents.
+    # ASSUMPTION (docs/assumptions.md §INV-5): a deactivated item or warehouse
+    # may still give stock up, but may not take any in. Refusing outbound
+    # movements too would strand existing stock behind a flag, which is worse
+    # than the thing the flag prevents.
     if gates_policy and not item.is_active:
         raise BusinessRuleError(
             inactive_record("Item", item.code, "cannot receive stock"),
@@ -1512,10 +1514,11 @@ def validate_movement(
                     "location_warehouse_id": str(location.warehouse_id),
                 },
             )
-        # ASSUMPTION: a retired bin may still give stock up, but may not take any
-        # in - the same rule the inactive item and warehouse above already
-        # follow, for the same reason. Refusing outbound movements would strand
-        # whatever is still in the bin behind the flag that retired it.
+        # ASSUMPTION (docs/assumptions.md §INV-5): a retired bin may still give
+        # stock up, but may not take any in - the same rule the inactive item
+        # and warehouse above already follow, for the same reason. Refusing
+        # outbound movements would strand whatever is still in the bin behind
+        # the flag that retired it.
         if gates_policy and not location.is_active:
             raise BusinessRuleError(
                 inactive_record("Storage location", location.code, "cannot receive stock"),
@@ -1926,7 +1929,7 @@ INTERNAL_ISSUE_FLOW: StateMachine[InternalIssueStatus] = StateMachine(
 #: the goods arrive - the number is keyed off the packing list - and it is
 #: registered ``IN_STOCK``, because the vocabulary has no "expected" state. The
 #: receipt that follows would otherwise be an illegal transition from the unit's
-#: own starting state. See ``docs/assumptions.md``.
+#: own starting state. See ``docs/assumptions.md`` section 30.
 #:
 #: The edge is *not* a licence to receive the same unit twice: it is qualified by
 #: ``already_received`` in :func:`serial_transition`, which the engine answers
@@ -2061,16 +2064,16 @@ BATCH_FLOW: StateMachine[BatchStatus] = StateMachine(
 #: still requires the unit to be in a warehouse. A transfer changes the unit's
 #: status on both legs: IN_TRANSIT at dispatch, IN_STOCK at receipt.
 
-# ASSUMPTION: which serial status each movement type leaves the unit in. The
-# contract fixes the vocabulary of both enums but not the mapping between them.
-# Three of these are judgement calls and are named here rather than buried:
-# a purchase return sends the unit back to the vendor, which is DISPATCHED
-# because the vocabulary has no vendor-return state and the unit has genuinely
-# left the company; an adjustment decrease writes a unit off, which is SCRAPPED
-# because there is no "lost" state and leaving it IN_STOCK is the defect this
-# mapping exists to fix; and a customer return lands on RETURNED rather than
-# IN_STOCK, so a unit that has been out to a customer is distinguishable from
-# one that never left.
+# ASSUMPTION (docs/assumptions.md §INV-6): which serial status each movement
+# type leaves the unit in. The contract fixes the vocabulary of both enums but
+# not the mapping between them. Three of these are judgement calls and are named
+# here rather than buried: a purchase return sends the unit back to the vendor,
+# which is DISPATCHED because the vocabulary has no vendor-return state and the
+# unit has genuinely left the company; an adjustment decrease writes a unit off,
+# which is SCRAPPED because there is no "lost" state and leaving it IN_STOCK is
+# the defect this mapping exists to fix; and a customer return lands on RETURNED
+# rather than IN_STOCK, so a unit that has been out to a customer is
+# distinguishable from one that never left.
 #
 #: ``None`` means the movement does not change whose hands the unit is in - it
 #: moves between pools of the same position - so the status is left alone and
@@ -2184,12 +2187,13 @@ def assert_unit_is_where_the_movement_is(
     is decided by something that happened one aisle over. Only the unstated case
     is waived, never a stated one that is wrong.
 
-    ASSUMPTION: a unit with no recorded warehouse, or no recorded bin, is
-    accepted. NULL means the unit has been registered from a packing list and
-    never positioned, or was positioned at warehouse level, so there is nothing
-    for the movement to disagree with. Whether a unit may leave before it has
-    ever arrived is a different rule, answered from the ledger by
-    ``already_received``, not from a position column that was never written.
+    ASSUMPTION (docs/assumptions.md section 30): a unit with no recorded
+    warehouse, or no recorded bin, is accepted. NULL means the unit has been
+    registered from a packing list and never positioned, or was positioned at
+    warehouse level, so there is nothing for the movement to disagree with.
+    Whether the unit has actually arrived is a different question, and the
+    ledger's to answer (``LedgerRepository.received_serial_ids``), not a position
+    column that was never written.
     """
     transaction_type = TransactionType(transaction_type)
     if relocates:
@@ -2866,11 +2870,12 @@ class MovementEngine:
         book value, so a repair there changes the cost a later disposal is
         measured at and nothing on the balance sheet.
 
-        ASSUMPTION: a position whose cost layers disagree with its
-        ``on_hand_quantity`` is repaired in **either** direction, visibly, at the
-        cost the position itself already claims - rather than refused, left
-        under-valued, or left over-valued. The reasoning is below; the
-        alternatives and why they are worse are the point of it.
+        ASSUMPTION (docs/assumptions.md §INV-4): a position whose cost layers
+        disagree with its ``on_hand_quantity`` is repaired in **either**
+        direction, visibly, at the cost the position itself already claims -
+        rather than refused, left under-valued, or left over-valued. The
+        reasoning is below; the alternatives and why they are worse are the
+        point of it.
 
         The invariant FIFO valuation rests on is that a position's open layers
         add up to its ``on_hand_quantity``, and their value to its
@@ -3595,28 +3600,29 @@ class MovementEngine:
         and it is the evidence for what a past issue cost. The partial index
         keeps it out of every future scan.
 
-        ASSUMPTION: every arrival opens a **new** layer; a consumed layer is
-        never re-opened. A material return, a customer return and a reversal are
-        all arrivals, and putting the quantity back into the layer it came out
-        of would do two wrong things: rewrite history that consumption rows and
-        costed ledger entries already point at, and put returned goods at the
-        *front* of the queue when they are physically the newest thing on the
-        shelf. Value is kept whole by the price instead - a document that knows
-        what it issued passes that cost back, which is exactly what a production
-        return does - and :func:`inbound_unit_cost` records what happens when it
-        does not.
+        ASSUMPTION (docs/assumptions.md §INV-3): every arrival opens a **new**
+        layer; a consumed layer is never re-opened. A material return, a
+        customer return and a reversal are all arrivals, and putting the
+        quantity back into the layer it came out of would do two wrong things:
+        rewrite history that consumption rows and costed ledger entries already
+        point at, and put returned goods at the *front* of the queue when they
+        are physically the newest thing on the shelf. Value is kept whole by the
+        price instead - a document that knows what it issued passes that cost
+        back, which is exactly what a production return does - and
+        :func:`inbound_unit_cost` records what happens when it does not.
 
-        ASSUMPTION: a layer opened at a transfer's destination is dated at the
-        *arrival*, not at the original purchase. FIFO is a property of a stock
-        position, and at this position the goods arrived today; stock already
-        standing here is older and is consumed first. The alternative - carrying
-        each layer's original ``received_at`` across the transfer so the company
-        consumes by acquisition date wherever the goods are - is defensible too,
-        and would matter to a business that transfers stock often enough for the
-        two to diverge. What is *not* negotiable, and is preserved here, is the
-        order of the carried layers among themselves: they share the arrival
-        timestamp and are opened in the order the source gave them up, so the
-        UUIDv7 tiebreaker consumes them at the destination in source-FIFO order.
+        ASSUMPTION (docs/assumptions.md §INV-3): a layer opened at a transfer's
+        destination is dated at the *arrival*, not at the original purchase.
+        FIFO is a property of a stock position, and at this position the goods
+        arrived today; stock already standing here is older and is consumed
+        first. The alternative - carrying each layer's original ``received_at``
+        across the transfer so the company consumes by acquisition date wherever
+        the goods are - is defensible too, and would matter to a business that
+        transfers stock often enough for the two to diverge. What is *not*
+        negotiable, and is preserved here, is the order of the carried layers
+        among themselves: they share the arrival timestamp and are opened in the
+        order the source gave them up, so the UUIDv7 tiebreaker consumes them at
+        the destination in source-FIFO order.
         """
         # Draws first, and only then the new layers: ``LayerDraw.index``
         # addresses ``open_layers`` as the valuation saw it, and appending to
@@ -4839,11 +4845,12 @@ class TraceabilityService:
             location = locations.get(location_id)
             if location is None:
                 raise NotFoundError("Storage location", location_id)
-            # ASSUMPTION: a bin named without a warehouse is accepted as given
-            # rather than used to infer one. The bin is real and belongs to this
-            # tenant, which is what the phantom-position rule is about; inferring
-            # the warehouse from it would be this service deciding a fact the
-            # caller did not state. Its store's assignment still applies.
+            # ASSUMPTION (docs/assumptions.md section 30): a bin named without a
+            # warehouse is accepted as given rather than used to infer one. The
+            # bin is real and belongs to this tenant, which is what the
+            # phantom-position rule is about; inferring the warehouse from it
+            # would be this service deciding a fact the caller did not state.
+            # Its store's assignment still applies.
             if warehouse_id is not None and location.warehouse_id != warehouse_id:
                 raise BusinessRuleError(
                     f"Storage location {location.code} is not in that warehouse.",
@@ -7164,12 +7171,13 @@ class PhysicalCountService:
         kept on the line, and where it disagrees with the locked value the audit
         entry records the drift.
 
-        ASSUMPTION: a line whose stock moved between the snapshot and the posting
-        is still posted, with the drift recorded, rather than refused pending a
-        recount. The count is the physical fact and the system should end up
-        agreeing with it; a long drift list is the signal that the warehouse was
-        not frozen and the count is worth repeating. Refusing instead would make
-        the sheet unfinishable in any warehouse that is still working.
+        ASSUMPTION (docs/assumptions.md §INV-7): a line whose stock moved
+        between the snapshot and the posting is still posted, with the drift
+        recorded, rather than refused pending a recount. The count is the
+        physical fact and the system should end up agreeing with it; a long
+        drift list is the signal that the warehouse was not frozen and the count
+        is worth repeating. Refusing instead would make the sheet unfinishable
+        in any warehouse that is still working.
 
         The **value** of the variance is taken from the postings, not computed
         beside them. Each line's ``variance_value`` and the sheet's total are
@@ -7180,12 +7188,12 @@ class PhysicalCountService:
         of a position holding 100 @ 500 and 900 @ 10 reported 3 540 of shrinkage
         and posted 30 000 of it.
 
-        ASSUMPTION: a counted line whose stock drifted back to the counted
-        quantity posts nothing and therefore reports a variance value of zero,
-        even though ``variance_quantity`` - which is measured against the
-        *snapshot* and is left alone - is not zero. Nothing was written off, so
-        nothing is reported as written off; the drift list below is where that
-        line is explained.
+        ASSUMPTION (docs/assumptions.md §INV-7): a counted line whose stock
+        drifted back to the counted quantity posts nothing and therefore reports
+        a variance value of zero, even though ``variance_quantity`` - which is
+        measured against the *snapshot* and is left alone - is not zero. Nothing
+        was written off, so nothing is reported as written off; the drift list
+        below is where that line is explained.
         """
         async with transaction(self.session):
             count = await self._locked(count_id)

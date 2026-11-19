@@ -1628,9 +1628,9 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         documents' unit checks resolve ids under their own warehouse rules, and
         the movement engine must never lose a unit to a reader's scope.
 
-        ASSUMPTION: a unit with no warehouse yet (a label registered ahead of
-        the goods) is in nobody's store and stays visible to everyone in the
-        company (docs/assumptions.md, warehouse assignment policy).
+        ASSUMPTION (docs/assumptions.md §WH-3): a unit with no warehouse yet (a
+        label registered ahead of the goods) is in nobody's store and stays
+        visible to everyone in the company.
         """
         scope = warehouse_scope(self.tenant, StockSerial.warehouse_id)
         if not scope:

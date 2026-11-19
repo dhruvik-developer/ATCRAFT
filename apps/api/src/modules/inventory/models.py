@@ -182,7 +182,8 @@ DECREASE_TYPES: frozenset[TransactionType] = frozenset(
     t for t, sign in TRANSACTION_SIGNS.items() if sign < 0
 )
 
-# ASSUMPTION: QC_HOLD and QC_RELEASE do not change on_hand_quantity.
+# ASSUMPTION (docs/assumptions.md §INV-2): QC_HOLD and QC_RELEASE do not change
+# on_hand_quantity.
 #
 # The database contract gives QC_HOLD a negative sign and QC_RELEASE a positive
 # one (section 4.2), while the generated available column is defined as
@@ -246,12 +247,12 @@ STATE_BUCKETS: dict[StockState, str | None] = {
     StockState.SCRAP: "scrap_quantity",
 }
 
-# ASSUMPTION: which pools sit inside on-hand and which sit outside it. The
-# contract names the columns but not their relationship. Reserved, QC-held and
-# damaged stock is physically here (the available formula requires it); in
-# transit, out at a job-work vendor and set aside as scrap is company-owned
-# stock that is not. Getting this backwards would either double count company
-# ownership or hide stock from availability.
+# ASSUMPTION (docs/assumptions.md §INV-2): which pools sit inside on-hand and
+# which sit outside it. The contract names the columns but not their
+# relationship. Reserved, QC-held and damaged stock is physically here (the
+# available formula requires it); in transit, out at a job-work vendor and set
+# aside as scrap is company-owned stock that is not. Getting this backwards
+# would either double count company ownership or hide stock from availability.
 
 #: States whose quantity is physically present in this warehouse position and
 #: therefore counted in ``on_hand_quantity``.
@@ -670,11 +671,12 @@ class InventoryBalance(TenantEntity):
     # answers to "what is this worth", and they would drift apart the first time
     # a price moved.
     #
-    # ASSUMPTION: an emptied position keeps its last derived cost rather than
-    # falling to zero. There are no layers left to derive from, so there is no
-    # new information; the previous figure is the position's last known cost and
-    # is what an adjustment or a count re-books stock at. ``stock_value`` is
-    # zero either way, so nothing on the balance sheet depends on the choice.
+    # ASSUMPTION (docs/assumptions.md §INV-3): an emptied position keeps its
+    # last derived cost rather than falling to zero. There are no layers left to
+    # derive from, so there is no new information; the previous figure is the
+    # position's last known cost and is what an adjustment or a count re-books
+    # stock at. ``stock_value`` is zero either way, so nothing on the balance
+    # sheet depends on the choice.
     average_cost: Mapped[Decimal] = mapped_column(
         UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -1244,10 +1246,10 @@ class StockTransfer(TenantEntity):
     yet received at the destination. That quantity is still company stock and
     has to appear in reports.
 
-    ASSUMPTION: it is held on the **destination** balance's
-    ``in_transit_quantity``, not the source's. The contract says only that the
-    stock is dispatched and not yet received. The destination is where the
-    question gets asked - a receiving storekeeper and a planner both want to
+    ASSUMPTION (docs/assumptions.md §INV-2): it is held on the **destination**
+    balance's ``in_transit_quantity``, not the source's. The contract says only
+    that the stock is dispatched and not yet received. The destination is where
+    the question gets asked - a receiving storekeeper and a planner both want to
     know what is coming to them - and it keeps the quantity out of the source's
     figures, which is where it is no longer physically present.
     """
