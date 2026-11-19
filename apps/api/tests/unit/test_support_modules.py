@@ -10,9 +10,15 @@ refuses an import of any test module from anywhere under ``tests/``.
 
 ``tests/conftest.py`` registers every support module for pytest's assert
 rewriting, so an assert that moved out of a test module into a builder still
-reports the values it compared; the second half of this file pins that.
+reports the values it compared; the second part of this file pins that.
 
-Both rules are functions over the tree, each with a self-test that feeds it the
+The third part keeps one helper in its module. Thirty-three suites built their
+private PostgreSQL schema by hand, and the copies drifted - four never called
+``prepare_metadata()``, and one alone created the ``btree_gist`` every schema
+needs - until ``tests/private_schema_support.py`` took the pattern over. Any
+other file whose code creates, drops or pins a schema is refused.
+
+Every rule is a function over the tree, each with a self-test that feeds it the
 violation it exists to catch.
 """
 
@@ -20,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -184,4 +191,69 @@ def test_a_support_module_reports_a_failing_assert_as_a_test_does(name: str) -> 
         "registers every tests/**/*_support.py before anything imports one; a support "
         "module imported earlier, or named without the suffix, fails its asserts with "
         "a bare AssertionError"
+    )
+
+
+# -----------------------------------------------------------------------------
+# A private schema is built in one place
+# -----------------------------------------------------------------------------
+
+#: The module that creates, pins and drops every private schema.
+PRIVATE_SCHEMA_SUPPORT = TESTS / "private_schema_support.py"
+
+_SCHEMA_DDL = re.compile(r"\b(?:CREATE|DROP)\s+SCHEMA\b|\bsearch_path\b", re.IGNORECASE)
+
+
+def hand_built_schemas(source: str) -> list[int]:
+    """Lines of ``source`` whose string literals create, drop or pin a schema.
+
+    Only code counts: a docstring is prose, and a comment never reaches the tree.
+    """
+    tree = ast.parse(source)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    return sorted(
+        {
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+            and _SCHEMA_DDL.search(node.value)
+        }
+    )
+
+
+def test_the_scanner_finds_a_schema_built_by_hand() -> None:
+    source = (
+        '"""A docstring may say CREATE SCHEMA and search_path in prose."""\n'
+        "async def setup(conn, schema):\n"
+        "    await conn.execute(text(f'CREATE SCHEMA \"{schema}\"'))\n"
+        "    # and so may a comment: DROP SCHEMA\n"
+        "    engine = create_async_engine(url, connect_args={'server_settings': {\n"
+        "        'search_path': f'{schema},public'}})\n"
+        "    await conn.execute(text('drop  schema x cascade'))\n"
+    )
+    assert hand_built_schemas(source) == [3, 6, 7]
+
+
+def test_only_the_private_schema_support_builds_a_schema() -> None:
+    refused = [
+        f"{path.relative_to(TESTS.parent).as_posix()}:{line}"
+        for path in _python_files()
+        # This file holds the violations its own self-test feeds the scanner.
+        if path not in {PRIVATE_SCHEMA_SUPPORT, Path(__file__).resolve()}
+        for line in hand_built_schemas(path.read_text(encoding="utf-8"))
+    ]
+    assert not refused, (
+        "A test module builds a private schema by hand. Use tests/private_schema_support.py: "
+        "private_schema(prefix, seed) for the module fixture, rolled_back_session(schema, "
+        "autoflush=...) for the per-test session, and schema_engine(schema) for an engine "
+        "whose sessions commit:\n  " + "\n  ".join(refused)
     )

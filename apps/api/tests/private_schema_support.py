@@ -5,10 +5,11 @@ a shift - cannot use the conftest ``session``, which starts every test from an
 empty database. It builds a schema of its own instead: an engine whose search
 path puts that schema first, a module-scoped fixture that creates the schema,
 runs ``create_all`` in it, seeds it and drops it afterwards, and a per-test
-session whose writes roll back. Thirty-three modules wrote those three pieces
-out for themselves, and the copies had drifted where it mattered. Four never
-called ``prepare_metadata()``, so their schema held only the tables their own
-imports had registered - 83 of 156 for the quality suite run alone - and a
+session whose writes roll back - which a suite whose sessions really commit, as
+the concurrency suites' do, goes without. Thirty-three modules wrote that
+pattern out for themselves, and the copies had drifted where it mattered. Four
+never called ``prepare_metadata()``, so their schema held only the tables their
+own imports had registered - 83 of 156 for the quality suite run alone - and a
 statement against any other table fell through the search path to ``public``.
 One created ``btree_gist``, which the shift-roster EXCLUDE constraints in every
 metadata cannot be created without; the other thirty-two worked because an
