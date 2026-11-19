@@ -410,12 +410,16 @@ class VendorContactRepository(BaseRepository[VendorContact]):
         default_order = sort.resolve(self.sortable_fields, VendorContact.is_primary.desc())
         return stmt.order_by(default_order, VendorContact.name.asc(), VendorContact.id.asc())
 
-    async def clear_primary(self, vendor_id: uuid.UUID, *, keep_id: uuid.UUID | None = None) -> int:
-        """Demote every other primary contact of this vendor.
+    async def clear_primary(
+        self, vendor_id: uuid.UUID, *, keep_id: uuid.UUID | None = None
+    ) -> list[tuple[uuid.UUID, str]]:
+        """Demote every other primary contact of this vendor: ``(id, name)`` of each.
 
         One UPDATE rather than a read-then-write loop: the partial unique index
         would reject a second primary anyway, and a single statement means the
-        window in which two rows are flagged never exists.
+        window in which two rows are flagged never exists. ``RETURNING`` names
+        the rows it demoted, for the service to audit - a bulk statement writes
+        no audit row of its own.
         """
         stmt = (
             update(VendorContact)
@@ -426,11 +430,12 @@ class VendorContactRepository(BaseRepository[VendorContact]):
                 VendorContact.deleted_at.is_(None),
             )
             .values(is_primary=False, updated_by_id=self.tenant.user_id)
+            .returning(VendorContact.id, VendorContact.name)
             .execution_options(synchronize_session=False)
         )
         if keep_id is not None:
             stmt = stmt.where(VendorContact.id != keep_id)
-        return affected_rows(await self.session.execute(stmt))
+        return [(row.id, row.name) for row in (await self.session.execute(stmt)).all()]
 
     async def role_taken(
         self,
@@ -523,8 +528,13 @@ class VendorCategoryRepository(BaseRepository[VendorCategory]):
 
     async def clear_preferred(
         self, item_category_id: uuid.UUID, *, keep_id: uuid.UUID | None = None
-    ) -> int:
-        """Demote whichever vendor is currently preferred for this category."""
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """Demote whichever vendor is currently preferred for this category.
+
+        ``RETURNING`` names each demoted qualification as ``(id, vendor_id)``,
+        for the service to audit - a bulk statement writes no audit row of its
+        own.
+        """
         stmt = (
             update(VendorCategory)
             .where(
@@ -533,11 +543,12 @@ class VendorCategoryRepository(BaseRepository[VendorCategory]):
                 VendorCategory.is_preferred.is_(True),
             )
             .values(is_preferred=False, updated_by_id=self.tenant.user_id)
+            .returning(VendorCategory.id, VendorCategory.vendor_id)
             .execution_options(synchronize_session=False)
         )
         if keep_id is not None:
             stmt = stmt.where(VendorCategory.id != keep_id)
-        return affected_rows(await self.session.execute(stmt))
+        return [(row.id, row.vendor_id) for row in (await self.session.execute(stmt)).all()]
 
     async def delete_for_vendor(self, vendor_id: uuid.UUID) -> int:
         """Drop every qualification of a vendor in one statement.

@@ -1084,6 +1084,31 @@ class TestTemplatesAndMeasurements:
 
         await session.refresh(template)
         assert template.is_active is False
+        # Retired on its own trail, not only as the new version's context: one
+        # active template per scope is a demotion like any other. (The rename
+        # above is the template's other UPDATE row.)
+        updates = (
+            (
+                await session.execute(
+                    select(AuditLog)
+                    .where(
+                        AuditLog.entity_type == service.AUDIT_QC_TEMPLATE,
+                        AuditLog.entity_id == template.id,
+                        AuditLog.action == AuditAction.UPDATE,
+                    )
+                    .order_by(AuditLog.created_at, AuditLog.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        retired = updates[-1]
+        assert (retired.old_values, retired.new_values) == (
+            {"is_active": True},
+            {"is_active": False},
+        )
+        assert retired.summary == f"QC template {template.code} v1 retired in favour of v2"
+        assert len(updates) == 2
 
     async def test_a_new_inspection_picks_up_the_new_version(
         self, ctx: tuple[AsyncSession, TenantContext]

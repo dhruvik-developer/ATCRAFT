@@ -48,7 +48,13 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    Demotion,
+    record_audit,
+    record_demotions,
+    record_status_change,
+    snapshot,
+)
 from src.modules.warehouses.models import StorageLocation, Warehouse, WarehouseType
 from src.modules.warehouses.repository import (
     StorageLocationRepository,
@@ -204,12 +210,12 @@ class WarehouseService:
 
             # Clearing runs before the insert so the partial unique index never
             # sees two live defaults, even momentarily.
-            if payload.is_default:
-                await self.repo.clear_default()
+            demoted = await self.repo.clear_default() if payload.is_default else []
 
             warehouse = Warehouse(**payload.model_dump())
             self.repo.add(warehouse)
             await self.session.flush()
+            await self._audit_demoted_defaults(demoted, promoted=warehouse)
 
             if warehouse.allow_negative_stock:
                 self._log_negative_stock_enabled(warehouse)
@@ -286,11 +292,12 @@ class WarehouseService:
             # Idempotent: re-nominating the current default is a no-op rather
             # than an error, so a retried request does not fail.
             if not warehouse.is_default:
-                await self.repo.clear_default(keep_id=warehouse.id)
+                demoted = await self.repo.clear_default(keep_id=warehouse.id)
                 warehouse.is_default = True
                 self.repo.touch(warehouse)
                 await self.session.flush()
 
+                await self._audit_demoted_defaults(demoted, promoted=warehouse)
                 await record_audit(
                     self.session,
                     company_id=self.tenant.company_id,
@@ -452,6 +459,29 @@ class WarehouseService:
         return self._to_read(warehouse, 0)
 
     # --- internals ----------------------------------------------------------
+
+    async def _audit_demoted_defaults(
+        self, demoted: list[tuple[uuid.UUID, str]], *, promoted: Warehouse
+    ) -> None:
+        """One audit row per warehouse the promotion took the company default from."""
+        await record_demotions(
+            self.session,
+            company_id=self.tenant.company_id,
+            entity_type=AUDIT_ENTITY_WAREHOUSE,
+            flag="is_default",
+            demotions=[
+                Demotion(
+                    entity_id=warehouse_id,
+                    entity_code=code,
+                    summary=(
+                        f"Warehouse {code} is no longer the company default; {promoted.code} is"
+                    ),
+                )
+                for warehouse_id, code in demoted
+            ],
+            user_id=self.tenant.user_id,
+            context={"promoted_id": str(promoted.id)},
+        )
 
     async def _assert_parent(self, *, node_id: uuid.UUID | None, parent_id: uuid.UUID) -> None:
         """Load the proposed parent, then apply the pure tree rules."""

@@ -281,6 +281,40 @@ class TestDefaultWarehouse:
         assert list(defaults) == ["FG-01"]
         assert (await service.get_warehouse(first.id)).is_default is False
 
+    async def test_the_warehouse_a_new_default_demotes_is_audited(
+        self, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        """The demotion is a bulk UPDATE, which writes no audit row of its own.
+
+        The demoted warehouse's trail now says when it stopped being the
+        default, by whom and in favour of which - for a new warehouse created
+        as the default and for an old one nominated.
+        """
+        service = WarehouseService(session, tenant)
+        first = await service.create_warehouse(_payload("rm-01", is_default=True))
+        second = await service.create_warehouse(
+            _payload("fg-01", warehouse_type="FINISHED_GOODS", is_default=True)
+        )
+
+        assert await _audit_actions(session, first.id) == ["CREATE", "UPDATE"]
+        demoted = (
+            await session.execute(
+                select(AuditLog).where(AuditLog.entity_id == first.id, AuditLog.action == "UPDATE")
+            )
+        ).scalar_one()
+        assert (demoted.old_values, demoted.new_values) == (
+            {"is_default": True},
+            {"is_default": False},
+        )
+        assert demoted.context == {"promoted_id": str(second.id)}
+        assert demoted.summary == "Warehouse RM-01 is no longer the company default; FG-01 is"
+        assert (demoted.entity_code, demoted.created_by_id) == ("RM-01", tenant.user_id)
+
+        await service.set_default(first.id)
+
+        assert await _audit_actions(session, second.id) == ["CREATE", "UPDATE"]
+        assert await _audit_actions(session, first.id) == ["CREATE", "UPDATE", "CONFIG_CHANGE"]
+
     async def test_renominating_the_current_default_is_a_no_op(
         self, session: AsyncSession, tenant: TenantContext
     ) -> None:

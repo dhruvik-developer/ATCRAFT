@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.banking import ACCOUNT_NUMBER_VISIBLE_DIGITS, mask_account_number
 from src.common.document_access import register_document_entity_resolver
 from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
+from src.common.repository import labels_by_id
 from src.core.clock import utcnow
 from src.core.database import affected_rows, transaction
 from src.core.deps import TenantContext
@@ -66,7 +67,13 @@ from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    Demotion,
+    record_audit,
+    record_demotions,
+    record_status_change,
+    snapshot,
+)
 from src.modules.vendors.models import (
     DEFAULT_RATING_WINDOW_DAYS,
     MAX_VENDOR_RATING,
@@ -1369,13 +1376,13 @@ class VendorContactService:
 
             # Clearing runs before the insert so the partial unique index never
             # sees two primaries, even momentarily.
-            if payload.is_primary:
-                await self.repo.clear_primary(vendor_id)
+            demoted = await self.repo.clear_primary(vendor_id) if payload.is_primary else []
 
             contact = VendorContact(vendor_id=vendor_id, **payload.model_dump())
             self.repo.add(contact)
             await self.session.flush()
 
+            await self._audit_demoted_primaries(demoted, promoted=contact)
             await record_audit(
                 self.session,
                 company_id=self.tenant.company_id,
@@ -1443,12 +1450,13 @@ class VendorContactService:
             # Idempotent: re-nominating the current primary is a no-op rather
             # than an error, so a retried request does not fail.
             if not contact.is_primary:
-                await self.repo.clear_primary(contact.vendor_id, keep_id=contact.id)
+                demoted = await self.repo.clear_primary(contact.vendor_id, keep_id=contact.id)
                 contact.is_primary = True
                 self.repo.touch(contact)
                 await self.session.flush()
                 await self.session.refresh(contact)
 
+                await self._audit_demoted_primaries(demoted, promoted=contact)
                 await record_audit(
                     self.session,
                     company_id=self.tenant.company_id,
@@ -1463,6 +1471,27 @@ class VendorContactService:
                 )
 
         return VendorContactRead.model_validate(contact)
+
+    async def _audit_demoted_primaries(
+        self, demoted: list[tuple[uuid.UUID, str]], *, promoted: VendorContact
+    ) -> None:
+        """One audit row per contact the promotion took the primary flag from."""
+        await record_demotions(
+            self.session,
+            company_id=self.tenant.company_id,
+            entity_type=AUDIT_ENTITY_CONTACT,
+            flag="is_primary",
+            demotions=[
+                Demotion(
+                    entity_id=contact_id,
+                    entity_code=name,
+                    summary=f"{name} is no longer the primary contact; {promoted.name} is",
+                )
+                for contact_id, name in demoted
+            ],
+            user_id=self.tenant.user_id,
+            context={"promoted_id": str(promoted.id)},
+        )
 
     async def delete_contact(self, contact_id: uuid.UUID, *, reason: str) -> None:
         """Retire a contact. Soft, because a PO may quote the person it went to."""
@@ -1547,13 +1576,17 @@ class VendorCategoryService:
                     details={"item_category_id": str(payload.item_category_id)},
                 )
 
-            if payload.is_preferred:
+            demoted = (
                 await self.repo.clear_preferred(payload.item_category_id)
+                if payload.is_preferred
+                else []
+            )
 
             link = VendorCategory(vendor_id=vendor_id, **payload.model_dump())
             self.repo.add(link)
             await self.session.flush()
 
+            await self._audit_demoted_preferences(demoted, promoted=link)
             await record_audit(
                 self.session,
                 company_id=self.tenant.company_id,
@@ -1577,14 +1610,18 @@ class VendorCategoryService:
             link = await self.repo.get_or_404(link_id)
             before = snapshot(link, _CATEGORY_AUDITED_FIELDS)
 
-            if changes.get("is_preferred") and not link.is_preferred:
+            demoted = (
                 await self.repo.clear_preferred(link.item_category_id, keep_id=link.id)
+                if changes.get("is_preferred") and not link.is_preferred
+                else []
+            )
 
             for field, value in changes.items():
                 setattr(link, field, value)
             self.repo.touch(link)
             await self.session.flush()
 
+            await self._audit_demoted_preferences(demoted, promoted=link)
             await record_audit(
                 self.session,
                 company_id=self.tenant.company_id,
@@ -1600,6 +1637,41 @@ class VendorCategoryService:
 
         labels = await self.repo.category_labels([link.item_category_id])
         return self._to_read(link, labels)
+
+    async def _audit_demoted_preferences(
+        self, demoted: list[tuple[uuid.UUID, uuid.UUID]], *, promoted: VendorCategory
+    ) -> None:
+        """One audit row per qualification the promotion took the preferred flag from.
+
+        Named by the vendor's code, as the qualification's creation is; one
+        lookup for every demoted row, and none when nothing was demoted.
+        """
+        vendors = await labels_by_id(
+            self.session, self.tenant, (vendor_id for _, vendor_id in demoted), Vendor.code
+        )
+        demotions = []
+        for link_id, vendor_id in demoted:
+            label = vendors.get(vendor_id)
+            code = label.code if label is not None else str(vendor_id)
+            demotions.append(
+                Demotion(
+                    entity_id=link_id,
+                    entity_code=code,
+                    summary=f"Vendor {code} is no longer the preferred vendor for the category",
+                )
+            )
+        await record_demotions(
+            self.session,
+            company_id=self.tenant.company_id,
+            entity_type=AUDIT_ENTITY_CATEGORY,
+            flag="is_preferred",
+            demotions=demotions,
+            user_id=self.tenant.user_id,
+            context={
+                "promoted_id": str(promoted.id),
+                "item_category_id": str(promoted.item_category_id),
+            },
+        )
 
     async def remove(self, link_id: uuid.UUID, *, reason: str) -> None:
         """Revoke a qualification.

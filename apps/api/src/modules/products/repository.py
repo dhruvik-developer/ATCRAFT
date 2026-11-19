@@ -1048,12 +1048,16 @@ class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
         )
         return await self.list_page(params, stmt=stmt)
 
-    async def clear_preferred(self, item_id: uuid.UUID, *, keep_id: uuid.UUID | None = None) -> int:
+    async def clear_preferred(
+        self, item_id: uuid.UUID, *, keep_id: uuid.UUID | None = None
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
         """Demote every other preferred vendor for the item in one UPDATE.
 
         Required before promoting a new one: the partial unique index allows
         exactly one preferred link per item, so the demotion and the promotion
-        must happen in the same transaction.
+        must happen in the same transaction. ``RETURNING`` names each demoted
+        link as ``(id, vendor_id)``, for the service to audit - a bulk statement
+        writes no audit row of its own.
         """
         stmt = (
             update(ItemVendorLink)
@@ -1063,11 +1067,12 @@ class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
                 ItemVendorLink.is_preferred.is_(True),
             )
             .values(is_preferred=False, updated_by_id=self.tenant.user_id)
+            .returning(ItemVendorLink.id, ItemVendorLink.vendor_id)
             .execution_options(synchronize_session=False)
         )
         if keep_id is not None:
             stmt = stmt.where(ItemVendorLink.id != keep_id)
-        return affected_rows(await self.session.execute(stmt))
+        return [(row.id, row.vendor_id) for row in (await self.session.execute(stmt)).all()]
 
 
 __all__ = [

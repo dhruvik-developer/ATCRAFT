@@ -66,7 +66,13 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_factor, to_quantity, to_unit_price
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    Demotion,
+    record_audit,
+    record_demotions,
+    record_status_change,
+    snapshot,
+)
 from src.modules.products.models import (
     MAX_CATEGORY_DEPTH,
     Brand,
@@ -2803,10 +2809,13 @@ async def link_vendor(
         audited = [*values, "is_active", "deleted_at"]
         before = snapshot(link, audited) if link is not None else None
 
-        if payload.is_preferred:
-            # Demote BEFORE inserting or restoring. The partial unique index
-            # is checked per statement, including when deleted_at is cleared.
+        # Demote BEFORE inserting or restoring. The partial unique index is
+        # checked per statement, including when deleted_at is cleared.
+        demoted = (
             await repo.clear_preferred(item.id, keep_id=link.id if link is not None else None)
+            if payload.is_preferred
+            else []
+        )
 
         if link is None:
             link = ItemVendorLink(item_id=item.id, **values)
@@ -2826,6 +2835,9 @@ async def link_vendor(
             repo.touch(link)
         await session.flush()
 
+        await _audit_demoted_vendor_links(
+            session, tenant, demoted, promoted=link, item_code=item.code
+        )
         await record_audit(
             session,
             company_id=tenant.company_id,
@@ -2844,6 +2856,47 @@ async def link_vendor(
         )
 
     return (await _vendor_link_reads(session, tenant, [link]))[0]
+
+
+async def _audit_demoted_vendor_links(
+    session: AsyncSession,
+    tenant: TenantContext,
+    demoted: Sequence[tuple[uuid.UUID, uuid.UUID]],
+    *,
+    promoted: ItemVendorLink,
+    item_code: str | None = None,
+) -> None:
+    """One audit row per link the promotion took the preferred flag from.
+
+    Each names the vendor whose link it was - one lookup for the demoted rows,
+    none when nothing was demoted - and carries the item's code where the
+    caller holds it, as the link's own audit rows do.
+    """
+    vendors = await labels_by_id(session, tenant, (vendor for _, vendor in demoted), Vendor.code)
+    demotions = []
+    for link_id, vendor_id in demoted:
+        label = vendors.get(vendor_id)
+        vendor_code = label.code if label is not None else str(vendor_id)
+        demotions.append(
+            Demotion(
+                entity_id=link_id,
+                entity_code=item_code,
+                summary=(
+                    f"Vendor {vendor_code} is no longer the preferred vendor for item {item_code}"
+                    if item_code
+                    else f"Vendor {vendor_code} is no longer the preferred vendor for the item"
+                ),
+            )
+        )
+    await record_demotions(
+        session,
+        company_id=tenant.company_id,
+        entity_type=AUDIT_VENDOR_LINK,
+        flag="is_preferred",
+        demotions=demotions,
+        user_id=tenant.user_id,
+        context={"promoted_id": str(promoted.id), "item_id": str(promoted.item_id)},
+    )
 
 
 async def _vendor_link_reads(
@@ -2894,16 +2947,22 @@ async def update_vendor_link(
         if "manufacturer_id" in data and data["manufacturer_id"] != link.manufacturer_id:
             await _require_manufacturer(session, tenant, data["manufacturer_id"])
 
+        # Demoted before this link's own flag is written, so no flush can ever
+        # send the promotion first (partial unique index, checked per statement).
+        demoted = (
+            await repo.clear_preferred(link.item_id, keep_id=link.id)
+            if data.get("is_preferred")
+            else []
+        )
+
         for field, value in data.items():
             if value is not None or field in VENDOR_LINK_CLEARABLE_FIELDS:
                 setattr(link, field, value)
 
-        if data.get("is_preferred"):
-            await repo.clear_preferred(link.item_id, keep_id=link.id)
-
         repo.touch(link)
         await session.flush()
 
+        await _audit_demoted_vendor_links(session, tenant, demoted, promoted=link)
         await record_audit(
             session,
             company_id=tenant.company_id,

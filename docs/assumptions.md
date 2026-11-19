@@ -5819,15 +5819,19 @@ different split. This rating is not the vendor performance report's score
 (`uq_item_vendor_links_one_preferred`). Qualifying a vendor as preferred for a
 category, or marking an existing qualification preferred, first demotes the
 category's current preferred vendor in the same transaction, so the index never
-sees two.
+sees two, and audits the demotion on the demoted qualification itself (preferred
+true to false, naming the qualification that took it).
 
 **Why.** Two "preferred" vendors for one category give the sourcing screen, and
-the vendor resolution of section 51, no basis to choose between them.
+the vendor resolution of section 51, no basis to choose between them. The
+demotion is a bulk UPDATE, which writes no audit row of its own; without one,
+the trail could not say when, or by whom, a vendor stopped being preferred.
 
 **Where.** `src/modules/vendors/models.py` - `VendorCategory`
 (`uq_vendor_categories_one_preferred`); `src/modules/vendors/service.py` -
 `VendorCategoryService.assign` and `update`;
-`src/modules/vendors/repository.py` - `VendorCategoryRepository.clear_preferred`.
+`src/modules/vendors/repository.py` - `VendorCategoryRepository.clear_preferred`;
+`src/modules/audit/service.py` - `record_demotions`.
 
 **Impact if wrong.** Several preferred vendors per category need a rank, and
 `preferred_category_vendor` a rule to pick among them; the partial unique index

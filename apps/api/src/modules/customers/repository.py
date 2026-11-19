@@ -289,11 +289,13 @@ class CustomerAddressRepository(BaseRepository[CustomerAddress]):
         address_type: AddressType,
         *,
         keep_id: uuid.UUID | None = None,
-    ) -> int:
-        """Demote the current default of this (customer, address_type).
+    ) -> list[uuid.UUID]:
+        """Demote the current default of this (customer, address_type): the ids it demoted.
 
         One UPDATE, run *before* the new default is set, so the partial unique
-        index never sees two flagged rows even momentarily.
+        index never sees two flagged rows even momentarily. ``RETURNING`` names
+        the demoted rows for the service to audit - a bulk statement writes no
+        audit row of its own.
         """
         stmt = (
             update(CustomerAddress)
@@ -305,11 +307,12 @@ class CustomerAddressRepository(BaseRepository[CustomerAddress]):
                 CustomerAddress.deleted_at.is_(None),
             )
             .values(is_default=False, updated_by_id=self.tenant.user_id)
+            .returning(CustomerAddress.id)
             .execution_options(synchronize_session=False)
         )
         if keep_id is not None:
             stmt = stmt.where(CustomerAddress.id != keep_id)
-        return affected_rows(await self.session.execute(stmt))
+        return list((await self.session.execute(stmt)).scalars().all())
 
     async def next_default_candidate(
         self,
@@ -407,7 +410,13 @@ class CustomerContactRepository(BaseRepository[CustomerContact]):
 
     async def clear_primary(
         self, customer_id: uuid.UUID, *, keep_id: uuid.UUID | None = None
-    ) -> int:
+    ) -> list[tuple[uuid.UUID, str]]:
+        """Demote the customer's primary contact: ``(id, name)`` of each row demoted.
+
+        One UPDATE, run before the new primary is set, for the same reason as
+        :meth:`CustomerAddressRepository.clear_default`; ``RETURNING`` names the
+        demoted rows for the service to audit.
+        """
         stmt = (
             update(CustomerContact)
             .where(
@@ -417,11 +426,12 @@ class CustomerContactRepository(BaseRepository[CustomerContact]):
                 CustomerContact.deleted_at.is_(None),
             )
             .values(is_primary=False, updated_by_id=self.tenant.user_id)
+            .returning(CustomerContact.id, CustomerContact.name)
             .execution_options(synchronize_session=False)
         )
         if keep_id is not None:
             stmt = stmt.where(CustomerContact.id != keep_id)
-        return affected_rows(await self.session.execute(stmt))
+        return [(row.id, row.name) for row in (await self.session.execute(stmt)).all()]
 
     async def next_primary_candidate(
         self, customer_id: uuid.UUID, *, exclude_id: uuid.UUID

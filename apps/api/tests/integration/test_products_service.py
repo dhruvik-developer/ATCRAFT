@@ -64,6 +64,7 @@ from src.modules.products.schemas import (
     VariantCreate,
     VariantUpdate,
     VendorLinkCreate,
+    VendorLinkUpdate,
 )
 from src.modules.vendors.models import Vendor, VendorType
 from tests import seed_support
@@ -996,6 +997,45 @@ async def test_only_one_preferred_vendor_survives_per_item(
     preferred = [link.id for link in links if link.is_preferred]
     assert preferred == [second.id]
     assert first.id not in preferred
+    # X-02: the demotion is a bulk UPDATE; the demoted link's own trail records it.
+    [demoted] = (
+        (
+            await session.execute(
+                select(AuditLog).where(
+                    AuditLog.entity_type == "item_vendor_link",
+                    AuditLog.entity_id == first.id,
+                    AuditLog.action == "UPDATE",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert (demoted.old_values, demoted.new_values) == (
+        {"is_preferred": True},
+        {"is_preferred": False},
+    )
+    assert demoted.entity_code == "VEND-1"
+    assert demoted.context == {"promoted_id": str(second.id), "item_id": str(item.id)}
+    assert demoted.summary.startswith("Vendor V0-")
+    assert demoted.summary.endswith(" is no longer the preferred vendor for item VEND-1")
+
+    # Re-preferring the first by update demotes the second, audited the same way.
+    await service.update_vendor_link(session, tenant, first.id, VendorLinkUpdate(is_preferred=True))
+    [again] = (
+        (
+            await session.execute(
+                select(AuditLog).where(
+                    AuditLog.entity_type == "item_vendor_link",
+                    AuditLog.entity_id == second.id,
+                    AuditLog.action == "UPDATE",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert again.context == {"promoted_id": str(first.id), "item_id": str(item.id)}
 
 
 async def test_relink_restores_terms_without_losing_purchase_history(

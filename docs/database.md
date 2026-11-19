@@ -1126,6 +1126,7 @@ Every transition writes an audit row via `record_status_change`.
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | A stock document naming a warehouse | Assembly, job work, packing, quality and dispatch: `warehouses.service.require_active_warehouses` (tenant, live, active; the refusal ends with the caller's own consequence, not narrowed by warehouse assignments). Procurement and production destinations: `warehouses.service.require_warehouse_in_scope` (tenant, live, inside the principal's warehouse assignment) |
 | Any status change | `audit.record_status_change` in the same transaction |
+| A "one of these per parent" flag moves (preferred vendor for a category or an item, default customer address or warehouse, primary contact) | Demote the current holder first - one `UPDATE ... RETURNING`, because the partial unique index is checked per statement - then `audit.record_demotions`: one UPDATE row per demoted row (flag true to false, naming the row that took it) before the promotion's own row, in the same transaction. A delete that hands the flag to a successor retires the deleted row first and audits the successor's promotion |
 
 Production obtains subcontract actuals only through
 `job_work.service.production_order_charges(session, tenant, production_order_id)`.

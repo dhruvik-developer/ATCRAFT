@@ -98,7 +98,8 @@ async def _audit_rows(
     stmt = (
         select(AuditLog)
         .where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
-        .order_by(AuditLog.created_at.asc())
+        # One transaction stamps one created_at; the UUIDv7 id keeps write order.
+        .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
     )
     return list((await session.execute(stmt)).scalars().all())
 
@@ -487,6 +488,75 @@ class TestAddresses:
         assert promoted.is_default is True
         assert await _default_count(session, customer.id, AddressType.SHIPPING) == 1
 
+    async def test_the_address_a_new_default_demotes_is_audited(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        """The previous default loses its flag in a bulk UPDATE, which audits nothing.
+
+        Its own trail now says when, by whom and for which address - whether the
+        new default arrives with a new address or by nominating an old one.
+        """
+        service = CustomerService(session, tenant)
+        customer = await service.create_customer(principal, _payload(unique_code("AC")))
+        first = await service.create_address(principal, customer.id, _address(label="Godown A"))
+        second = await service.create_address(
+            principal, customer.id, _address(label="Godown B", is_default=True)
+        )
+
+        demoted = _one_audit(
+            await _audit_rows(session, "customer_address", first.id), AuditAction.UPDATE
+        )
+        assert (demoted.old_values, demoted.new_values) == (
+            {"is_default": True},
+            {"is_default": False},
+        )
+        assert demoted.context == {"promoted_id": str(second.id)}
+        assert demoted.created_by_id == tenant.user_id
+        assert demoted.entity_code == customer.code
+
+        await service.set_default_address(principal, customer.id, first.id)
+
+        again = _one_audit(
+            await _audit_rows(session, "customer_address", second.id), AuditAction.UPDATE
+        )
+        assert (again.old_values, again.new_values) == (
+            {"is_default": True},
+            {"is_default": False},
+        )
+        assert again.context == {"promoted_id": str(first.id)}
+
+    async def test_deleting_a_newer_default_promotes_the_older_address(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        """The successor is older here, so its primary key sorts first.
+
+        Demoting and promoting in one flush sends the two UPDATEs in primary-key
+        order - the promotion first - and the partial unique index, checked per
+        statement, sees two defaults. The promotion is audited on the address
+        that took the flag, not only in the deleted one's context.
+        """
+        service = CustomerService(session, tenant)
+        customer = await service.create_customer(principal, _payload(unique_code("AC")))
+        older = await service.create_address(principal, customer.id, _address(label="Godown A"))
+        newer = await service.create_address(
+            principal, customer.id, _address(label="Godown B", is_default=True)
+        )
+
+        await service.delete_address(principal, customer.id, newer.id, reason="Godown closed")
+
+        promoted = await session.get(CustomerAddress, older.id)
+        assert promoted is not None
+        await session.refresh(promoted)
+        assert promoted.is_default is True
+        assert await _default_count(session, customer.id, AddressType.SHIPPING) == 1
+        rows = await _audit_rows(session, "customer_address", older.id)
+        took = _one_audit(rows, AuditAction.CONFIG_CHANGE)
+        assert (took.old_values, took.new_values) == (
+            {"is_default": False},
+            {"is_default": True},
+        )
+        assert took.context == {"customer_id": str(customer.id), "replaced_id": str(newer.id)}
+
     async def test_domestic_address_without_a_state_code_is_refused(
         self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
     ) -> None:
@@ -578,6 +648,68 @@ class TestContacts:
         demoted = await session.get(CustomerContact, first.id)
         assert demoted is not None
         assert demoted.is_primary is False
+
+    async def test_the_contact_a_new_primary_demotes_is_audited(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        service = CustomerService(session, tenant)
+        customer = await service.create_customer(principal, _payload(unique_code("AC")))
+        first = await service.create_contact(
+            principal, customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+        )
+        second = await service.create_contact(
+            principal,
+            customer.id,
+            ContactCreate(name="Ravi Nair", email="ravi@example.com", is_primary=True),
+        )
+
+        demoted = _one_audit(
+            await _audit_rows(session, "customer_contact", first.id), AuditAction.UPDATE
+        )
+        assert (demoted.old_values, demoted.new_values) == (
+            {"is_primary": True},
+            {"is_primary": False},
+        )
+        assert demoted.context == {"promoted_id": str(second.id)}
+        assert demoted.summary == (
+            f"Asha Rao is no longer the primary contact for {customer.code}; Ravi Nair is"
+        )
+
+        await service.set_primary_contact(principal, customer.id, first.id)
+
+        again = _one_audit(
+            await _audit_rows(session, "customer_contact", second.id), AuditAction.UPDATE
+        )
+        assert again.context == {"promoted_id": str(first.id)}
+
+    async def test_deleting_a_newer_primary_promotes_the_older_contact(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        """As for addresses: the older successor's UPDATE must not run first."""
+        service = CustomerService(session, tenant)
+        customer = await service.create_customer(principal, _payload(unique_code("AC")))
+        older = await service.create_contact(
+            principal, customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+        )
+        newer = await service.create_contact(
+            principal,
+            customer.id,
+            ContactCreate(name="Ravi Nair", email="ravi@example.com", is_primary=True),
+        )
+
+        await service.delete_contact(principal, customer.id, newer.id, reason="Left the firm")
+
+        promoted = await session.get(CustomerContact, older.id)
+        assert promoted is not None
+        await session.refresh(promoted)
+        assert promoted.is_primary is True
+        took = _one_audit(
+            await _audit_rows(session, "customer_contact", older.id), AuditAction.CONFIG_CHANGE
+        )
+        assert (took.old_values, took.new_values) == (
+            {"is_primary": False},
+            {"is_primary": True},
+        )
 
     async def test_contact_without_email_or_phone_is_refused(
         self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code

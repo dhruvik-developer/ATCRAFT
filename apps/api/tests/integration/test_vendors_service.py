@@ -411,6 +411,22 @@ def _payload(code: str, **overrides: object) -> VendorCreate:
     return VendorCreate(**data)  # type: ignore[arg-type]
 
 
+async def _demotion_audits(
+    session: AsyncSession, entity_type: str, entity_id: uuid.UUID
+) -> list[AuditLog]:
+    """The UPDATE rows on one entity's trail - a demotion is the only one these tests make."""
+    stmt = (
+        select(AuditLog)
+        .where(
+            AuditLog.entity_type == entity_type,
+            AuditLog.entity_id == entity_id,
+            AuditLog.action == "UPDATE",
+        )
+        .order_by(AuditLog.created_at, AuditLog.id)
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
 def _approvable(code: str, **overrides: object) -> VendorCreate:
     """A payload carrying everything the approval gate insists on."""
     data: dict[str, object] = {
@@ -978,6 +994,44 @@ class TestContacts:
         assert demoted is not None
         await session.refresh(demoted)
         assert demoted.is_primary is False
+        # The bulk demotion is audited on the contact that lost the flag.
+        [audited] = await _demotion_audits(session, "vendor_contact", first.id)
+        assert (audited.old_values, audited.new_values) == (
+            {"is_primary": True},
+            {"is_primary": False},
+        )
+        assert audited.context == {"promoted_id": str(second.id)}
+        assert audited.summary == "Rajesh Kumar is no longer the primary contact; Priya Nair is"
+
+    async def test_a_new_primary_contact_audits_the_one_it_demotes(
+        self, session: AsyncSession
+    ) -> None:
+        tenant, _ = await _seed_tenant(session)
+        vendor = await VendorService(session, tenant).create_vendor(_payload("VEND-001"))
+        service = VendorContactService(session, tenant)
+        first = await service.create_contact(
+            vendor.id,
+            VendorContactCreate(
+                name="Rajesh Kumar",
+                contact_role=VendorContactRole.OWNER,
+                email="rajesh@example.com",
+                is_primary=True,
+            ),
+        )
+
+        second = await service.create_contact(
+            vendor.id,
+            VendorContactCreate(
+                name="Priya Nair",
+                contact_role=VendorContactRole.ACCOUNTS,
+                email="priya@example.com",
+                is_primary=True,
+            ),
+        )
+
+        [audited] = await _demotion_audits(session, "vendor_contact", first.id)
+        assert audited.context == {"promoted_id": str(second.id)}
+        assert audited.created_by_id == tenant.user_id
 
     async def test_two_primaries_are_impossible_even_by_direct_write(
         self, session: AsyncSession
@@ -1147,6 +1201,20 @@ class TestCategories:
         assert demoted is not None
         await session.refresh(demoted)
         assert demoted.is_preferred is False
+        # X-02: the previous preferred vendor's trail says when and by whom.
+        [audited] = await _demotion_audits(session, "vendor_category", link_one.id)
+        assert (audited.old_values, audited.new_values) == (
+            {"is_preferred": True},
+            {"is_preferred": False},
+        )
+        assert (audited.entity_code, audited.created_by_id) == ("VEND-001", tenant.user_id)
+        assert audited.context == {
+            "promoted_id": str(link_two.id),
+            "item_category_id": str(category_id),
+        }
+        assert (
+            audited.summary == "Vendor VEND-001 is no longer the preferred vendor for the category"
+        )
 
     async def test_updating_to_preferred_demotes_the_incumbent(self, session: AsyncSession) -> None:
         tenant, _ = await _seed_tenant(session)
@@ -1168,6 +1236,11 @@ class TestCategories:
         assert demoted is not None
         await session.refresh(demoted)
         assert demoted.is_preferred is False
+        [audited] = await _demotion_audits(session, "vendor_category", link_one.id)
+        assert audited.context == {
+            "promoted_id": str(link_two.id),
+            "item_category_id": str(category_id),
+        }
 
     async def test_revoking_a_qualification_is_audited(self, session: AsyncSession) -> None:
         tenant, _ = await _seed_tenant(session)

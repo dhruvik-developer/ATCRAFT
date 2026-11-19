@@ -328,12 +328,16 @@ class WarehouseRepository(BaseRepository[Warehouse]):
 
     # --- writes -------------------------------------------------------------
 
-    async def clear_default(self, *, keep_id: uuid.UUID | None = None) -> int:
-        """Demote every other default in the tenant.
+    async def clear_default(
+        self, *, keep_id: uuid.UUID | None = None
+    ) -> list[tuple[uuid.UUID, str]]:
+        """Demote every other default in the tenant: ``(id, code)`` of each row demoted.
 
         One UPDATE, not a read-then-write loop: the partial unique index would
         reject the second default anyway, and doing it in a single statement
         keeps the window where two rows are flagged from existing at all.
+        ``RETURNING`` names the demoted rows for the service to audit - a bulk
+        statement writes no audit row of its own.
         """
         stmt = (
             update(Warehouse)
@@ -343,11 +347,12 @@ class WarehouseRepository(BaseRepository[Warehouse]):
                 Warehouse.deleted_at.is_(None),
             )
             .values(is_default=False, updated_by_id=self.tenant.user_id)
+            .returning(Warehouse.id, Warehouse.code)
             .execution_options(synchronize_session=False)
         )
         if keep_id is not None:
             stmt = stmt.where(Warehouse.id != keep_id)
-        return affected_rows(await self.session.execute(stmt))
+        return [(row.id, row.code) for row in (await self.session.execute(stmt)).all()]
 
 
 class WarehouseLookupRepository(BaseRepository[Warehouse]):

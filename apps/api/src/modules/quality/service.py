@@ -1320,10 +1320,30 @@ async def create_template_version(
         existing_parameters = await parameter_repo.list_for_template(source.id)
         next_version = await repo.latest_version(source.code) + 1
 
-        if payload.retire_previous:
+        if payload.retire_previous and source.is_active:
+            # Flushed before the new version joins the session: one active
+            # template per scope is a partial unique index, checked per
+            # statement. Audited on the retired version itself - the new
+            # version's creation names it only as context.
             source.is_active = False
             repo.touch(source)
             await session.flush()
+            await record_audit(
+                session,
+                company_id=tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_QC_TEMPLATE,
+                entity_id=source.id,
+                entity_code=source.code,
+                summary=(
+                    f"QC template {source.code} v{source.version} retired in favour of "
+                    f"v{next_version}"
+                ),
+                user_id=tenant.user_id,
+                old_values={"is_active": True},
+                new_values={"is_active": False},
+                context={"reason": payload.reason},
+            )
 
         template = QcTemplate(
             code=source.code,

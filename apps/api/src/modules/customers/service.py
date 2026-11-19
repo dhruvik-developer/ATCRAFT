@@ -60,7 +60,13 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    Demotion,
+    record_audit,
+    record_demotions,
+    record_status_change,
+    snapshot,
+)
 from src.modules.customers.models import (
     AddressType,
     Customer,
@@ -891,10 +897,13 @@ class CustomerService:
             # it should not have to.
             make_default = payload.is_default or existing_default is None
 
-            if make_default and existing_default is not None:
-                # Cleared before the insert so the partial unique index never
-                # sees two flagged rows, even for an instant.
+            # Cleared before the insert so the partial unique index never sees
+            # two flagged rows, even for an instant.
+            demoted = (
                 await self.addresses.clear_default(customer.id, payload.address_type)
+                if make_default and existing_default is not None
+                else []
+            )
 
             address = CustomerAddress(
                 customer_id=customer.id,
@@ -903,6 +912,7 @@ class CustomerService:
             self.addresses.add(address)
             await self.session.flush()
 
+            await self._audit_demoted_addresses(demoted, promoted=address, customer=customer)
             await record_audit(
                 self.session,
                 company_id=self.tenant.company_id,
@@ -991,13 +1001,14 @@ class CustomerService:
             # Idempotent: re-nominating the current default is a no-op rather
             # than an error, so a retried request does not fail.
             if not address.is_default:
-                await self.addresses.clear_default(
+                demoted = await self.addresses.clear_default(
                     customer.id, address.address_type, keep_id=address.id
                 )
                 address.is_default = True
                 self.addresses.touch(address)
                 await self.session.flush()
 
+                await self._audit_demoted_addresses(demoted, promoted=address, customer=customer)
                 await record_audit(
                     self.session,
                     company_id=self.tenant.company_id,
@@ -1032,13 +1043,13 @@ class CustomerService:
                 promoted = await self.addresses.next_default_candidate(
                     customer.id, address.address_type, exclude_id=address.id
                 )
-                # Cleared first: the row keeps its flag until the delete lands,
-                # and two rows must never carry it at once.
                 address.is_default = False
-                if promoted is not None:
-                    promoted.is_default = True
-                    self.addresses.touch(promoted)
 
+            # The retirement - flag cleared, row deleted - reaches the database
+            # before the successor is flagged. One flush would send both UPDATEs
+            # in primary-key order, the promotion first whenever the successor
+            # is the older row, and the partial unique index is checked per
+            # statement: two defaults, and the delete refused.
             await self.addresses.soft_delete(address)
 
             await record_audit(
@@ -1057,6 +1068,26 @@ class CustomerService:
                     "promoted_default_id": str(promoted.id) if promoted else None,
                 },
             )
+            if promoted is not None:
+                promoted.is_default = True
+                self.addresses.touch(promoted)
+                await self.session.flush()
+                await record_audit(
+                    self.session,
+                    company_id=self.tenant.company_id,
+                    action=AuditAction.CONFIG_CHANGE,
+                    entity_type=AUDIT_ADDRESS,
+                    entity_id=promoted.id,
+                    entity_code=customer.code,
+                    summary=(
+                        f"Address {promoted.id} became the default {promoted.address_type} "
+                        f"address for {customer.code} when the default was removed"
+                    ),
+                    user_id=self.tenant.user_id,
+                    old_values={"is_default": False},
+                    new_values={"is_default": True},
+                    context={"customer_id": str(customer.id), "replaced_id": str(address.id)},
+                )
 
     # --- contacts -----------------------------------------------------------
 
@@ -1086,8 +1117,11 @@ class CustomerService:
             has_primary = await self.contacts.has_primary(customer.id)
             make_primary = payload.is_primary or not has_primary
 
-            if make_primary and has_primary:
+            demoted = (
                 await self.contacts.clear_primary(customer.id)
+                if make_primary and has_primary
+                else []
+            )
 
             contact = CustomerContact(
                 customer_id=customer.id,
@@ -1096,6 +1130,7 @@ class CustomerService:
             self.contacts.add(contact)
             await self.session.flush()
 
+            await self._audit_demoted_contacts(demoted, promoted=contact, customer=customer)
             await record_audit(
                 self.session,
                 company_id=self.tenant.company_id,
@@ -1174,11 +1209,12 @@ class CustomerService:
                 )
 
             if not contact.is_primary:
-                await self.contacts.clear_primary(customer.id, keep_id=contact.id)
+                demoted = await self.contacts.clear_primary(customer.id, keep_id=contact.id)
                 contact.is_primary = True
                 self.contacts.touch(contact)
                 await self.session.flush()
 
+                await self._audit_demoted_contacts(demoted, promoted=contact, customer=customer)
                 await record_audit(
                     self.session,
                     company_id=self.tenant.company_id,
@@ -1210,10 +1246,8 @@ class CustomerService:
                     customer.id, exclude_id=contact.id
                 )
                 contact.is_primary = False
-                if promoted is not None:
-                    promoted.is_primary = True
-                    self.contacts.touch(promoted)
 
+            # Retired before the successor is flagged, as in delete_address.
             await self.contacts.soft_delete(contact)
 
             await record_audit(
@@ -1232,8 +1266,80 @@ class CustomerService:
                     "promoted_primary_id": str(promoted.id) if promoted else None,
                 },
             )
+            if promoted is not None:
+                promoted.is_primary = True
+                self.contacts.touch(promoted)
+                await self.session.flush()
+                await record_audit(
+                    self.session,
+                    company_id=self.tenant.company_id,
+                    action=AuditAction.CONFIG_CHANGE,
+                    entity_type=AUDIT_CONTACT,
+                    entity_id=promoted.id,
+                    entity_code=customer.code,
+                    summary=(
+                        f"{promoted.name} became the primary contact for {customer.code} "
+                        f"when {contact.name} was removed"
+                    ),
+                    user_id=self.tenant.user_id,
+                    old_values={"is_primary": False},
+                    new_values={"is_primary": True},
+                    context={"customer_id": str(customer.id), "replaced_id": str(contact.id)},
+                )
 
     # --- internals ----------------------------------------------------------
+
+    async def _audit_demoted_addresses(
+        self, demoted: list[uuid.UUID], *, promoted: CustomerAddress, customer: Customer
+    ) -> None:
+        """One audit row per address the promotion took the default flag from."""
+        await record_demotions(
+            self.session,
+            company_id=self.tenant.company_id,
+            entity_type=AUDIT_ADDRESS,
+            flag="is_default",
+            demotions=[
+                Demotion(
+                    entity_id=address_id,
+                    entity_code=customer.code,
+                    summary=(
+                        f"Address {address_id} is no longer the default "
+                        f"{promoted.address_type} address for {customer.code}"
+                    ),
+                )
+                for address_id in demoted
+            ],
+            user_id=self.tenant.user_id,
+            context={"promoted_id": str(promoted.id)},
+        )
+
+    async def _audit_demoted_contacts(
+        self,
+        demoted: list[tuple[uuid.UUID, str]],
+        *,
+        promoted: CustomerContact,
+        customer: Customer,
+    ) -> None:
+        """One audit row per contact the promotion took the primary flag from."""
+        await record_demotions(
+            self.session,
+            company_id=self.tenant.company_id,
+            entity_type=AUDIT_CONTACT,
+            flag="is_primary",
+            demotions=[
+                Demotion(
+                    entity_id=contact_id,
+                    entity_code=customer.code,
+                    summary=(
+                        f"{name} is no longer the primary contact for {customer.code}; "
+                        f"{promoted.name} is"
+                    ),
+                )
+                for contact_id, name in demoted
+            ],
+            user_id=self.tenant.user_id,
+            context={"promoted_id": str(promoted.id)},
+        )
 
     async def _assert_sales_user(self, user_id: uuid.UUID | None) -> None:
         if user_id is None:

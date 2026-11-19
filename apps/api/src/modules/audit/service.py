@@ -11,6 +11,8 @@ This is why audit is not an async fire-and-forget queue publish.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -267,6 +269,58 @@ def snapshot(instance: Any, fields: list[str]) -> dict[str, Any]:
     return {f: getattr(instance, f, None) for f in fields}
 
 
+@dataclass(frozen=True, slots=True)
+class Demotion:
+    """One row a "one of these per parent" promotion took the flag from.
+
+    What the audit trail names it by: the row's id, the code its entity's other
+    audit rows carry, and the sentence saying what it lost.
+    """
+
+    entity_id: uuid.UUID
+    entity_code: str | None
+    summary: str
+
+
+async def record_demotions(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    entity_type: str,
+    flag: str,
+    demotions: Sequence[Demotion],
+    user_id: uuid.UUID | None,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """Audit every row a promotion demoted: ``flag`` true to false, one row each.
+
+    A preferred vendor, a default address or a primary contact is promoted by
+    demoting the current holder first, in one bulk ``UPDATE ... RETURNING`` -
+    the partial unique index is checked per statement, so the demotion must
+    reach the database before the promotion (CLAUDE.md). A bulk statement writes
+    no audit row of its own, so without this the previous holder lost its flag
+    with nothing in its trail to say when, or by whom. Staged and flushed once,
+    in the caller's transaction; ``context`` names the row that took the flag.
+    """
+    for demotion in demotions:
+        await record_audit(
+            session,
+            company_id=company_id,
+            action=AuditAction.UPDATE,
+            entity_type=entity_type,
+            entity_id=demotion.entity_id,
+            entity_code=demotion.entity_code,
+            summary=demotion.summary,
+            user_id=user_id,
+            old_values={flag: True},
+            new_values={flag: False},
+            context=context,
+            flush=False,
+        )
+    if demotions:
+        await session.flush()
+
+
 async def get_company_approval_settings(session: AsyncSession, tenant: Any) -> ApprovalSettingsRead:
     """Return the effective approval thresholds for this company."""
     repo = CompanyApprovalSettingsRepository(session, tenant)
@@ -395,10 +449,12 @@ __all__ = [
     "DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD",
     "DEFAULT_PO_DUAL_APPROVAL_AMOUNT",
     "DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT",
+    "Demotion",
     "apply_transition",
     "diff_values",
     "get_company_approval_settings",
     "record_audit",
+    "record_demotions",
     "record_status_change",
     "snapshot",
     "update_company_approval_settings",
