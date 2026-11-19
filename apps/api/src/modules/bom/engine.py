@@ -173,13 +173,14 @@ def apply_scrap(quantity: Decimal, scrap_percentage: Decimal) -> Decimal:
 def is_explodable(line: BomLine) -> bool:
     """Whether a line contributes to requirements.
 
-    ASSUMPTION: substitutes and optional components are excluded.
+    ASSUMPTION (docs/assumptions.md section 12): substitutes and optional
+    components are excluded.
 
     A substitute is an approved *replacement* for another line - both are never
     consumed together, so counting it would double the requirement. An optional
     component is a configurable extra whose demand comes from the order that
-    selects it, not from the structure. Both appear on the BOM detail and in
-    costing inputs; neither creates demand on its own.
+    selects it, not from the structure. Both appear on the BOM detail; neither
+    creates demand on its own, and neither is priced into the cost roll-up.
     """
     return line.substitute_for_line_id is None and not line.is_optional
 
@@ -187,10 +188,11 @@ def is_explodable(line: BomLine) -> bool:
 def operation_cost_per_run(operations: Sequence[BomOperation], output_quantity: Decimal) -> Decimal:
     """Total operation cost for one run yielding ``output_quantity`` units.
 
-    ASSUMPTION: setup time and fixed charges are per *run* and are therefore
-    amortised over ``output_quantity`` when a per-unit cost is derived, while run
-    time is charged per unit. Treating setup as per-unit would price a
-    hundred-piece batch as if the machine were set up a hundred times.
+    ASSUMPTION (docs/assumptions.md §BOM-2): setup time and fixed charges are
+    per *run* and are therefore amortised over ``output_quantity`` when a
+    per-unit cost is derived, while run time is charged per unit. Treating setup
+    as per-unit would price a hundred-piece batch as if the machine were set up
+    a hundred times.
     """
     if output_quantity <= 0:
         raise ValueError("output_quantity must be positive")
@@ -866,11 +868,12 @@ async def cost_roll_up(
     Leaves are costed from ``items.standard_cost``, falling back to the last
     purchase price recorded against the preferred vendor.
 
-    ASSUMPTION: an item that has an effective structure of its own is costed
-    *from that structure*, not from its stored standard cost - that is what a
-    roll-up is, and reading a stale standard cost for a sub-assembly would hide
-    exactly the drift the roll-up exists to surface. An item with neither a
-    structure nor a cost is treated as zero and named in ``items_without_cost``.
+    ASSUMPTION (docs/assumptions.md §BOM-2): an item that has an effective
+    structure of its own is costed *from that structure*, not from its stored
+    standard cost - that is what a roll-up is, and reading a stale standard cost
+    for a sub-assembly would hide exactly the drift the roll-up exists to
+    surface. An item with neither a structure nor a cost is treated as zero and
+    named in ``items_without_cost``.
     """
     effective_date = as_of or today()
     data = source or DatabaseBomSource(session, tenant)

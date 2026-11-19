@@ -313,14 +313,15 @@ class ReallocationPolicy:
 
     #: A donor needed within this many days is protected and never suggested.
     #:
-    #: ASSUMPTION: this stands in for "check the production start date" in master
-    #: rules section 13. The production order's start date is not readable from
-    #: this module - production owns that table, and reading it here would make
-    #: allocation depend on a module it must not - so the reservation's own
-    #: ``required_date``, which the demand document sets when it reserves, is the
-    #: contract-visible proxy. Three days is the conservative choice: material
-    #: for a job starting this week has usually already been kitted, and taking
-    #: it back causes a second problem rather than solving the first.
+    #: ASSUMPTION (docs/assumptions.md section 11): this stands in for "check
+    #: the production start date" in master rules section 13. The production
+    #: order's start date is not readable from this module - production owns
+    #: that table, and reading it here would make allocation depend on a module
+    #: it must not - so the reservation's own ``required_date``, which the
+    #: demand document sets when it reserves, is the contract-visible proxy.
+    #: Three days is the conservative choice: material for a job starting this
+    #: week has usually already been kitted, and taking it back causes a second
+    #: problem rather than solving the first.
     protect_within_days: int = 3
 
     #: Whether HARD reservations may be suggested at all. They still cannot be
@@ -909,11 +910,12 @@ async def suggest_reallocations_batch(
 #: get it wrong - a dispatch posted as a material issue would put a customer
 #: delivery in the production consumption report.
 #:
-#: ASSUMPTION: a SPARE reservation is consumed as a MATERIAL_ISSUE. A spare part
-#: leaves stock either as a service issue or as a sale, and the movement
-#: vocabulary in section 83 has no spare-specific member; MATERIAL_ISSUE is the
-#: conservative reading because it does not claim a customer dispatch happened.
-#: A caller that knows better passes ``transaction_type`` explicitly.
+#: ASSUMPTION (docs/assumptions.md §ALLOC-1): a SPARE reservation is consumed as
+#: a MATERIAL_ISSUE. A spare part leaves stock either as a service issue or as a
+#: sale, and the movement vocabulary in section 83 has no spare-specific member;
+#: MATERIAL_ISSUE is the conservative reading because it does not claim a
+#: customer dispatch happened. A caller that knows better passes
+#: ``transaction_type`` explicitly.
 CONSUMPTION_MOVEMENT: dict[DemandType, TransactionType] = {
     DemandType.SALES_ORDER: TransactionType.DISPATCH,
     DemandType.PRODUCTION_ORDER: TransactionType.MATERIAL_ISSUE,
@@ -2193,11 +2195,11 @@ async def reallocate(
                 ),
             )
 
-        # ASSUMPTION: the granted reservation is HARD, and inherits the
-        # requester's urgency from the request's impact summary. A person
-        # approved this specific transfer of a commitment; making the result a
-        # soft placeholder would let the next request take it back without
-        # anybody approving that too.
+        # ASSUMPTION (docs/assumptions.md §ALLOC-2): the granted reservation is
+        # HARD, and inherits the requester's urgency from the request's impact
+        # summary. A person approved this specific transfer of a commitment;
+        # making the result a soft placeholder would let the next request take
+        # it back without anybody approving that too.
         requester = (request.impact_summary or {}).get("requester") or {}
         recipient = existing_recipient
         if recipient is None:
@@ -2647,14 +2649,14 @@ async def _notify_donor_owner(
 ) -> None:
     """Tell whoever committed the donor stock that it has been taken.
 
-    ASSUMPTION: "the donor demand's owner" is the user who created the donor
-    reservation. The demand document lives in one of six modules, several of
-    which this module must not import, so the owner recorded on the sales or
-    production order is not reachable from here. The person who reserved the
-    stock is the contract-visible equivalent, and is in practice the planner who
-    needs to know. When a module later wants a different recipient it should
-    raise its own notification from its own side rather than allocation growing a
-    dependency on it.
+    ASSUMPTION (docs/assumptions.md §ALLOC-2): "the donor demand's owner" is the
+    user who created the donor reservation. The demand document lives in one of
+    six modules, several of which this module must not import, so the owner
+    recorded on the sales or production order is not reachable from here. The
+    person who reserved the stock is the contract-visible equivalent, and is in
+    practice the planner who needs to know. When a module later wants a
+    different recipient it should raise its own notification from its own side
+    rather than allocation growing a dependency on it.
     """
     if donor.created_by_id is None:
         log.info(

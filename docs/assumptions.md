@@ -442,15 +442,27 @@ commitment is taken without the right person knowing.
 **Assumed.** Reallocation candidates are ranked by: worse priority number first,
 then later required date, then `SOFT` before `HARD`, then not-yet-consumed only.
 
+A donor whose `required_date` is three days away or less, or already past
+(`protect_within_days`), is protected and never offered; one with no required
+date is not protected by this rule. The window stands in for the production
+start date master rules section 13 asks to be checked: production owns that
+table and allocation may not read it, so the reservation's own `required_date`,
+which the demand document sets when it reserves, is the contract-visible proxy.
+
 **Why.** The master rules require the priority to be "configurable and
 business-driven" but do not state the order. This is a defensible default,
-expressed as a policy object rather than hardcoded comparisons.
+expressed as a policy object rather than hardcoded comparisons. Three days is
+the conservative window: material for a job starting this week has usually been
+kitted already, and taking it back causes a second shortage rather than solving
+the first.
 
 **Where.** `src/modules/allocation/service.py` — `ReallocationPolicy` and
-`DEFAULT_POLICY`.
+`DEFAULT_POLICY`; `candidate_eligibility` applies the window.
 
 **Impact if wrong.** Suggestions are ordered unhelpfully. The engine only ever
 *suggests*; a human approves, so the risk is wasted attention, not wrong stock.
+A window that is too short offers kitted material, and one too long hides a
+donor that could have been taken: `protect_within_days` is the one value.
 
 ---
 
@@ -463,15 +475,21 @@ a draft before submitting it. Every level below that root is still resolved
 strictly from `APPROVED` structures effective on the as-of date, and the status
 actually used is reported on the result, so a draft explosion cannot be mistaken
 for the plan of record. A `PHANTOM` BOM is exploded through — the phantom item
-itself never appears as a requirement line, only its children.
+itself never appears as a requirement line, only its children. A substitute line
+(an approved replacement for another line) and an optional component create no
+requirement and add nothing to the cost roll-up (`is_explodable`); both still
+appear on the BOM detail.
 
 **Why.** Standard MRP semantics. A phantom exists to structure the drawing, not
-to be stocked.
+to be stocked. A substitute is never consumed together with the line it
+replaces, so counting both would double the requirement; an optional
+component's demand comes from the order that selects it, not from the structure.
 
-**Where.** `src/modules/bom/engine.py`.
+**Where.** `src/modules/bom/engine.py` — `is_explodable` for the lines.
 
 **Impact if wrong.** Requirements for a phantom assembly would be raised for an
-item nobody stocks or buys.
+item nobody stocks or buys. An extra that should be planned by default has to
+stop being optional on the structure.
 
 ---
 
@@ -2459,9 +2477,9 @@ leaves the late set while keeping its badge.
 
 ## §B2-8. Existing planning and costing keep their scheduling conventions
 
-**Assumed.** Routing run/setup minutes are chargeable; queue/move minutes are elapsed only. Work-centre working hours divide lead time, defaulting to eight. Work orders remain scheduled from the planned date in UTC, back-to-back, and calendar capacity includes every day.
+**Assumed.** Routing run/setup minutes are chargeable; queue/move minutes are elapsed only. Work-centre working hours divide lead time: the shortest working day among the centres a routing crosses, defaulting to eight when none states one. Work orders remain scheduled from the planned date in UTC, back-to-back - inside rostered shift windows where a centre has a roster (§E7-5) - and calendar capacity includes every day.
 
-**Why.** This package adds staffing plans without rescheduling existing jobs or changing costing.
+**Why.** This package adds staffing plans without rescheduling existing jobs or changing costing. The shortest day is the shift the job actually waits for; taking the longest, or an average, would promise a date the plant cannot hit.
 
 **Where.** `routing.service.total_routing_minutes/resolve_working_hours_per_day; production.service.plan_work_orders; reports.service.available_minutes`.
 
@@ -5839,6 +5857,54 @@ nothing off, so it reports nothing written off.
 **Impact if wrong.** If a drifted line must be recounted, `confirm` refuses while
 the drift list is non-empty, which needs the warehouse frozen for every count.
 
+## §ALLOC-1. A spare-part reservation is consumed as a material issue
+
+**Assumed.** Consuming a reservation posts the movement its demand type implies
+(`CONSUMPTION_MOVEMENT`): a sales order dispatches, a production order is a
+material issue, an assembly order an assembly consumption, a job-work order a
+job-work issue, and a transfer posts only its outbound leg. A `SPARE`
+reservation is consumed as a `MATERIAL_ISSUE`. A caller that knows better passes
+`transaction_type` explicitly.
+
+**Why.** A spare part leaves stock either as a service issue or as a sale, and
+the movement vocabulary has no spare-specific type. A material issue is the
+conservative reading because it does not claim that a customer dispatch
+happened; a dispatch posted as a material issue, or the reverse, puts a delivery
+in the wrong report.
+
+**Where.** `src/modules/allocation/service.py` - `CONSUMPTION_MOVEMENT`, read by
+`consume`.
+
+**Impact if wrong.** If spare parts are normally sold, map `SPARE` to `DISPATCH`,
+or have the selling document pass the type.
+
+## §ALLOC-2. An executed reallocation grants a HARD reservation, and tells whoever reserved the donor stock
+
+**Assumed.** Executing an approved reallocation request gives the receiving
+demand a `HARD` reservation for the quantity taken, at the donor's position
+(item, warehouse, bin and lot), carrying the requester's priority and required
+date from the request's impact summary. When the receiving sales-order line
+already holds a reservation at that position, the quantity is added to it, it
+becomes `HARD`, and it keeps the more urgent priority and the earlier required
+date. The person told that the stock was taken is whoever created the donor
+reservation; a donor reservation with no recorded creator notifies nobody, and
+the skip is logged.
+
+**Why.** A person approved this specific transfer of a commitment, and a soft
+placeholder would let the next request take it back without anybody approving
+that too. The demand document that lost the stock lives in one of six modules,
+several of which allocation may not import, so the owner recorded on the sales
+or production order is out of its reach; whoever reserved the stock is the
+contract-visible equivalent, and in practice the planner who needs to know.
+
+**Where.** `src/modules/allocation/service.py` - `reallocate`, which builds the
+recipient reservation, and `_notify_donor_owner`.
+
+**Impact if wrong.** If the granted reservation should be `SOFT`, change the type
+in `reallocate`, knowing the next request may then take it unapproved. If the
+demand's own owner should hear, that module raises the notification from its
+own side rather than allocation growing a dependency on it.
+
 ## §PRIORITY-1. A sales or purchase priority is 1 to 9, 5 by default
 
 **Assumed.** Sales and procurement documents take a priority from 1 to 9 and
@@ -5894,6 +5960,26 @@ standard cost of every part that crosses more than one centre.
 catalogue and the transitions changed. If waiting time is costed, it belongs in
 `chargeable_operation_time`, where the difference stays visible.
 
+## §ROUTING-2. A job-work vendor is named only on an outsourced step, which need not name one
+
+**Assumed.** A routing operation may name a `job_work_vendor_id` only when it is
+flagged `is_outsourced`: a request naming one on any other step is refused with
+a validation error, and the `job_work_vendor_only_when_outsourced` CHECK
+enforces the same rule beneath it. The converse is deliberately not enforced,
+so an outsourced step with no vendor is legal.
+
+**Why.** A vendor on a step done in-house contradicts the step. A step can be
+known to be subcontracted long before the vendor is chosen, and requiring one
+would hold the routing up until purchasing has decided.
+
+**Where.** `src/modules/routing/models.py` - `RoutingOperation`
+(`job_work_vendor_only_when_outsourced`); `src/modules/routing/schemas.py` -
+`RoutingOperationIn._vendor_implies_outsourced`.
+
+**Impact if wrong.** If an outsourced step must name its vendor, the CHECK and
+the schema gain the converse, and every outsourced step without a vendor needs
+one before the migration that adds it can run.
+
 ## §BOM-1. A BOM explosion stops at 20,000 nodes
 
 **Assumed.** Exploding a BOM past 20,000 nodes (`MAX_EXPLOSION_NODES`) is
@@ -5906,6 +5992,88 @@ naming the root lets the offending data be found.
 tree is walked.
 
 **Impact if wrong.** Raise the constant if a real product needs more nodes.
+
+## §BOM-2. A structure is costed from its own lines, with setup spread over the run
+
+**Assumed.** A cost roll-up prices an item that has an effective structure of
+its own from that structure - its components' rolled-up costs plus its
+operations, over the structure's `output_quantity` - and never from its stored
+`standard_cost`. A leaf, an item with no structure, is priced at its
+`standard_cost`, else at the last purchase price on an active vendor link (the
+preferred vendor's first, then the most recent); an item with neither is priced
+at zero and named in `items_without_cost`. An operation's setup time and fixed
+charge are per **run**, so they are spread over `output_quantity`, while its run
+time is charged per unit.
+
+**Why.** Reading a stale standard cost for a sub-assembly would hide exactly the
+drift a roll-up exists to surface. Charging setup per unit would price a
+hundred-piece batch as if the machine were set up a hundred times. A missing
+cost is named rather than hidden inside a total that looks complete.
+
+**Where.** `src/modules/bom/engine.py` - `cost_roll_up`, `_roll_up_unit_costs`,
+`operation_cost_per_run`; `src/modules/bom/repository.py` -
+`ItemLookupRepository.last_purchase_prices`.
+
+**Impact if wrong.** A business that costs sub-assemblies at a frozen standard
+reads `standard_cost` before the structure in `_roll_up_unit_costs`. A per-unit
+setup multiplies every batch's setup by its quantity.
+
+## §BOM-3. A BOM line is stated in its component's stock unit
+
+**Assumed.** A BOM line that names a unit must name the component's base (stock)
+unit. Any other unit is refused when the lines are saved, and nothing is
+converted.
+
+**Why.** Multi-level consolidation sums quantities keyed on the item alone
+(`docs/database.md` section 5), so a line in BOX under one parent and NOS under
+another would add up to a total that looks plausible and is wrong. Converting
+silently would hide the data-entry error instead of naming it.
+
+**Where.** `src/modules/bom/service.py` - `_validate_lines`.
+
+**Impact if wrong.** Lines keyed in a pack or purchase unit need converting to
+the stock unit, through the unit-of-measure graph, before anything consolidates
+them.
+
+## §BOM-4. Deleting a draft structure needs bom.obsolete
+
+**Assumed.** Physically deleting a structure (`DELETE /bom/{bom_id}`) is allowed
+for a `DRAFT` only, and the route is gated on `bom.obsolete` rather than
+`bom.update`. Anything past draft is retired as obsolete instead.
+
+**Why.** There is no `bom.delete` permission in the registry, and destroying a
+structure is closer to retiring one than to editing it: an engineer who may
+change a draft should not necessarily be able to erase it. A draft has never
+been approved, so nothing outside engineering points at it, which is why hard
+deletion is safe there and only there.
+
+**Where.** `src/modules/bom/router.py` - `delete_bom`;
+`src/modules/bom/service.py` - `delete_draft_bom`.
+
+**Impact if wrong.** If whoever edits a draft may delete it, gate the route on
+`bom.update`, or add `bom.delete` to the catalogue and to the presets that should
+hold it.
+
+## §BOM-5. A copied revision inherits the default flag, which counts only once approved
+
+**Assumed.** Copying a BOM or a routing as its next `DRAFT` version copies the
+source's `is_default`. The flag means nothing until the copy is approved - the
+one-default indexes (`uq_boms_one_default_approved_per_item`,
+`uq_routings_one_default_approved_per_item`) cover `APPROVED` rows only - and
+approving a default demotes the item's previous default in the same
+transaction, before the new one counts.
+
+**Why.** A revision is normally intended to replace the structure or process it
+came from, so the default should move with it at approval rather than stay on
+the version it superseded.
+
+**Where.** `src/modules/bom/service.py` - `copy_as_new_version`, `approve_bom`;
+`src/modules/routing/service.py` - `RoutingService.copy_as_new_version`,
+`RoutingService.approve_routing`.
+
+**Impact if wrong.** A revision meant to sit beside the default - an alternative
+structure or process - must have its flag cleared before approval, or it takes
+the default over.
 
 ## §SWEEP-1. Dead sessions are kept 30 days and scratch files a day
 

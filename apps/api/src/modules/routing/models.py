@@ -438,10 +438,11 @@ class RoutingOperation(TenantEntity):
         CheckConstraint("queue_time_minutes >= 0", name="queue_time_non_negative"),
         CheckConstraint("move_time_minutes >= 0", name="move_time_non_negative"),
         CheckConstraint("process_cost >= 0", name="process_cost_non_negative"),
-        # ASSUMPTION: a job-work vendor may only be named on an operation that is
-        # flagged outsourced. The converse is deliberately NOT enforced - a step
-        # can be known to be subcontracted long before the vendor is chosen - so
-        # an outsourced operation with no vendor stays legal.
+        # ASSUMPTION (docs/assumptions.md §ROUTING-2): a job-work vendor may
+        # only be named on an operation that is flagged outsourced. The converse
+        # is deliberately NOT enforced - a step can be known to be subcontracted
+        # long before the vendor is chosen - so an outsourced operation with no
+        # vendor stays legal.
         CheckConstraint(
             "job_work_vendor_id IS NULL OR is_outsourced",
             name="job_work_vendor_only_when_outsourced",

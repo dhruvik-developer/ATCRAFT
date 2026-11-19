@@ -492,10 +492,10 @@ def total_routing_minutes(routing: CostedRouting, quantity: Decimal) -> Decimal:
 def resolve_working_hours_per_day(routing: CostedRouting) -> Decimal:
     """The shift length to schedule this routing against.
 
-    ASSUMPTION: the *shortest* working day among the work centres involved. If
-    grinding runs 16 hours a day but plating only 8, the plating shift is what
-    the job actually waits for, and taking the longest (or an average) would
-    quietly promise a date the plant cannot hit.
+    ASSUMPTION (docs/assumptions.md §B2-8): the *shortest* working day among the
+    work centres involved. If grinding runs 16 hours a day but plating only 8,
+    the plating shift is what the job actually waits for, and taking the longest
+    (or an average) would quietly promise a date the plant cannot hit.
     """
     hours = [
         operation.work_center_working_hours_per_day
@@ -1438,10 +1438,11 @@ class RoutingService:
         exactly as the orders raised against it remember it, and the new one has
         to be reviewed again.
 
-        ASSUMPTION: the copy inherits ``is_default`` from its source. A revision
-        is normally meant to replace the process it came from, and approving it
-        then demotes the old default in the same transaction. The flag has no
-        effect until approval - the unique index only covers APPROVED rows.
+        ASSUMPTION (docs/assumptions.md §BOM-5): the copy inherits
+        ``is_default`` from its source. A revision is normally meant to replace
+        the process it came from, and approving it then demotes the old default
+        in the same transaction. The flag has no effect until approval - the
+        unique index only covers APPROVED rows.
         """
         async with transaction(self.session):
             source = await self.repo.get_or_404(routing_id)

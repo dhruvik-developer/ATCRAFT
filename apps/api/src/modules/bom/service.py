@@ -276,11 +276,12 @@ async def _validate_lines(
                 + inactive_record("item", info.code, "cannot be added to a structure"),
                 details={"line_number": line.line_number, "item_code": info.code},
             )
-        # ASSUMPTION: a BOM line is stated in the component's stock unit and no
-        # other. Consolidation across levels sums quantities keyed on item_id
-        # (database.md section 5), so a line in BOX under one parent and NOS
-        # under another would produce a total that looks plausible and is wrong.
-        # Converting silently would hide the data-entry error instead.
+        # ASSUMPTION (docs/assumptions.md §BOM-3): a BOM line is stated in the
+        # component's stock unit and no other. Consolidation across levels sums
+        # quantities keyed on item_id (database.md section 5), so a line in BOX
+        # under one parent and NOS under another would produce a total that
+        # looks plausible and is wrong. Converting silently would hide the
+        # data-entry error instead.
         if line.uom_id is not None and line.uom_id != info.base_uom_id:
             raise BusinessRuleError(
                 f"Line {line.line_number}: quantities for {info.code} must be stated in "
@@ -1034,10 +1035,11 @@ async def delete_draft_bom(
     approved is retired with :func:`obsolete_bom` instead - section 28 forbids
     destroying a record other documents point at.
 
-    ASSUMPTION: the route is gated on ``bom.obsolete`` rather than ``bom.update``.
-    There is no ``bom.delete`` permission in the registry, and destroying a
-    structure is closer to retiring one than to editing it - an engineer who may
-    change a draft should not necessarily be able to erase it.
+    ASSUMPTION (docs/assumptions.md §BOM-4): the route is gated on
+    ``bom.obsolete`` rather than ``bom.update``. There is no ``bom.delete``
+    permission in the registry, and destroying a structure is closer to retiring
+    one than to editing it - an engineer who may change a draft should not
+    necessarily be able to erase it.
     """
     repo = BomRepository(session, tenant)
 
@@ -1084,10 +1086,11 @@ async def copy_as_new_version(
     the documents raised against it remember it, and the new one starts as a
     draft that has to be reviewed again.
 
-    ASSUMPTION: the copy inherits ``is_default`` from its source. A revision is
-    normally intended to replace the structure it came from, and approving it
-    then demotes the old default in the same transaction. It has no effect until
-    approval - the unique index only covers APPROVED rows.
+    ASSUMPTION (docs/assumptions.md §BOM-5): the copy inherits ``is_default``
+    from its source. A revision is normally intended to replace the structure it
+    came from, and approving it then demotes the old default in the same
+    transaction. It has no effect until approval - the unique index only covers
+    APPROVED rows.
     """
     repo = BomRepository(session, tenant)
     line_repo = BomLineRepository(session, tenant)
