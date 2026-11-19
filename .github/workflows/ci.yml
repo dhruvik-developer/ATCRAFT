@@ -313,7 +313,7 @@ jobs:
       - name: Reject tracked runtime storage
         run: test -z "$(git ls-files 'apps/api/storage/**' 'storage/**' ':!:**/.gitkeep')"
       - name: Validate release scripts
-        run: python3 scripts/hooks/check_shell.py scripts/deploy.sh scripts/check-host-nginx.sh scripts/verify-isolation.sh
+        run: python3 scripts/hooks/check_shell.py scripts/deploy.sh scripts/check-host-nginx.sh
       - name: Validate Compose configuration
         run: docker compose --profile malware -f docker-compose.yml -f docker-compose.prod.yml config --quiet
       - name: Validate host nginx templates
@@ -348,13 +348,11 @@ jobs:
           sudo cp infrastructure/nginx/host/snippets/atcraft-proxy.conf /etc/nginx/snippets/
           sudo cp infrastructure/nginx/host/00-default.conf \
                   infrastructure/nginx/host/atcraft-main.conf \
-                  infrastructure/nginx/host/atcraft-dev.conf \
                   /etc/nginx/conf.d/
           if bash scripts/check-host-nginx.sh --installed; then
             echo "--installed accepted example.com placeholders"; exit 1
           fi
           sudo sed -i 's/erp\.example\.com/erp.ci.invalid/g'         /etc/nginx/conf.d/atcraft-main.conf
-          sudo sed -i 's/dev\.erp\.example\.com/dev.erp.ci.invalid/g' /etc/nginx/conf.d/atcraft-dev.conf
           bash scripts/check-host-nginx.sh --installed
       - name: Build production images from fresh bases
         run: docker compose --profile malware -f docker-compose.yml -f docker-compose.prod.yml build --pull backend frontend

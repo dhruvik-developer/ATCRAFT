@@ -40,9 +40,9 @@ $DcDev   = @('compose', '-p', $LocalProject, '-f', 'docker-compose.yml', '-f', '
 # migrations, the repository's Python tooling and the load harness.
 $PyLintPaths = 'src tests migrations scripts ../../scripts ../../tests/load'
 
-# The two deployments are driven by scripts/deploy.sh alone, which reads
-# deploy/<name>.env and passes the project name explicitly on every command.
-# Duplicating that here would be a second place for the two to be confused.
+# The hosted deployment (production, from main) is driven by scripts/deploy.sh
+# alone, which reads deploy/main.env and passes the project name explicitly on
+# every command. Duplicating that here would be a second set of guards.
 # Run under Git Bash:  ./scripts/deploy.sh main up
 
 function Invoke-Step {
@@ -333,17 +333,15 @@ switch ($Target) {
     }
 
     # Deployments are not driven from PowerShell. scripts/deploy.sh performs
-    # the cross-checks that keep the two apart - shared project name, shared
-    # port, shared JWT secret, wrong branch - and reimplementing those here
+    # the guards that protect production - project name, branch, clean tree,
+    # secrets - and reimplementing those here
     # would mean maintaining two sets of guards that must never disagree.
     { $_ -in @('prod-up', 'prod-down', 'deploy') } {
         Write-Host ''
         Write-Host 'Deployments are run through scripts/deploy.sh, under Git Bash:' -ForegroundColor Yellow
         Write-Host ''
-        Write-Host '    ./scripts/deploy.sh main up        # deployment 1 (main branch)'
-        Write-Host '    ./scripts/deploy.sh dev  up        # deployment 2 (dev branch)'
+        Write-Host '    ./scripts/deploy.sh main up        # production (main branch)'
         Write-Host '    ./scripts/deploy.sh main migrate'
-        Write-Host '    ./scripts/verify-isolation.sh      # prove they cannot see each other'
         Write-Host ''
         Write-Host 'See ONE-BOX-RUNBOOK.md for the full sequence.'
         Write-Host ''

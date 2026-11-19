@@ -2,19 +2,19 @@
 # =============================================================================
 # Atcraft ERP - the ONLY entry point for a deployment.
 #
-#   ./scripts/deploy.sh <main|dev> <command> [args]
+#   ./scripts/deploy.sh main <command> [args]
 #
-# Two independent deployments run on one host. What keeps them independent is
-# the Compose project name, and what makes that reliable is that nobody types a
-# raw `docker compose` command: this script reads deploy/<name>.env, takes the
-# project name from it, and passes it explicitly with -p on every invocation.
+# The project has exactly one hosted deployment: production, released from the
+# main branch. (Development is local, on develop - see CLAUDE.md.) What makes
+# the deployment reliable is that nobody types a raw `docker compose` command:
+# this script reads deploy/main.env, takes the project name from it, and passes
+# it explicitly with -p on every invocation.
 #
-# A bare `docker compose up` in this directory now fails outright, because
+# A bare `docker compose up` in this directory fails outright, because
 # docker-compose.yml requires COMPOSE_PROJECT_NAME. That is deliberate. The
 # failure it replaces is silent: without a project name Compose derives one
-# from the directory, both deployments land in the same project, and deployment
-# 2 mounts - and migrates - deployment 1's database while looking perfectly
-# healthy.
+# from the directory name, and a release can then address a project that is not
+# production's own while looking perfectly healthy.
 #
 # Run `./scripts/deploy.sh` with no arguments for the command list.
 # =============================================================================
@@ -42,14 +42,14 @@ die()  { printf '%s\n' "${C_RED}error: $*${C_RESET}" >&2; exit 1; }
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/deploy.sh <deployment> <command> [args]
+Usage: ./scripts/deploy.sh main <command> [args]
 
-Deployments
-  main            deployment 1 - main branch, the client's environment
-  dev             deployment 2 - develop branch, integration testing
+Deployment
+  main            production - the main branch, the client's environment
+                  (the only hosted deployment; development is local)
 
 Setup
-  init            create deploy/<name>.env from the template with generated
+  init            create deploy/main.env from the template with generated
                   secrets (never overwrites an existing file)
   doctor          check this deployment's configuration without starting it
 
@@ -82,7 +82,6 @@ Backup
 Examples
   ./scripts/deploy.sh main init
   ./scripts/deploy.sh main up
-  ./scripts/deploy.sh dev  demo-data
   ./scripts/deploy.sh main backup
 USAGE
 }
@@ -92,21 +91,21 @@ DEPLOYMENT="${1:-}"
 COMMAND="${2:-}"
 [ -n "$DEPLOYMENT" ] || { usage; exit 1; }
 case "$DEPLOYMENT" in
-  main|dev) ;;
+  main) ;;
   -h|--help|help) usage; exit 0 ;;
-  *) die "unknown deployment '$DEPLOYMENT' (expected 'main' or 'dev')" ;;
+  *) die "unknown deployment '$DEPLOYMENT'. This project has one hosted deployment, production, released from main: ./scripts/deploy.sh main <command>. Development runs locally on develop (see CLAUDE.md)." ;;
 esac
 [ -n "$COMMAND" ] || { usage; exit 1; }
 shift 2 || true
 
-ENV_FILE="deploy/${DEPLOYMENT}.env"
-ENV_TEMPLATE="deploy/${DEPLOYMENT}.env.example"
+ENV_FILE="deploy/main.env"
+ENV_TEMPLATE="deploy/main.env.example"
 COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.prod.yml)
 
 # --- init: generate the env file --------------------------------------------
-# Done here rather than by hand because the two things most likely to be
-# copy-pasted between deployments are exactly the credentials that must never
-# be shared: the database password, JWT secret and credential-encryption key.
+# Done here rather than by hand because the credentials most likely to be
+# copy-pasted from another system are the ones that must be freshly generated:
+# the database password, JWT secret and credential-encryption key.
 cmd_init() {
   [ -f "$ENV_TEMPLATE" ] || die "missing template $ENV_TEMPLATE"
   if [ -f "$ENV_FILE" ]; then
@@ -150,7 +149,7 @@ cmd_init() {
   info "  EMAIL_FROM_ADDRESS  the sender address for outbound mail"
   info "  SMTP_HOST           the mail relay"
   info "  SMTP_USERNAME/SMTP_PASSWORD  only if the relay authenticates; both or neither"
-  warn "Do not copy secrets between deploy/main.env and deploy/dev.env."
+  warn "Generate every secret fresh; never copy one from another system."
 }
 
 generate_secret() {
@@ -217,41 +216,14 @@ case "$PROJECT" in
   *[!a-zA-Z0-9_-]*|"") die "COMPOSE_PROJECT_NAME may contain only letters, numbers, '_' and '-'" ;;
 esac
 
-# The project name must be this deployment's, not the other's. Without this
-# check, one wrong line in an env file points every command in this script -
-# migrate and restore included - at the other deployment's database.
+# The project name must be production's. Without this check, one wrong line in
+# the env file points every command in this script - migrate and restore
+# included - at a project that is not production's database.
 case "$PROJECT" in
   *"$DEPLOYMENT"*) ;;
   *) die "COMPOSE_PROJECT_NAME='$PROJECT' in $ENV_FILE does not mention '$DEPLOYMENT'.
        Refusing to continue: every command below would act on the wrong deployment." ;;
 esac
-
-OTHER_DEPLOYMENT="main"; [ "$DEPLOYMENT" = "main" ] && OTHER_DEPLOYMENT="dev"
-OTHER_ENV="deploy/${OTHER_DEPLOYMENT}.env"
-
-# Cross-check against the other deployment's file when it exists. These three
-# collisions each produce a working stack that quietly shares state.
-if [ -f "$OTHER_ENV" ]; then
-  other_value() { sed -n "s/^$1=//p" "$OTHER_ENV" | tail -n 1 | tr -d '\r'; }
-  [ "$PROJECT" != "$(other_value COMPOSE_PROJECT_NAME)" ] || \
-    die "both deployments declare COMPOSE_PROJECT_NAME='$PROJECT'.
-       They are one deployment sharing one database. Fix $ENV_FILE or $OTHER_ENV."
-  [ "$HTTP_PORT" != "$(other_value HTTP_PORT)" ] || \
-    die "both deployments declare HTTP_PORT=$HTTP_PORT. The second to start cannot bind it."
-  if [ "$(env_value JWT_SECRET)" = "$(other_value JWT_SECRET)" ]; then
-    die "both deployments share JWT_SECRET.
-       A token minted by $OTHER_DEPLOYMENT would authenticate against $DEPLOYMENT.
-       Generate a new one for one of them and restart it."
-  fi
-  if [ "$CREDENTIAL_KEY_VALUE" = "$(other_value CREDENTIAL_ENCRYPTION_KEY)" ]; then
-    die "both deployments share CREDENTIAL_ENCRYPTION_KEY; generate an independent value for one deployment"
-  fi
-  if [ "$(env_value POSTGRES_PASSWORD)" = "$(other_value POSTGRES_PASSWORD)" ]; then
-    warn "both deployments share POSTGRES_PASSWORD."
-    warn "Neither can reach the other's network, so this is not exploitable today -"
-    warn "but it stops being true the moment a port is published for debugging."
-  fi
-fi
 
 # Serialize every operation which can change running services, images or data.
 # The lock lives in an ignored, user-owned repository directory so deployment
@@ -601,11 +573,10 @@ case "$COMMAND" in
     fi
     rm -f /tmp/atcraft-doctor.$$
     say ""
-    say "Isolation"
+    say "Resource names"
     printf '  %-22s %s\n' "network"  "${PROJECT}_internal"
     printf '  %-22s %s\n' "volumes"  "${PROJECT}_postgres-data, ${PROJECT}_redis-data, ${PROJECT}_storage-data"
-    info "  These names are derived from the project name. Two deployments with"
-    info "  different project names cannot address each other's data."
+    info "  These names are derived from the project name."
     ;;
 
   build)   assert_clean_release_source; assert_deployment_config; dc build --pull "$@" ;;

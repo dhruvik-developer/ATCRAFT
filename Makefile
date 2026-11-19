@@ -8,15 +8,14 @@
 .PHONY: help dev dev-api dev-web dev-worker dev-docker up down restart logs ps \
         migrate migrate-down migration seed seed-local demo-data db-fresh db-handover \
         deployment-guard deploy-init deploy-doctor deploy-up deploy-down \
-        deploy-migrate deploy-health deploy-backup deploy-verify \
+        deploy-migrate deploy-health deploy-backup \
         test test-unit test-integration test-cov test-web test-e2e test-load build-web lint format \
         typecheck contract contract-check postman check lock hooks hooks-run \
         shell-api shell-db backup clean install
 
-# The local development stack is a THIRD stack, separate from the two
-# deployments, and it needs its own project name: docker-compose.yml requires
-# COMPOSE_PROJECT_NAME so that a bare `docker compose up` cannot put two
-# deployments into one project and have them share a database.
+# The local development stack needs its own project name: docker-compose.yml
+# requires COMPOSE_PROJECT_NAME so that a bare `docker compose up` cannot derive
+# one from the directory and address a project that is not meant.
 #
 # `atcraft-erp` is deliberately the historical name, so the volumes an existing
 # checkout already has - and the demo data in them - stay where they are.
@@ -27,10 +26,10 @@ DC_DEV  := docker compose -p $(COMPOSE_PROJECT_NAME) -f docker-compose.yml -f do
 API_DIR := apps/api
 WEB_DIR := apps/web
 
-# The two deployments are never driven from here. scripts/deploy.sh reads
-# deploy/<name>.env, takes the project name from it and passes it explicitly on
-# every command; a make variable would be one more place for the two to be
-# confused. See ONE-BOX-RUNBOOK.md.
+# The hosted deployment (production, from main) is driven by scripts/deploy.sh
+# alone. It reads deploy/main.env, takes the project name from it and passes it
+# explicitly on every command; a make variable would be one more place for that
+# to go wrong. See ONE-BOX-RUNBOOK.md.
 DEPLOY := ./scripts/deploy.sh
 
 help: ## Show available targets
@@ -193,8 +192,8 @@ backup: ## Dump the database to ./backups (never the only copy - section 45)
 	fi
 	@echo "Reminder: copy this dump to external storage. A backup is not reliable until a restore is tested."
 
-# --- Deployments (two independent stacks on one host) --------------------
-# Every deploy-* target below but deploy-verify takes D=main or D=dev (DEPLOY
+# --- Deployment (production, from main) ----------------------------------
+# Every deploy-* target below takes D=main, the only deployment (DEPLOY
 # above is the script's path, not the deployment). There is no default:
 # a defaulted deployment name is a command that acts on whichever stack the
 # author happened to have in mind.
@@ -224,9 +223,6 @@ deploy-health: deployment-guard ## Health of deployment D
 
 deploy-backup: deployment-guard ## Dump deployment D's database
 	$(DEPLOY) $(D) backup
-
-deploy-verify: ## Prove the two deployments cannot reach each other
-	./scripts/verify-isolation.sh
 
 clean: ## Remove generated builds, test outputs and caches (keeps data and dependencies)
 	python scripts/clean.py

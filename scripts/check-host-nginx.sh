@@ -19,7 +19,7 @@
 # aimed at them, which is what the handover checklist asks for.
 #
 # Worth running before every `systemctl reload nginx`, and especially after
-# changing the domains: a bad host config takes BOTH deployments offline, and
+# changing the domains: a bad host config takes production offline, and
 # the failure is at reload time on the live box.
 #
 # This exists because writing these files was not enough. Two duplicate-directive
@@ -52,7 +52,7 @@ case "$MODE" in
   template) ;;
   installed)
     for f in "$INSTALLED_CONF_D/00-default.conf" "$INSTALLED_CONF_D/atcraft-main.conf" \
-             "$INSTALLED_CONF_D/atcraft-dev.conf" "$INSTALLED_SNIPPETS/atcraft-proxy.conf"; do
+             "$INSTALLED_SNIPPETS/atcraft-proxy.conf"; do
       [ -r "$f" ] || { echo "error: $f is missing or unreadable - install the host configs first (ONE-BOX-RUNBOOK.md, host nginx step)" >&2; exit 1; }
     done
     if grep -q 'example\.com' "$INSTALLED_CONF_D"/atcraft-*.conf; then
@@ -87,13 +87,11 @@ if [ "${MODE:-}" = "installed" ]; then
   cp /host/snippets/*.conf /etc/nginx/snippets/
   cp /host/conf.d/00-default.conf   /etc/nginx/conf.d/
   cp /host/conf.d/atcraft-main.conf /etc/nginx/conf.d/
-  cp /host/conf.d/atcraft-dev.conf  /etc/nginx/conf.d/
 else
   echo "validating the repository copies (infrastructure/nginx/host)"
   cp /repo/infrastructure/nginx/host/snippets/*.conf /etc/nginx/snippets/
   cp /repo/infrastructure/nginx/host/00-default.conf   /etc/nginx/conf.d/
   cp /repo/infrastructure/nginx/host/atcraft-main.conf /etc/nginx/conf.d/
-  cp /repo/infrastructure/nginx/host/atcraft-dev.conf  /etc/nginx/conf.d/
 fi
 rm -f /etc/nginx/conf.d/default.conf
 
@@ -128,26 +126,17 @@ grep -h -E "^[[:space:]]*(server_name|proxy_pass http://127)" /etc/nginx/conf.d/
 
 echo
 ports=$(grep -h -oE "127\.0\.0\.1:[0-9]+" /etc/nginx/conf.d/atcraft-*.conf | sort -u | wc -l)
-if [ "$ports" -eq 2 ]; then
-  echo "OK: the two deployments have distinct upstream ports"
+if [ "$ports" -eq 1 ]; then
+  echo "OK: production proxies to exactly one upstream port"
 else
-  echo "FAIL: expected 2 distinct upstream ports, found $ports"
-  echo "      Both hostnames would serve the same deployment - and it would work."
-  exit 1
-fi
-
-names=$(grep -h -E "^[[:space:]]*server_name" /etc/nginx/conf.d/atcraft-*.conf | awk '{print $2}' | tr -d ';' | sort -u | wc -l)
-if [ "$names" -ge 2 ]; then
-  echo "OK: the two deployments have distinct hostnames"
-else
-  echo "FAIL: the two configs share a server_name - nginx would use whichever loaded first"
+  echo "FAIL: expected 1 upstream port, found $ports"
   exit 1
 fi
 
 echo
 echo "--- operational endpoints closed on the public hostnames ---"
 rc=0
-for f in /etc/nginx/conf.d/atcraft-main.conf /etc/nginx/conf.d/atcraft-dev.conf; do
+for f in /etc/nginx/conf.d/atcraft-main.conf; do
   for path in "/health/" "/metrics"; do
     if grep -q "location .*${path}.*return 404" "$f"; then
       echo "OK: $(basename "$f") closes $path"

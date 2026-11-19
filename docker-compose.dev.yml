@@ -1,11 +1,11 @@
 # =============================================================================
 # LOCAL DEVELOPMENT overlay - a developer's machine, NOT a deployment
 #
-# This is the third stack on the box and the only one that publishes a database
-# port. It exists so the host-run API, the host-run Vite server and pytest can
-# all reach Postgres and Redis. The two real deployments (deploy/main.env,
-# deploy/dev.env) publish nothing but one HTTP port; do not confuse
-# "deployment 2 is the dev branch" with "this file".
+# This is the only stack that publishes a database port. It exists so the
+# host-run API, the host-run Vite server and pytest can all reach Postgres and
+# Redis. The one hosted deployment (production, deploy/main.env) publishes
+# nothing but one HTTP port. There is no hosted development environment:
+# development is this stack, locally, on develop.
 #
 # Mode 1 - Hybrid (preferred daily driver): infrastructure only.
 #   make dev            # brings up postgres + redis, then API and web on the host

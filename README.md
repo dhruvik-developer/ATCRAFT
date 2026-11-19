@@ -145,7 +145,7 @@ make dev-docker        # Windows: .\make.ps1 dev-docker
 ```
 
 The bare equivalent needs the project name — `docker-compose.yml` refuses to
-start without one, so two deployments can never share a project by accident:
+start without one, so a project can never be derived from the directory by accident:
 
 ```bash
 docker compose -p atcraft-erp -f docker-compose.yml -f docker-compose.dev.yml up --build
@@ -212,7 +212,7 @@ scale demands it — but the system starts, and should stay, a modular monolith.
 Every development target exists in both `Makefile` and `make.ps1`
 (`make <target>` / `.\make.ps1 <target>`). The `deploy-*` targets are
 Makefile and Git Bash only: they wrap `scripts/deploy.sh`, which holds the
-guards that keep the two deployments apart, and `make.ps1` deliberately does
+guards that protect the production deployment, and `make.ps1` deliberately does
 not duplicate them.
 
 | Command | What it does |
@@ -237,8 +237,7 @@ not duplicate them.
 | `lock` | Regenerate the hash-locked, Linux-resolved Python requirements (`make.ps1` resolves them in the backend image's dependency stage, so Windows keeps the `uvloop` pin CI expects) |
 | `backup` | `pg_dump` to `./backups` |
 | `shell-api` / `shell-db` | Shells inside the containers |
-| `deploy-init` / `deploy-doctor` / `deploy-up` / `deploy-down` / `deploy-migrate` / `deploy-health` / `deploy-backup` | `scripts/deploy.sh` wrappers, `D=main` or `D=dev` (Makefile only) |
-| `deploy-verify` | Prove the two deployments cannot reach each other: runs `scripts/verify-isolation.sh` and takes no `D` (Makefile only) |
+| `deploy-init` / `deploy-doctor` / `deploy-up` / `deploy-down` / `deploy-migrate` / `deploy-health` / `deploy-backup` | `scripts/deploy.sh` wrappers, `D=main` (Makefile only) |
 | `clean` | Remove generated builds, test outputs and caches; preserve data, configuration and dependencies |
 
 Preview cleanup with `python scripts/clean.py --dry-run` (Windows:

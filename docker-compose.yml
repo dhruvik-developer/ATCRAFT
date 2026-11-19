@@ -17,25 +17,22 @@
 # Frontend and backend are ALWAYS separate containers. Never combined.
 #
 # -----------------------------------------------------------------------------
-# TWO INDEPENDENT DEPLOYMENTS ON ONE HOST
+# ONE HOSTED DEPLOYMENT (PRODUCTION) AND LOCAL DEVELOPMENT
 # -----------------------------------------------------------------------------
-# The isolation boundary is the Compose *project name*. One project name gets
-# its own containers, its own bridge network and its own named volumes, so
-# `postgres` and `redis` resolve to that deployment's instances and to nothing
-# else. Deployment 1 cannot address deployment 2's database because the name
-# does not exist on its network.
+# The boundary between stacks is the Compose *project name*. One project name
+# gets its own containers, its own bridge network and its own named volumes, so
+# `postgres` and `redis` resolve to that stack's instances and to nothing else.
 #
 # That is why nothing here is named by hand:
 #
-#   * no `container_name:` - a fixed name is claimed host-wide, so the second
-#     deployment fails with "container name is already in use". Compose names
+#   * no `container_name:` - a fixed name is claimed host-wide, so a second
+#     stack fails with "container name is already in use". Compose names
 #     containers <project>-<service>-N instead, unique per project.
-#   * no fixed top-level `name:` - it would put both deployments in ONE project,
-#     which means one set of volumes: deployment 2 would mount, and migrate,
-#     deployment 1's database. This is the failure the whole design exists to
-#     prevent, and it is silent - the stack comes up perfectly.
-#   * no fixed host ports - see the overlays; a second deployment binding the
-#     same port cannot start.
+#   * no fixed top-level `name:` - a project name derived from the directory
+#     could land a command on a project that is not meant, with one set of
+#     volumes under it. That failure is silent - the stack comes up perfectly.
+#   * no fixed host ports - see the overlays; a second stack binding the same
+#     port cannot start.
 #
 # Use scripts/deploy.sh, which sets COMPOSE_PROJECT_NAME from the deployment's
 # env file and refuses to run without one.
@@ -173,9 +170,8 @@ services:
       # one transaction.
       - -c
       - max_locks_per_transaction=1024
-      # Sized from the deployment's env file, not hardcoded: two deployments
-      # share one box's RAM, and two clusters each claiming 1GB of
-      # shared_buffers oversubscribe it between them.
+      # Sized from the deployment's env file, not hardcoded, so the figure
+      # follows the box's RAM.
       - -c
       # 150, not 100: the default pool sizing above wants 122 connections, so
       # a deployment that never set this used to exhaust the ceiling under load.

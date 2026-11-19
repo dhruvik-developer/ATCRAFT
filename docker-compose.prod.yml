@@ -1,14 +1,11 @@
 # =============================================================================
-# DEPLOYED overlay - used by BOTH independent deployments
+# DEPLOYED overlay - the production deployment (the only hosted deployment)
 #
 #   scripts/deploy.sh main up
-#   scripts/deploy.sh dev  up
 #
-# The two deployments run this identical overlay. Everything that differs
-# between them comes from deploy/<name>.env: the project name (which is the
-# isolation boundary), the loopback port, the secrets, the resource sizes.
-# Nothing environment-specific is written here, because a difference encoded in
-# the overlay is a difference both deployments silently share.
+# Everything environment-specific comes from deploy/main.env: the project name,
+# the loopback port, the secrets, the resource sizes. Nothing
+# environment-specific is written here.
 #
 # Rules enforced here (section 48):
 #   - no source bind-mounts (images contain the built application)
@@ -26,10 +23,9 @@
 services:
   postgres:
     # No published port at all. The database is reachable only from this
-    # deployment's own bridge network - which is the mechanism that stops
-    # deployment 1 from opening deployment 2's database, and is worth more than
-    # any password. Reach it with:
-    #   scripts/deploy.sh <name> psql
+    # deployment's own bridge network - which is worth more than any password.
+    # Reach it with:
+    #   scripts/deploy.sh main psql
     deploy:
       resources:
         limits:
@@ -58,9 +54,8 @@ services:
       target: production
     command: ["gunicorn", "src.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "${GUNICORN_WORKERS:-4}", "--bind", "0.0.0.0:8000", "--timeout", "60", "--graceful-timeout", "30", "--max-requests", "2000", "--max-requests-jitter", "200", "--access-logfile", "-"]
     environment:
-      # Explicitly not APP_ENV: the deployment's env file sets that, because
-      # deployment 2 is a real deployment of the dev branch and may legitimately
-      # run with APP_ENV=staging and debug off.
+      # Explicitly not APP_ENV: the deployment's env file sets that (the
+      # deploy script accepts production or staging there, with debug off).
       APP_DEBUG: "false"
       LOG_JSON: "true"
       CACHE_ENABLED: "true"

@@ -1,15 +1,17 @@
 # Production deployment
 
 The canonical operational procedure is
-[`ONE-BOX-RUNBOOK.md`](../ONE-BOX-RUNBOOK.md). It covers the two independent
-deployments, host Nginx/TLS, backup and restore, isolation verification, and
-handover. Do not substitute a bare `docker compose up` command: the guarded
-deployment script supplies the project isolation boundary and release identity.
+[`ONE-BOX-RUNBOOK.md`](../ONE-BOX-RUNBOOK.md). It covers the single production
+deployment, host Nginx/TLS, backup and restore, and handover. Do not substitute
+a bare `docker compose up` command: the guarded deployment script supplies the
+project name and release identity.
 
-The repository keeps only `main` and `develop`, synchronized to the same tested
-revision. Deployment names remain `main` and `dev`, with `DEPLOY_BRANCH=main`
-and `DEPLOY_BRANCH=develop` in their templates. The deployment name and the
-configured Git branch are separate; `dev` requires no extra branch.
+The project has exactly two environments: local development on `develop`, and
+the one hosted deployment, production, released from `main`. There is no hosted
+development, staging or preview deployment. The repository keeps only `main` and
+`develop`, synchronized to the same tested revision. The deployment name is
+`main`, with `DEPLOY_BRANCH=main` in its template; `./scripts/deploy.sh` refuses
+any other deployment name.
 
 ## Release workflow
 
@@ -66,7 +68,7 @@ Before promotion, run the shared quality gate (`make check` or
 `.\make.ps1 check`) and the additional CI/security/browser checks described in
 [`development-standards.md`](development-standards.md). Generated OpenAPI,
 Postman and frontend contract types must match the release source. A green local
-gate does not replace the backup, isolation, real-provider and restore checks
+gate does not replace the backup, real-provider and restore checks
 below.
 
 ## Storage sizing

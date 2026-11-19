@@ -1,22 +1,23 @@
 # ONE-BOX RUNBOOK
 
-Two independent deployments of the Atcraft ERP on a single host, plus the local
-development setup. Commands describe the checked-in scripts and configuration;
-host setup and external-provider checks still need to be run on the target
-installation. Destructive operations are identified before their commands.
+The one hosted deployment of the Atcraft ERP — production, released from `main`
+— on a single host, plus the local development setup. There is no hosted
+development, staging or preview deployment: development is local, on `develop`.
+Commands describe the checked-in scripts and configuration; host setup and
+external-provider checks still need to be run on the target installation.
+Destructive operations are identified before their commands.
 
-If you read one thing, read [What keeps the two deployments
-apart](#what-keeps-the-two-deployments-apart). The failure this architecture
-exists to prevent is silent — two deployments sharing one database come up
-perfectly healthy — so the isolation is verified by a script rather than by
-inspection.
+If you read one thing, read [What keeps the deployment
+safe](#what-keeps-the-deployment-safe). The failure it exists to prevent is
+silent — a command that reaches the wrong Compose project comes up perfectly
+healthy — so the entry point is one script that always names the project.
 
 ---
 
 ## Contents
 
 1. [Architecture](#architecture)
-2. [What keeps the two deployments apart](#what-keeps-the-two-deployments-apart)
+2. [What keeps the deployment safe](#what-keeps-the-deployment-safe)
 3. [Local development](#local-development)
 4. [Production setup, from a bare host](#production-setup-from-a-bare-host)
 5. [Environment variables](#environment-variables)
@@ -24,9 +25,8 @@ inspection.
 7. [Deploying a change](#deploying-a-change)
 8. [Migrations](#migrations)
 9. [Backup and restore](#backup-and-restore)
-10. [Verifying isolation](#verifying-isolation)
-11. [Troubleshooting](#troubleshooting)
-12. [Handover checklist](#handover-checklist)
+10. [Troubleshooting](#troubleshooting)
+11. [Handover checklist](#handover-checklist)
 
 ---
 
@@ -41,125 +41,103 @@ inspection.
                   │   HOST NGINX (systemd)     │   TLS terminates here, once.
                   │   /etc/nginx/conf.d/       │   Certificates renew here, once.
                   │     atcraft-main.conf      │
-                  │     atcraft-dev.conf       │
-                  └──────┬──────────────┬──────┘
-       erp.example.com   │              │   dev.erp.example.com
-                         │              │
-            127.0.0.1:8081         127.0.0.1:8082      loopback only —
-                         │              │              nothing off-box can
-   ══════════════════════▼═══════  ═════▼════════════   reach these directly
-    DEPLOYMENT 1  "main"            DEPLOYMENT 2  "dev"
-    project: atcraft-main           project: atcraft-dev
-    branch:  main                   branch:  develop
-   ────────────────────────────    ────────────────────────────
-    nginx      (app router)         nginx      (app router)
-    frontend   (static SPA)         frontend   (static SPA)
-    backend    (gunicorn x4)        backend    (gunicorn x2)
-    celery-worker                   celery-worker
-    celery-notify                   celery-notify
-    celery-beat                     celery-beat
-    postgres  ── volume              postgres  ── volume
-    redis     ── volume              redis     ── volume
-              ── storage volume                ── storage volume
-   ════════════════════════════    ════════════════════════════
-    network: atcraft-main_internal  network: atcraft-dev_internal
-                    ╲                        ╱
-                     ╲ no route between them ╱
+                  └─────────────┬──────────────┘
+                erp.example.com │
+                                │
+                       127.0.0.1:8081           loopback only —
+                                │               nothing off-box can
+   ═════════════════════════════▼════════════    reach it directly
+    PRODUCTION  "main"
+    project: atcraft-main
+    branch:  main
+   ───────────────────────────────────────
+    nginx      (app router)
+    frontend   (static SPA)
+    backend    (gunicorn x4)
+    celery-worker
+    celery-notify
+    celery-beat
+    postgres  ── volume
+    redis     ── volume
+              ── storage volume
+   ═══════════════════════════════════════
+    network: atcraft-main_internal
 ```
 
-Both deployments run the **same** compose files. Everything that differs
-between them lives in `deploy/main.env` and `deploy/dev.env`.
+Everything that is specific to the deployment lives in `deploy/main.env`.
 
 Only `main` and `develop` are retained as Git branches. Work on `develop` and
-synchronize both to the same verified revision. The deployment named `dev`
-tracks `develop` in its environment template and branch guard; the deployment
-named `main` tracks `main`. No separate `dev` or feature branch is required.
+synchronize both to the same verified revision. The deployment is named `main`,
+tracks `main` in its environment template and branch guard, and is the only
+hosted deployment; `scripts/deploy.sh` refuses any other deployment name. No
+separate `dev` or feature branch is required.
 
-|                  | Deployment 1                                  | Deployment 2                                 |
-| ---------------- | --------------------------------------------- | -------------------------------------------- |
-| name             | `main`                                        | `dev`                                        |
-| compose project  | `atcraft-main`                                | `atcraft-dev`                                |
-| git branch       | `main`                                        | `develop`                                    |
-| loopback port    | `8081`                                        | `8082`                                       |
-| domain           | `erp.example.com`                             | `dev.erp.example.com`                        |
-| `APP_ENV`        | `production`                                  | `staging`                                    |
-| database         | `atcraft_erp` in `atcraft-main_postgres-data` | `atcraft_erp` in `atcraft-dev_postgres-data` |
-| Redis            | `atcraft-main_redis-data`                     | `atcraft-dev_redis-data`                     |
-| uploads          | `atcraft-main_storage-data`                   | `atcraft-dev_storage-data`                   |
-| gunicorn workers | 4                                             | 2                                            |
-| Postgres RAM     | `shared_buffers=1GB`, limit 4G                | `shared_buffers=256MB`, limit 1G             |
+|                  | Production                                    |
+| ---------------- | --------------------------------------------- |
+| name             | `main`                                        |
+| compose project  | `atcraft-main`                                |
+| git branch       | `main`                                        |
+| loopback port    | `8081`                                        |
+| domain           | `erp.example.com`                             |
+| `APP_ENV`        | `production`                                  |
+| database         | `atcraft_erp` in `atcraft-main_postgres-data` |
+| Redis            | `atcraft-main_redis-data`                     |
+| uploads          | `atcraft-main_storage-data`                   |
+| gunicorn workers | 4                                             |
+| Postgres RAM     | `shared_buffers=1GB`, limit 4G                |
 
-The database **name** is the same in both. That is deliberate and harmless:
-they are different clusters, in different containers, on different volumes, on
-different networks. Nothing in either deployment can resolve the other's
-hostname, so there is no context in which the shared name is ambiguous.
-
-### Why there is an nginx in each deployment _and_ one on the host
+### Why there is an nginx in the deployment _and_ one on the host
 
 They do different jobs, and putting both jobs in one place breaks something:
 
 - **Host nginx** owns TLS, the public hostnames, HSTS and the HTTP→HTTPS
-  redirect. Two containers cannot both bind `:443`, and a certificate should be
+  redirect. The host owns `:443`, and a certificate should be
   renewed in exactly one place.
 - **Deployment nginx** owns `/api` routing, per-endpoint rate limits, the
   response security headers, the SPA fallback and asset caching. Keeping it
-  means each deployment is complete and testable on its own — `curl
+  means the deployment is complete and testable on its own — `curl
 http://127.0.0.1:8081/healthz` answers before the host nginx is configured at
-  all — and the deployment behaves the same in the isolation test as it does in
-  production.
+  all — and the deployment behaves the same behind the host nginx as it does on
+  its own.
 
 ---
 
-## What keeps the two deployments apart
+## What keeps the deployment safe
 
 The boundary is the **Compose project name**, and everything else follows from
 it. Compose derives container names, the bridge network and the volume names
-from the project, so `atcraft-main` and `atcraft-dev` get:
+from the project, so `atcraft-main` gets:
 
 ```
-atcraft-main_internal        atcraft-dev_internal          separate networks
-atcraft-main_postgres-data   atcraft-dev_postgres-data     separate volumes
-atcraft-main_redis-data      atcraft-dev_redis-data
-atcraft-main_storage-data    atcraft-dev_storage-data
+atcraft-main_internal        the bridge network
+atcraft-main_postgres-data   volumes
+atcraft-main_redis-data
+atcraft-main_storage-data
 ```
 
-Inside deployment 1, the hostname `postgres` resolves to deployment 1's cluster
-and to nothing else — DNS for a project exists only on that project's network.
-This is why both deployments can use identical service names and identical
-database names without ambiguity.
+Inside the deployment, the hostname `postgres` resolves to its cluster and to
+nothing else — DNS for a project exists only on that project's network.
 
-Four things enforce it, and each replaces a failure that produces a _working_
+Three things enforce it, and each replaces a failure that produces a _working_
 system:
 
 1. **`docker-compose.yml` requires `COMPOSE_PROJECT_NAME`.** A bare
-   `docker compose up` in this directory now fails outright. Without that,
-   Compose derives the project from the directory name — both deployments land
-   in the same project, and the second one mounts and migrates the first one's
-   database while reporting every container healthy.
+   `docker compose up` in this directory fails outright. Without that, Compose
+   derives the project from the directory name, and a command can land on a
+   project that is not production's own while reporting every container
+   healthy.
 2. **No `container_name:` anywhere.** A fixed container name is claimed
-   host-wide, so the second deployment cannot start at all.
+   host-wide, so a second stack on the same box could not start at all.
 3. **`scripts/deploy.sh` is the only entry point.** It reads
-   `deploy/<name>.env`, takes the project name from it, passes it explicitly
-   with `-p` on every command, and refuses to run if the two env files share a
-   project name, a port, a JWT secret or a credential-encryption key.
-4. **Separate signing and encryption secrets per deployment.** The last
-   boundary, and the only one
-   that survives a network misconfiguration: a session minted by the dev
-   deployment must not authenticate against the client's data. `JWT_ISSUER` and
-   `JWT_AUDIENCE` differ too, so a cross-deployment token is rejected as
-   wrong-audience rather than merely failing to verify.
-
-Prove it, don't trust it:
-
-```bash
-./scripts/verify-isolation.sh
-```
+   `deploy/main.env`, takes the project name from it, passes it explicitly
+   with `-p` on every command, and refuses to run on the wrong branch, from a
+   dirty tree, or with placeholder or reused secrets.
 
 ---
 
 ## Local development
 
-The local stack is a **third** stack, separate from both deployments. It is the
+The local stack is separate from the hosted deployment. It is the
 only one that publishes a database port, because the host-run API, the host-run
 Vite server and pytest all need to reach Postgres.
 
@@ -246,7 +224,7 @@ worker in the full stack.
 
 ### Full-Docker development
 
-Everything in containers, hot reload through the deployment nginx on
+Everything in containers, hot reload through the stack's nginx on
 <http://localhost>:
 
 ```bash
@@ -296,16 +274,15 @@ and security audits, schema checks, browser coverage and deployment checks; see
 
 ## Production setup, from a bare host
 
-Assumes Ubuntu 22.04/24.04 with a sudo user. Substitute your real hostnames for
-`erp.example.com` and `dev.erp.example.com` throughout.
+Assumes Ubuntu 22.04/24.04 with a sudo user. Substitute your real hostname for
+`erp.example.com` throughout.
 
 ### 1. DNS
 
-Point both names at the box before requesting certificates:
+Point the name at the box before requesting the certificate:
 
 ```
 erp.example.com.       A   <host ip>
-dev.erp.example.com.   A   <host ip>
 ```
 
 ### 2. Docker
@@ -319,7 +296,7 @@ docker compose version          # must be v2.20 or newer
 
 ### 3. Firewall — only 80 and 443
 
-Both deployments publish on loopback only, so this is defence in depth rather
+The deployment publishes on loopback only, so this is defence in depth rather
 than the only thing standing between the internet and Postgres.
 
 ```bash
@@ -330,39 +307,33 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-### 4. Checkout and branches
+### 4. Checkout and branch
 
-Both deployments build from a working tree, so each needs its own checkout —
-one repository cannot be on two branches at once.
+The deployment builds from a working tree on `main`.
 
 ```bash
 sudo mkdir -p /srv && sudo chown "$USER" /srv
 
 git clone <repo> /srv/atcraft-main
 cd /srv/atcraft-main && git checkout main
-
-git clone <repo> /srv/atcraft-dev
-cd /srv/atcraft-dev && git checkout develop
 ```
 
-`scripts/deploy.sh` refuses to build deployment `main` from a tree that is not
-on `main`, or deployment `dev` from a tree that is not on `develop`, so a
+`scripts/deploy.sh` refuses to build from a tree that is not on `main`, so a
 forgotten `git checkout` cannot ship the wrong code. These server provisioning
 examples do not authorize a second checkout on the local development machine.
 
-### 5. Generate each deployment's secrets
+### 5. Generate the deployment's secrets
 
 ```bash
 cd /srv/atcraft-main && ./scripts/deploy.sh main init
-cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  init
 ```
 
-Each writes `deploy/<name>.env`, mode 600, with a freshly generated
+This writes `deploy/main.env`, mode 600, with a freshly generated
 `POSTGRES_PASSWORD`, `JWT_SECRET`, and `CREDENTIAL_ENCRYPTION_KEY`. No value is
 printed or logged. The encryption key is independent so JWT rotation does not
 invalidate enrolled authenticators. `init` refuses to overwrite an existing file.
 
-Then edit each file and replace every `example.com` placeholder. Five keys
+Then edit the file and replace every `example.com` placeholder. Five keys
 ship with one — the two public-hostname keys and three mail keys — and `doctor`
 and `up` refuse the file while any of them still holds it, naming the key. The
 values below are examples only:
@@ -376,15 +347,6 @@ EMAIL_FROM_ADDRESS=no-reply@yourcompany.com
 SMTP_HOST=smtp.yourcompany.com
 SMTP_USERNAME=<relay account, if the relay authenticates>
 SMTP_PASSWORD=<its password - both set, or both empty>
-
-# /srv/atcraft-dev/deploy/dev.env
-CORS_ORIGINS=https://dev.erp.yourcompany.com
-ALLOWED_HOSTS=dev.erp.yourcompany.com
-PUBLIC_WEB_URL=https://dev.erp.yourcompany.com
-EMAIL_FROM_ADDRESS=no-reply-dev@yourcompany.com
-SMTP_HOST=<a sandbox or test relay - never the client's production one>
-SMTP_USERNAME=
-SMTP_PASSWORD=
 ```
 
 Mail is not optional in a deployment: a password-reset response must
@@ -409,7 +371,7 @@ and approved templates are ready. Before enabling:
    or source control. The provider host must be included in
    `MESSAGING_ALLOWED_HOSTS`.
 4. Start with `SMS_ENABLED=false` and `WHATSAPP_ENABLED=false`; run
-   `./scripts/deploy.sh <name> doctor`, then deploy. Afterward verify an
+   `./scripts/deploy.sh main doctor`, then deploy. Afterward verify an
    operator's number with the SMS OTP from their profile, record their explicit
    channel consent, and configure each tenant's templates at
    **Administration → Messaging templates**.
@@ -442,15 +404,14 @@ Check the result without starting anything:
 ./scripts/deploy.sh main doctor
 ```
 
-**Never copy secrets between the two files.** `deploy.sh` refuses to run if the
-`JWT_SECRET`s or `CREDENTIAL_ENCRYPTION_KEY`s match and warns if the database
-passwords do.
+**Never copy secrets from another system.** `deploy.sh` refuses to run if
+`JWT_SECRET` or `CREDENTIAL_ENCRYPTION_KEY` is empty, short, a template
+placeholder, or if the two are equal.
 
-### 6. Start both deployments
+### 6. Start the deployment
 
 ```bash
 cd /srv/atcraft-main && ./scripts/deploy.sh main up
-cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  up
 ```
 
 `up` runs the complete guarded release: it builds commit-addressed images while
@@ -458,28 +419,21 @@ the old release is live, stops application traffic, takes a pre-migration
 backup when a database already exists, updates infrastructure, migrates, then
 starts the new application and waits for dependency-aware readiness.
 
-### 7. Seed the schemas — separately, per database
+### 7. Seed the schema
 
 ```bash
 cd /srv/atcraft-main && ./scripts/deploy.sh main seed
-cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  seed
 ```
 
-Optionally give the dev deployment a demo business to test against:
-
-```bash
-cd /srv/atcraft-dev && ./scripts/deploy.sh dev demo-data
-```
-
-Do **not** load demo data into deployment 1. `deploy.sh` will demand a typed
+Do **not** load demo data into the deployment. `deploy.sh` will demand a typed
 confirmation if you try, because `APP_ENV=production` there.
 
 ### 8. Certificates
 
 Issue the certificates _before_ the host configs go in. The `:443` server
-blocks in `atcraft-main.conf` and `atcraft-dev.conf` name
+block in `atcraft-main.conf` names
 `/etc/letsencrypt/live/<hostname>/`, so on a bare host `nginx -t` fails on
-those files every time until the certificates exist — not conditionally — and
+that file every time until the certificates exist — not conditionally — and
 a reload chained behind it never runs.
 
 What answers the ACME challenge at this point is the packaged default site
@@ -497,18 +451,8 @@ sudo ln -sfn /var/www/certbot/.well-known /var/www/html/.well-known
 
 sudo certbot certonly --webroot -w /var/www/certbot -d erp.yourcompany.com \
   --agree-tos -m ops@yourcompany.com --no-eff-email
-sudo certbot certonly --webroot -w /var/www/certbot -d dev.erp.yourcompany.com \
-  --agree-tos -m ops@yourcompany.com --no-eff-email
-
-ls /etc/letsencrypt/live/      # erp.yourcompany.com  dev.erp.yourcompany.com
+ls /etc/letsencrypt/live/      # erp.yourcompany.com
 ```
-
-Two `certonly` runs, not one with two `-d` flags. A single run makes one
-lineage, named after the first domain; `atcraft-dev.conf` names
-`/etc/letsencrypt/live/dev.erp.yourcompany.com/`, which that run never creates,
-so `nginx -t` fails with "cannot load certificate" and both deployments stay
-unreachable over TLS. The certificate paths are one of the three deliberate
-differences between the two host configs.
 
 ### 9. Host nginx
 
@@ -518,21 +462,19 @@ sudo cp /srv/atcraft-main/infrastructure/nginx/host/snippets/atcraft-proxy.conf 
         /etc/nginx/snippets/
 sudo cp /srv/atcraft-main/infrastructure/nginx/host/00-default.conf \
         /srv/atcraft-main/infrastructure/nginx/host/atcraft-main.conf \
-        /srv/atcraft-main/infrastructure/nginx/host/atcraft-dev.conf \
         /etc/nginx/conf.d/
 
 # Real hostnames
-sudo sed -i 's/erp\.example\.com/erp.yourcompany.com/g'         /etc/nginx/conf.d/atcraft-main.conf
-sudo sed -i 's/dev\.erp\.example\.com/dev.erp.yourcompany.com/g' /etc/nginx/conf.d/atcraft-dev.conf
+sudo sed -i 's/erp\.example\.com/erp.yourcompany.com/g' /etc/nginx/conf.d/atcraft-main.conf
 
 # Load the installed copies in a throwaway nginx before touching the live one:
-# a fault here takes both deployments offline, at reload time
+# a fault here takes production offline, at reload time
 cd /srv/atcraft-main && ./scripts/check-host-nginx.sh --installed
 ```
 
 `--installed` reads `/etc/nginx/conf.d` and `/etc/nginx/snippets`, generates
 self-signed certificates at the exact paths the configs name, and runs
-`nginx -t` plus the routing, port and hostname assertions. It also refuses any
+`nginx -t` plus the routing, port and closed-endpoint assertions. It also refuses any
 installed config that still says `example.com`. Without the flag the script
 checks the repository copies, which keep the placeholders — customising those
 instead would dirty the working tree that `deploy.sh up` requires clean.
@@ -553,32 +495,26 @@ sudo certbot renew --dry-run                  # now through the :80 blocks and /
 ```bash
 cd /srv/atcraft-main
 ./scripts/deploy.sh main health
-./scripts/deploy.sh dev health
-./scripts/verify-isolation.sh
 
-curl -sI https://erp.yourcompany.com     | head -1
-curl -sI https://dev.erp.yourcompany.com | head -1
+curl -sI https://erp.yourcompany.com | head -1
 ```
-
-`verify-isolation.sh` needs both `deploy/main.env` and `deploy/dev.env`. With
-two checkouts, copy the other deployment's env file in read-only to run it, or
-run it from a directory that has both.
 
 ---
 
 ## Environment variables
 
-### Per deployment — `deploy/<name>.env`
+### The deployment — `deploy/main.env`
 
-Consumed by Docker Compose interpolation. `(UNIQUE)` must differ between the
-two deployments.
+Consumed by Docker Compose interpolation. `(UNIQUE)` marks a value that must be
+this deployment's own - generated fresh or specific to it - never copied from
+another system or an example.
 
 | Variable                                        | Example                             | Notes                                                                                                                                                            |
 | ----------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COMPOSE_PROJECT_NAME`                          | `atcraft-main`                      | **(UNIQUE)** The isolation boundary. Required.                                                                                                                   |
+| `COMPOSE_PROJECT_NAME`                          | `atcraft-main`                      | **(UNIQUE)** The project boundary. Required.                                                                                                                     |
 | `DEPLOY_BRANCH`                                 | `main`                              | Branch this deployment tracks; `deploy.sh` enforces it.                                                                                                          |
 | `HTTP_PORT`                                     | `8081`                              | **(UNIQUE)** Loopback port. Must match the host nginx `proxy_pass`. Required.                                                                                    |
-| `APP_ENV`                                       | `production`                        | `production` for main, `staging` for deployed dev.                                                                                                               |
+| `APP_ENV`                                       | `production`                        | `production`; `deploy.sh` also accepts `staging`.                                                                                                                |
 | `LOG_LEVEL`                                     | `INFO`                              |                                                                                                                                                                  |
 | `CORS_ORIGINS`                                  | `https://erp.example.com`           | Comma-separated. Never `*` with credentials.                                                                                                                     |
 | `ALLOWED_HOSTS`                                 | `erp.example.com`                   | Hostnames only. Required; never `*`.                                                                                                                             |
@@ -610,17 +546,17 @@ two deployments.
 | `COURIER_TRACKING_ENABLED`                      | `false`                             | Enable only after migration and provider setup; the API/webhook/polling remain disabled otherwise.                                                                  |
 | `COURIER_POLL_INTERVAL_SECONDS`                 | `1800`                              | Shiprocket polling cadence; minimum 60 seconds.                                                                                                                   |
 | `COURIER_ALLOWED_HOSTS`                         | `apiv2.shiprocket.in`               | HTTPS hostname allow-list for the Shiprocket client; retain only provider hosts the deployment uses.                                                              |
-| `POSTGRES_DB`                                   | `atcraft_erp`                       | May match the other deployment.                                                                                                                                  |
+| `POSTGRES_DB`                                   | `atcraft_erp`                       | Not a secret; the default is fine.                                                                                                                               |
 | `POSTGRES_USER`                                 | `atcraft`                           | May match.                                                                                                                                                       |
 | `POSTGRES_PASSWORD`                             | —                                   | **(UNIQUE)** Required, no default.                                                                                                                               |
-| `JWT_SECRET`                                    | —                                   | **(UNIQUE)** Required. Sharing it means a dev token works in production.                                                                                         |
+| `JWT_SECRET`                                    | —                                   | **(UNIQUE)** Required. A copy held anywhere else can mint tokens for production.                                                                                 |
 | `CREDENTIAL_ENCRYPTION_KEY`                     | -                                   | **(UNIQUE)** Required; encrypts MFA and reset-delivery credentials and must differ from `JWT_SECRET`.                                                            |
 | `JWT_ISSUER`                                    | `atcraft-erp-main`                  | **(UNIQUE)**                                                                                                                                                     |
 | `JWT_AUDIENCE`                                  | `atcraft-erp-main`                  | **(UNIQUE)**                                                                                                                                                     |
 | `IMAGE_PREFIX`                                  | `atcraft`                           |                                                                                                                                                                  |
 | `IMAGE_TAG`                                     | _(derived)_                         | `deploy.sh` forces the exact 12-character Git revision.                                                                                                          |
 | `VITE_ERROR_REPORT_URL`                         | _(empty)_                           | Empty disables browser crash reporting. Use a same-origin collector path unless its HTTPS origin is deliberately added to the CSP.                               |
-| `SENTRY_DSN`                                    | _(empty)_                           | Empty disables scrubbed backend exception reporting. Use a different Sentry project for each deployment.                                                         |
+| `SENTRY_DSN`                                    | _(empty)_                           | Empty disables scrubbed backend exception reporting. Use a dedicated Sentry project for production.                                                         |
 | `PG_MAX_CONNECTIONS`                            | `150`                               | Reconcile all API, batch, notification and beat pools.                                                                                                           |
 | `PG_SHARED_BUFFERS`                             | `1GB`                               | ~25% of this deployment's RAM allowance.                                                                                                                         |
 | `PG_EFFECTIVE_CACHE_SIZE`                       | `3GB`                               | ~50–75% of it.                                                                                                                                                   |
@@ -634,16 +570,16 @@ two deployments.
 | `BACKEND_MEM_LIMIT`                             | `2G`                                |                                                                                                                                                                  |
 | `CELERY_CONCURRENCY`                            | `4`                                 |                                                                                                                                                                  |
 | `WORKER_MEM_LIMIT`                              | `2G`                                |                                                                                                                                                                  |
-| `CLAMAV_MEM_LIMIT`                              | `2G`                                | Per deployment ClamAV sidecar; allow up to 4G for both deployments together.                                                                                     |
+| `CLAMAV_MEM_LIMIT`                              | `2G`                                | ClamAV sidecar; allow up to 4G.                                                                                                                                  |
 | `CLAMAV_CPU_LIMIT`                              | `1`                                 | Per deployment signature update and scan ceiling.                                                                                                                |
-| `NOTIFY_CONCURRENCY`                            | `2`                                 | Dedicated notification worker; dev uses `1`.                                                                                                                     |
+| `NOTIFY_CONCURRENCY`                            | `2`                                 | Dedicated notification worker.                                                                                                                                   |
 | `NOTIFY_DB_POOL_SIZE`, `NOTIFY_DB_MAX_OVERFLOW` | `2`, `2`                            | Per notification child.                                                                                                                                          |
-| `NOTIFY_MEM_LIMIT`                              | `512M`                              | Dev uses `256M`.                                                                                                                                                 |
+| `NOTIFY_MEM_LIMIT`                              | `512M`                              | Notification worker memory limit.                                                                                                                                |
 
-Both Postgres clusters share one box's RAM. Size them together: the sum of the
-two `PG_MEM_LIMIT`s, both backends, both workers and both ClamAV sidecars must
-fit, with room for the page cache. Each ClamAV sidecar is capped at 2G by
-default; lower neither limit without measuring its database and scan workload.
+The services share one box's RAM. Size them together: `PG_MEM_LIMIT`, the
+backend, the workers and the ClamAV sidecar must fit, with room for the page
+cache. The ClamAV sidecar is capped at 2G by default; lower neither limit
+without measuring the database and scan workload.
 
 ### Connections and memory
 
@@ -659,8 +595,7 @@ its own SQLAlchemy pool, so the demand is per _process_, not per container:
   NOTIFY_CONCURRENCY x (NOTIFY_DB_POOL_SIZE + ...OVERFLOW)       2 x  4 =   8
   celery-beat        x (1 + 1)                                            2
                                                                         ---
-                                                          deployment 1   130   <= 150
-                                                          deployment 2    66   <=  80
+                                                                       130   <= 150
 ```
 
 Leave headroom above the total: `psql`, a backup and a monitoring probe all
@@ -671,8 +606,7 @@ case is `max_connections x work_mem`, and that has to leave room for
 `shared_buffers` inside `PG_MEM_LIMIT`:
 
 ```
-  deployment 1   150 x 8MB + 1GB    = 2.2G   <= 4G
-  deployment 2    80 x 4MB + 256MB  = 0.6G   <= 1G
+  150 x 8MB + 1GB    = 2.2G   <= 4G
 ```
 
 Raising `max_connections` means lowering `work_mem`, or the container reaches
@@ -681,15 +615,14 @@ raise `work_mem` for its own session.
 
 **CPU.** Every service carries a `cpus` ceiling as well as a memory one
 (`*_CPU_LIMIT` in the env file). Memory was capped and CPU was not, which meant
-the busier deployment could take every core and starve the other - the one
-thing this architecture exists to prevent. A ceiling is not a reservation: keep
-the sum of both deployments at or below the core count for hard isolation, or
-above it if you would rather they share and neither can monopolise.
+one service could take every core and starve the others. A ceiling is not a
+reservation: keep the sum at or below the core count for hard isolation, or
+above it if you would rather they share and none can monopolise.
 
 ### Fixed by the compose files, not by env
 
 Set in `docker-compose.yml` / `docker-compose.prod.yml` so they cannot drift
-between deployments: `DATABASE_URL`, `DATABASE_SYNC_URL`, `REDIS_URL`,
+from the tested configuration: `DATABASE_URL`, `DATABASE_SYNC_URL`, `REDIS_URL`,
 `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `STORAGE_PATH`, `APP_DEBUG=false`,
 `LOG_JSON=true`, `CACHE_ENABLED=true`, `RATE_LIMIT_ENABLED=true`.
 
@@ -781,14 +714,14 @@ error envelope or the access log line, then:
 ./scripts/deploy.sh main logs celery-worker | grep '"request_id":"<id>"'
 ```
 
-Use `LOG_LEVEL=DEBUG` only on the `dev` deployment while investigating; leave
-`main` at `INFO`. Do not set `APP_DEBUG=true` on either deployment — production
+Use `LOG_LEVEL=DEBUG` only briefly while investigating, and reproduce locally
+where you can; leave `main` at `INFO`. Do not set `APP_DEBUG=true` — production
 startup refuses it, and stack traces must never reach the browser.
 
 `restart` is not a bounce. It re-runs the guarded release, so it refuses a
 dirty tree or a `HEAD` that is not the pushed upstream, rebuilds the images,
 takes a backup and migrates — exactly what `up` does. Use it to pick up an
-edited `deploy/<name>.env`; do not reach for it to "just restart" a box with
+edited `deploy/main.env`; do not reach for it to "just restart" a box with
 uncommitted changes on it, because it will refuse.
 
 `down` keeps the data:
@@ -839,7 +772,7 @@ commit. Images are tagged and labelled with the
 exact commit, so the running artifact can be traced and an old commit's image
 cannot be silently overwritten by a later branch build.
 
-Verify and synchronize the two branches, then release each deployment independently:
+Verify and synchronize the two branches, then release production from `main`:
 
 ```
 develop → checks → same commit on develop and main → deployment verification
@@ -868,9 +801,9 @@ prints "Every stored GSTIN and PAN is valid."
 
 ## Migrations
 
-Each deployment migrates its own database. The command runs inside that
-deployment's project, so it can only reach that deployment's Postgres — there
-is no connection string to point at the wrong one.
+The deployment migrates its own database. The command runs inside that
+project, so it can only reach that project's Postgres — there is no connection
+string to point at the wrong one.
 
 ```bash
 ./scripts/deploy.sh main migrate-status     # current revision + heads
@@ -953,12 +886,11 @@ sudo tee /etc/cron.d/atcraft-backup >/dev/null <<'CRON'
 SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
 30 1 * * * ubuntu cd /srv/atcraft-main && ./scripts/deploy.sh main backup >> /var/log/atcraft-backup.log 2>&1
-45 1 * * * ubuntu cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  backup >> /var/log/atcraft-backup.log 2>&1
 CRON
 ```
 
-Add off-box copying and retention to the same job. Two deployments dumping
-nightly with no retention will fill the disk, and a full disk stops Postgres.
+Add off-box copying and retention to the same job. Nightly dumps with no
+retention will fill the disk, and a full disk stops Postgres.
 
 ### Restore
 
@@ -1025,64 +957,27 @@ artifact. Do not rewrite shared history as an unattended deploy step.
 
 ---
 
-## Verifying isolation
-
-```bash
-./scripts/verify-isolation.sh
-```
-
-Both deployments must be up. It attempts each crossing **from inside
-deployment 1's own backend container** — where a bug, a mistargeted migration
-or a compromised dependency would run from — and requires each attempt to fail:
-
-1. **Distinct infrastructure** — project names, volume mountpoints and bridge
-   subnets differ, and no container is attached to both networks.
-2. **Database** — deployment 2's container hostnames do not resolve; a TCP
-   connection to its Postgres IP does not open; and a connection attempt
-   _holding deployment 2's real password_ still fails. The boundary is the
-   network, not the credential.
-3. **Redis** — same, in both directions. A shared Redis would mean one
-   deployment's Celery worker running real business logic against the other's
-   database.
-4. **Host exposure** — neither Postgres nor Redis publishes a host port.
-5. **Serving** — each loopback port answers ready, and a marker row written to
-   deployment 1's database is absent from deployment 2's. Health checks cannot
-   tell you _which_ database answered; a marker row can.
-6. **Tokens** — the two deployments sign with different secrets and declare
-   different audiences.
-7. **A real session, replayed** — opt-in. Signs in to both deployments and
-   replays each token against the other, which must answer 401. Section 6
-   compares the inputs; this observes the outcome, and they are not the same
-   claim.
-
-```bash
-ATCRAFT_MAIN_PW='...' ATCRAFT_DEV_PW='...' ./scripts/verify-isolation.sh
-```
-
-The passwords are read from the environment and never printed. Without them
-section 7 reports SKIP — and a skip is not a pass.
-
-A clean run reports **22 passed, 0 failed, 0 skipped**.
-
-Run it after any change to a compose file, an env file or the host nginx.
-
----
-
 ## Troubleshooting
 
 ### `COMPOSE_PROJECT_NAME must be set`
 
-You ran `docker compose` directly. Use `./scripts/deploy.sh <main|dev> …`, or
+You ran `docker compose` directly. Use `./scripts/deploy.sh main …`, or
 for the local stack `make dev` (hybrid) or `make dev-docker` (full Docker) —
 `.\make.ps1 dev` / `.\make.ps1 dev-docker` on Windows. The requirement is
-deliberate — see [What keeps the two deployments
-apart](#what-keeps-the-two-deployments-apart).
+deliberate — see [What keeps the deployment
+safe](#what-keeps-the-deployment-safe).
 
-### `deployment 'dev' tracks branch 'develop' but the working tree is on 'main'`
+### `deployment 'main' tracks branch 'main' but the working tree is on '...'`
 
-Use `git switch develop` in the existing checkout. The deployment template must
-set `DEPLOY_BRANCH=develop`; older templates naming `dev` need that non-secret
-setting updated. Do not create another branch or checkout, or bypass the guard.
+Use `git switch main` in the existing checkout. Do not create another branch or
+checkout, or bypass the guard.
+
+### `unknown deployment '...'`
+
+The project has one hosted deployment, production, released from `main`. Run
+`./scripts/deploy.sh main <command>`. Development runs locally on `develop`
+(see [Local development](#local-development)); there is no hosted development
+deployment to name.
 
 ### `HEAD is not the tested upstream revision`
 
@@ -1094,24 +989,21 @@ one CI tested. Push the commit and let CI pass, then `git pull --ff-only`.
 documented emergency only; a branch with no upstream at all is refused the
 same way.
 
-### `both deployments share JWT_SECRET`
+### `CREDENTIAL_ENCRYPTION_KEY must be independent from JWT_SECRET`
 
-`deploy.sh` refuses to continue. Generate a new secret for one of them and
-restart it — everyone signed in to that deployment is logged out.
+`deploy.sh` refuses to continue. Generate an independent value, but do not
+rotate a credential-encryption key after MFA enrollment unless you also have a
+planned data re-encryption procedure.
 
-The same refusal applies to `CREDENTIAL_ENCRYPTION_KEY`. Generate an independent
-value, but do not rotate a credential-encryption key after MFA enrollment unless
-you also have a planned data re-encryption procedure.
-
-### The second deployment will not bind its port
+### The deployment will not bind its port
 
 ```bash
-sudo ss -ltnp | grep -E ':(8081|8082)'
+sudo ss -ltnp | grep ':8081'
 ```
 
-Two deployments with the same `HTTP_PORT`. `deploy.sh` catches this when both
-env files are present in one checkout; with two checkouts it cannot see the
-other file, so check by hand.
+Something else on the box already listens on the loopback port named by
+`HTTP_PORT`. Stop it or choose another port, and change the host nginx
+`proxy_pass` to match.
 
 ### `Worker failed to boot` with an `IndexError` from pathlib
 
@@ -1193,18 +1085,17 @@ Before the client takes over:
 
 - [ ] `./scripts/deploy.sh main doctor` — clean
 - [ ] `./scripts/deploy.sh main health` — all containers healthy, readiness 200
-- [ ] `./scripts/deploy.sh dev health` — same
-- [ ] `./scripts/verify-isolation.sh` — 0 failed, 0 skipped
-- [ ] `deploy/main.env` and `deploy/dev.env` are mode 600, not in git, and a
-      copy of each is stored off the box
+- [ ] `deploy/main.env` is mode 600, not in git, and a copy is stored off the
+      box
 - [ ] `CORS_ORIGINS`, `ALLOWED_HOSTS`, `PUBLIC_WEB_URL`, `EMAIL_FROM_ADDRESS`
-      and `SMTP_HOST` hold the real values in both env files — `doctor` names
+      and `SMTP_HOST` hold the real values in the env file — `doctor` names
       any key that still says `example.com`
 - [ ] Host nginx: `./scripts/check-host-nginx.sh --installed` passes, which
-      also proves neither installed config contains `example.com`
-- [ ] `JWT_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` differ
-      between the two deployments; each credential key also differs from its JWT key
-- [ ] Deployment 1 contains **no demo data** — `make db-handover` on the source
+      also proves the installed config contains no `example.com`
+- [ ] `JWT_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` were
+      freshly generated for this deployment; the credential key also differs
+      from the JWT key
+- [ ] The deployment contains **no demo data** — `make db-handover` on the source
       database, or verify: `./scripts/deploy.sh main psql -tAc "select count(*) from customers where code like 'DM-%'"` returns 0
 - [ ] The seeded administrator's password has been changed
 - [ ] `curl -sI "https://$ERP_HOST"` returns 200 with

@@ -47,7 +47,6 @@ _RUNBOOK_ROW = re.compile(r"^\|\s*`MFA_REQUIRED_ROLES`\s*\|\s*`(?P<value>[^`]*)`
 SOURCES: dict[str, re.Pattern[str]] = {
     ".env.example": _ENV_LINE,
     "deploy/main.env.example": _ENV_LINE,
-    "deploy/dev.env.example": _ENV_LINE,
     "docker-compose.yml": _COMPOSE_FALLBACK,
     "ONE-BOX-RUNBOOK.md": _RUNBOOK_ROW,
 }

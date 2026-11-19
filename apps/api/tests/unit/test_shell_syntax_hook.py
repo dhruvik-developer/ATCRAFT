@@ -115,7 +115,6 @@ def test_checker_cli_accepts_repository_shell_scripts():
             str(REPO_ROOT / "scripts/hooks/check_shell.py"),
             "scripts/deploy.sh",
             "scripts/check-host-nginx.sh",
-            "scripts/verify-isolation.sh",
         ],
         cwd=REPO_ROOT,
         text=True,
