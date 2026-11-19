@@ -809,6 +809,30 @@ describe('the warehouses an account may use', () => {
     expect(toastAlerts()).toHaveLength(0)
   })
 
+  it('says a taken employee code on its field, and takes the focus there', async () => {
+    // The refusal names its field, so it lands under the employee code - near
+    // the top of a body scrolled down to the warehouses and roles - with no
+    // toast. Without the focus nothing a person could see changed.
+    const taken = "Employee code 'EMP-0041' is already used in this company."
+    const { user } = renderAssignment(LIMITED_ADMIN, {
+      'POST /users': fail(409, 'DUPLICATE_DOCUMENT', taken, {
+        employee_code: 'EMP-0041',
+        fields: { employee_code: [taken] },
+      }),
+    })
+    const { dialog, group } = await fillNewUser(user)
+    const code = within(dialog).getByRole('textbox', { name: 'Employee code' })
+    await user.type(code, 'EMP-0041')
+
+    await user.click(within(group).getByRole('checkbox', { name: /Main Store/ }))
+    await user.click(within(dialog).getByRole('button', { name: /create user/i }))
+
+    await waitFor(() => expect(code).toHaveFocus())
+    expect(code).toHaveAttribute('aria-invalid', 'true')
+    expect(within(dialog).getByText(taken)).toBeVisible()
+    expect(toastAlerts()).toHaveLength(0)
+  })
+
   it('locks a warehouse the account holds outside their own, and keeps it in the list sent', async () => {
     const { user, fetch } = renderAssignment(LIMITED_ADMIN, editRoutes([MAIN, FAR]))
     const { dialog, group } = await openEdit(user)

@@ -447,6 +447,7 @@ export function UserFormDialog({
                       id="user-phone"
                       {...register('phone')}
                       autoComplete="off"
+                      aria-invalid={Boolean(errors.phone)}
                       className="mt-1.5"
                     />
                     <FieldError message={errors.phone?.message} />
@@ -458,6 +459,7 @@ export function UserFormDialog({
                       id="user-employee-code"
                       {...register('employee_code')}
                       autoComplete="off"
+                      aria-invalid={Boolean(errors.employee_code)}
                       className="mt-1.5"
                     />
                     <FieldError message={errors.employee_code?.message} />

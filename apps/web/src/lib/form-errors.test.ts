@@ -1,3 +1,5 @@
+import { act, renderHook } from '@testing-library/react'
+import { useForm } from 'react-hook-form'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './api-client'
@@ -80,10 +82,11 @@ describe('applyFieldErrors', () => {
     )
 
     expect(setError).toHaveBeenCalledTimes(1)
-    expect(setError).toHaveBeenCalledWith('lines.0.scrap_percentage', {
-      type: 'server',
-      message: 'Must be at most 100',
-    })
+    expect(setError).toHaveBeenCalledWith(
+      'lines.0.scrap_percentage',
+      { type: 'server', message: 'Must be at most 100' },
+      { shouldFocus: true },
+    )
   })
 
   it('puts an error on a whole array entry when the path stops at the index', () => {
@@ -94,10 +97,11 @@ describe('applyFieldErrors', () => {
       setError,
     )
 
-    expect(setError).toHaveBeenCalledWith('operations.0', {
-      type: 'server',
-      message: 'Sequence numbers must be unique',
-    })
+    expect(setError).toHaveBeenCalledWith(
+      'operations.0',
+      { type: 'server', message: 'Sequence numbers must be unique' },
+      { shouldFocus: true },
+    )
   })
 
   it('joins several messages on one control with a full stop', () => {
@@ -105,10 +109,11 @@ describe('applyFieldErrors', () => {
 
     applyFieldErrors(validationError({ code: ['Required', 'Must be unique'] }), setError)
 
-    expect(setError).toHaveBeenCalledWith('code', {
-      type: 'server',
-      message: 'Required. Must be unique',
-    })
+    expect(setError).toHaveBeenCalledWith(
+      'code',
+      { type: 'server', message: 'Required. Must be unique' },
+      { shouldFocus: true },
+    )
   })
 
   it('preserves punctuation when the API already sends complete sentences', () => {
@@ -117,10 +122,11 @@ describe('applyFieldErrors', () => {
       validationError({ code: ['Code is required.', 'Choose a unique code.'] }),
       setError,
     )
-    expect(setError).toHaveBeenCalledWith('code', {
-      type: 'server',
-      message: 'Code is required. Choose a unique code.',
-    })
+    expect(setError).toHaveBeenCalledWith(
+      'code',
+      { type: 'server', message: 'Code is required. Choose a unique code.' },
+      { shouldFocus: true },
+    )
   })
 
   it('lands a model-level refusal and a query error on root, joined', () => {
@@ -150,10 +156,11 @@ describe('applyFieldErrors', () => {
       remapArrayIndices('lines', [3]),
     )
 
-    expect(setError).toHaveBeenCalledWith('lines.3.quantity', {
-      type: 'server',
-      message: 'Must be positive',
-    })
+    expect(setError).toHaveBeenCalledWith(
+      'lines.3.quantity',
+      { type: 'server', message: 'Must be positive' },
+      { shouldFocus: true },
+    )
   })
 
   it('ignores anything that is not an ApiError', () => {
@@ -162,6 +169,45 @@ describe('applyFieldErrors', () => {
     applyFieldErrors(new Error('network'), setError)
 
     expect(setError).not.toHaveBeenCalled()
+  })
+
+  it('focuses the first refused control and no other, and never the root', () => {
+    const setError = vi.fn()
+
+    applyFieldErrors(
+      validationError({
+        employee_code: ['Already in use'],
+        phone: ['Not a phone number'],
+        _root: ['Check the form'],
+      }),
+      setError,
+    )
+
+    expect(setError.mock.calls).toEqual([
+      ['employee_code', { type: 'server', message: 'Already in use' }, { shouldFocus: true }],
+      ['phone', { type: 'server', message: 'Not a phone number' }, { shouldFocus: false }],
+      ['root', { type: 'server', message: 'Check the form' }],
+    ])
+  })
+
+  it('moves the focus to that control on a real form', () => {
+    const { result } = renderHook(() => useForm<{ code: string; name: string }>())
+    const inputs = ['code', 'name'].map((name) => {
+      const input = document.createElement('input')
+      document.body.append(input)
+      result.current.register(name as 'code' | 'name').ref(input)
+      return input
+    })
+
+    act(() =>
+      applyFieldErrors(
+        validationError({ name: ['Required'], code: ['Already in use'] }),
+        result.current.setError,
+      ),
+    )
+
+    expect(document.activeElement).toBe(inputs[1])
+    for (const input of inputs) input.remove()
   })
 })
 

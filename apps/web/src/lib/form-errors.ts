@@ -54,6 +54,12 @@ export function partitionFieldErrors(error: ApiError): PartitionedFieldErrors {
 /**
  * Put each field error on its control, and the orphans on `root`.
  *
+ * The first control the API refused takes the focus, which also scrolls it
+ * into view. A server error otherwise changed nothing a person could see: a
+ * long form is submitted from its footer, the mutation cache keeps the toast
+ * back for an error the form shows inline, and the message landed under a
+ * field scrolled out of sight at the top of the dialog body.
+ *
  * `mapPath` rewrites the API's path before it is looked up on the form, for a
  * form whose payload is not shaped exactly like its fields - see
  * `remapArrayIndices` for the common case.
@@ -65,12 +71,16 @@ export function applyFieldErrors<T extends FieldValues>(
 ): void {
   if (!(error instanceof ApiError)) return
   const { fields, orphans } = partitionFieldErrors(error)
-  for (const [field, messages] of Object.entries(fields)) {
+  Object.entries(fields).forEach(([field, messages], index) => {
     // The API sends dotted paths such as `lines.0.quantity`, which is exactly
     // how react-hook-form addresses a field array entry.
     const path = mapPath ? mapPath(field) : field
-    setError(path as FieldPath<T>, { type: 'server', message: joinValidationMessages(messages) })
-  }
+    setError(
+      path as FieldPath<T>,
+      { type: 'server', message: joinValidationMessages(messages) },
+      { shouldFocus: index === 0 },
+    )
+  })
   if (orphans.length > 0) {
     setError('root', { type: 'server', message: joinValidationMessages(orphans) })
   }
