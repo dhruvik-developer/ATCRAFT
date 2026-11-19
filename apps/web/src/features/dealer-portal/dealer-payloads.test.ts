@@ -94,6 +94,21 @@ describe('dealer input contracts', () => {
       notes: 'Please inspect',
     })
   })
+  it('sends a blank note as null, and every note trimmed', () => {
+    expect(
+      dealerReturnPayload(
+        dispatch,
+        fields({ 'quantity-line': '1', 'reason-line': 'DAMAGED', 'note-line': '   ', notes: ' ' }),
+      ),
+    ).toMatchObject({ lines: [{ note: null }], notes: null })
+    expect(
+      dealerCheckoutPayload(
+        7,
+        fields({ required_date: '2026-11-01', customer_po_number: '  PO-9  ', notes: '  ' }),
+        '2026-10-24',
+      ),
+    ).toMatchObject({ customer_po_number: 'PO-9', notes: null })
+  })
   it('refuses empty returns, excessive quantities and absent line reasons', () => {
     expect(() => dealerReturnPayload(dispatch, fields({}))).toThrow(/at least one line/)
     expect(() =>
@@ -173,6 +188,26 @@ describe('promotion payloads', () => {
     expect(() => bannerPayload(fields({ ...promotion, sort_order: '1.5' }), 'image', null)).toThrow(
       /whole number/,
     )
+  })
+  it('sends a blank subtitle or description as null, and either trimmed', () => {
+    const banner = (subtitle: string) =>
+      bannerPayload(fields({ ...promotion, link_kind: 'NONE', subtitle }), 'image', null)
+    expect(banner('  New range  ').subtitle).toBe('New range')
+    expect(banner('   ').subtitle).toBeNull()
+    const offer = (description: string) =>
+      offerPayload(
+        fields({
+          ...promotion,
+          scope_kind: 'ALL',
+          min_quantity: '1',
+          discount_percentage: '5',
+          description,
+        }),
+        null,
+        null,
+      )
+    expect(offer('  Five off  ').description).toBe('Five off')
+    expect(offer('').description).toBeNull()
   })
   it('defaults a new banner to inactive and requires its image and link target', () => {
     expect(

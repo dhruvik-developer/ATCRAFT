@@ -1,4 +1,5 @@
 import { PERCENT_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
+import { asText } from '@/lib/form-values'
 import { isIsoCalendarDate, toDecimal } from '@/lib/format'
 import { validation } from '@/lib/messages'
 import type { SchemaOf } from '@/types/api'
@@ -53,7 +54,7 @@ export function bannerPayload(
   if (kind !== 'NONE' && !targetId) throw new Error('Choose the banner link target.')
   return {
     ...promotionFields(fields),
-    subtitle: String(fields.get('subtitle') ?? '').trim() || null,
+    subtitle: asText(String(fields.get('subtitle') ?? '')),
     image_document_id: imageId,
     link_kind: kind,
     link_id: kind === 'NONE' ? null : targetId,
@@ -85,7 +86,7 @@ export function offerPayload(
     throw new Error('Discount must be greater than 0 and at most 100%.')
   return {
     ...promotionFields(fields),
-    description: String(fields.get('description') ?? '').trim() || null,
+    description: asText(String(fields.get('description') ?? '')),
     scope_kind: kind,
     category_id: kind === 'CATEGORY' ? targetId : null,
     brand_id: kind === 'BRAND' ? targetId : null,

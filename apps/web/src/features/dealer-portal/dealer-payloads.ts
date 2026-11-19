@@ -1,4 +1,5 @@
 import { QUANTITY_INPUT } from '@/lib/decimal-input'
+import { asText } from '@/lib/form-values'
 import { isIsoCalendarDate, toDateInput, toDecimal } from '@/lib/format'
 import { validation } from '@/lib/messages'
 import type { SchemaOf } from '@/types/api'
@@ -20,7 +21,7 @@ export function dealerCheckoutPayload(
   const requiredDate = String(fields.get('required_date') ?? '')
   if (!isIsoCalendarDate(requiredDate) || requiredDate < today)
     throw new Error('Choose a required date today or later.')
-  const optional = (name: string) => String(fields.get(name) ?? '').trim() || null
+  const optional = (name: string) => asText(String(fields.get(name) ?? ''))
   return {
     cart_version: cartVersion,
     required_date: requiredDate,
@@ -51,7 +52,7 @@ export function dealerReturnPayload(
         dispatch_line_id: line.dispatch_line_id,
         quantity,
         reason_code: reason,
-        note: String(fields.get(`note-${line.dispatch_line_id}`) ?? '').trim() || null,
+        note: asText(String(fields.get(`note-${line.dispatch_line_id}`) ?? '')),
       },
     ]
   })
@@ -59,6 +60,6 @@ export function dealerReturnPayload(
   return {
     dispatch_id: dispatch.id,
     lines,
-    notes: String(fields.get('notes') ?? '').trim() || null,
+    notes: asText(String(fields.get('notes') ?? '')),
   }
 }

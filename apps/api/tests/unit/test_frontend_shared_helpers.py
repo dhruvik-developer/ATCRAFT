@@ -17,8 +17,12 @@ So outside ``lib/``:
 
 * the two rules are refused when spelled inline - ``x.trim() === '' ? null :
   x.trim()`` and ``x.trim() || null`` are ``asText(x)``; ``x.trim() === '' ? '0'
-  : x.trim()`` and ``x.trim() || '0'`` are ``zeroIfBlank(x)``; and an optional
-  field's ``x?.trim() || null`` is ``asText(x ?? '')``;
+  : x.trim()`` and ``x.trim() || '0'`` are ``zeroIfBlank(x)``; an optional
+  field's ``x?.trim() || null`` is ``asText(x ?? '')``; and so is a value that
+  ends in a call, a parenthesis or an index rather than a name - a ``FormData``
+  field's ``String(fields.get('notes') ?? '').trim() || null`` is
+  ``asText(String(fields.get('notes') ?? ''))``, which five dealer and promotion
+  payloads spelled inline while the rules saw only a name before ``.trim()``;
 * a module-level declaration that reuses the name of a ``lib/form-values.ts``,
   ``lib/utils.ts`` or ``lib/format.ts`` export is refused - that is how a private
   copy looks;
@@ -47,21 +51,33 @@ FORMAT = WEB_SRC / "lib" / "format.ts"
 
 _CHAIN = r"[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*"
 
+#: A bracketed group on one line - an argument list or a parenthesised value,
+#: nested up to three deep - and an index.
+_PARENS = r"\((?:[^()\n]|\((?:[^()\n]|\([^()\n]*\))*\))*\)"
+_INDEX = r"\[[^\[\]\n]*\]"
+
+#: A value ending in a call, a parenthesis or an index rather than a name -
+#: ``String(fields.get('notes') ?? '')``, ``(values.notes ?? '')``,
+#: ``values['notes']`` - or a name. Either is the value the rule is applied to.
+_BRACKETED = rf"(?:{_CHAIN})?(?:(?:\?\.)?(?:{_PARENS}|{_INDEX})(?:\??\.[A-Za-z_$][\w$]*)*)+"
+_VALUE = rf"(?:{_BRACKETED}|{_CHAIN})"
+
 #: ``.trim()`` or ``?.trim()``: an optional field's ``x?.trim() || null`` is the
 #: same rule as ``x.trim() || null``, and ``_CHAIN`` cannot end in the ``?``.
 _TRIM = r"\??\.trim\(\)"
 
 #: Not after an identifier character, a dot or a negation: ``!x.trim() || null``
-#: tests the text, it does not produce a value.
-_START = r"(?<![\w$.!])"
+#: tests the text, it does not produce a value. The lookahead only lets the scan
+#: skip, quickly, every position no value can start at.
+_START = r"(?<![\w$.!])(?=[A-Za-z_$(\[])"
 _TERNARY = _TRIM + r"\s*===\s*''\s*\?\s*{blank}\s*:\s*\1" + _TRIM
 
 #: (pattern, what to call instead)
 _INLINE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(rf"{_START}({_CHAIN})" + _TERNARY.format(blank="null")), "asText"),
-    (re.compile(rf"{_START}{_CHAIN}{_TRIM}\s*\|\|\s*null\b"), "asText"),
-    (re.compile(rf"{_START}({_CHAIN})" + _TERNARY.format(blank="'0'")), "zeroIfBlank"),
-    (re.compile(rf"{_START}{_CHAIN}{_TRIM}\s*\|\|\s*'0'"), "zeroIfBlank"),
+    (re.compile(rf"{_START}({_VALUE})" + _TERNARY.format(blank="null")), "asText"),
+    (re.compile(rf"{_START}{_VALUE}{_TRIM}\s*\|\|\s*null\b"), "asText"),
+    (re.compile(rf"{_START}({_VALUE})" + _TERNARY.format(blank="'0'")), "zeroIfBlank"),
+    (re.compile(rf"{_START}{_VALUE}{_TRIM}\s*\|\|\s*'0'"), "zeroIfBlank"),
 )
 
 _HAND_BUILT_DATE = re.compile(
@@ -87,9 +103,11 @@ def lib_names() -> set[str]:
 def inline_copies(source: str) -> list[str]:
     """``line N: 'text' -> helper`` for each inline spelling of a lib rule."""
     code = blank_comments(source)
+    # Every rule spells a `.trim()`; most modules have none, and are not scanned.
+    rules = _INLINE_RULES if "trim()" in code else ()
     found = [
         (match.start(), f"line {_line(code, match.start())}: {match.group(0)!r} -> {helper}")
-        for pattern, helper in _INLINE_RULES
+        for pattern, helper in rules
         for match in pattern.finditer(code)
     ]
     found += [
@@ -182,6 +200,15 @@ def test_the_rule_finds_the_inline_shapes_that_shipped() -> None:
             "        notes: values.notes?.trim() === '' ? null : values.notes?.trim(),",
             "        weight: values.weight?.trim() || '0',",
             "        freight: freight?.trim() === '' ? '0' : freight?.trim(),",
+            # A value ending in a call, a parenthesis or an index: the first two
+            # shipped in the dealer payloads, uncaught.
+            "  const optional = (name: string) => String(fields.get(name) ?? '').trim() || null",
+            "        note: String(fields.get(`note-${line.id}`) ?? '').trim() || null,",
+            "        notes: (values.notes ?? '').trim() || null,",
+            "        notes: values['notes']?.trim() || null,",
+            "        weight: String(fields.get('weight') ?? '').trim() || '0',",
+            "        notes: String(raw).trim() === '' ? null : String(raw).trim(),",
+            "        freight: (freight ?? '').trim() === '' ? '0' : (freight ?? '').trim(),",
         ]
     )
     assert inline_copies(source) == [
@@ -198,6 +225,13 @@ def test_the_rule_finds_the_inline_shapes_that_shipped() -> None:
         "line 11: \"values.notes?.trim() === '' ? null : values.notes?.trim()\" -> asText",
         "line 12: \"values.weight?.trim() || '0'\" -> zeroIfBlank",
         "line 13: \"freight?.trim() === '' ? '0' : freight?.trim()\" -> zeroIfBlank",
+        "line 14: \"String(fields.get(name) ?? '').trim() || null\" -> asText",
+        "line 15: \"String(fields.get(`note-${line.id}`) ?? '').trim() || null\" -> asText",
+        "line 16: \"(values.notes ?? '').trim() || null\" -> asText",
+        "line 17: \"values['notes']?.trim() || null\" -> asText",
+        "line 18: \"String(fields.get('weight') ?? '').trim() || '0'\" -> zeroIfBlank",
+        "line 19: \"String(raw).trim() === '' ? null : String(raw).trim()\" -> asText",
+        "line 20: \"(freight ?? '').trim() === '' ? '0' : (freight ?? '').trim()\" -> zeroIfBlank",
     ]
 
 
@@ -214,6 +248,11 @@ def test_the_rule_leaves_other_shapes_alone() -> None:
             "  const month = now.getMonth() + 1",
             "  if (!values.code?.trim() || null) return",
             "            reason_code: reasons[line.id]?.trim() || 'CUSTOMER_RETURN',",
+            "  if (!String(fields.get('notes') ?? '').trim() || null) return",
+            "        notes: asText(String(fields.get('notes') ?? '')),",
+            "  const validFrom = text('valid_from') || null",
+            "        total_boxes: Number(boxes.trim()) || null,",
+            "        code: String(fields.get('code') ?? '').trim(),",
         ]
     )
     assert inline_copies(source) == []
