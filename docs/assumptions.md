@@ -3898,9 +3898,14 @@ mechanism that safely redistributes such a change. The order records actual
 cost and variance only. No GL posting is made: inventory accounts are not
 defined in this system.
 
+A production receipt names no unit cost, so it is booked at the price the
+inventory engine gives such an arrival - the output item's standard cost, where
+it has one (§INV-3). The job's actual cost is not known when output is booked:
+material is still being issued and operations are still running.
+
 **Where:** `production.release_order`, `production.close_order`,
-`job_work.service.production_order_charges`, and the E7a production costing
-screen.
+`job_work.service.production_order_charges`, the E7a production costing
+screen, and `production.service._post_output_receipt` for the receipt's price.
 
 ## §E7-2. Production-cost report period
 
@@ -5547,6 +5552,48 @@ transaction, so a structure past 500 components is a data problem, not an order.
 **Impact if wrong.** Change a tolerance in the models module, never per call
 site.
 
+## §PROD-2. Backflush follows the output actually made, and never takes a tracked component
+
+**Assumed.** Completing a job issues each component marked for backflush in
+proportion to the output actually produced - `required x produced / planned`,
+less what was already issued, never below zero - above plan as well as below
+it, as one system-raised material issue. A batch- or serial-tracked component is
+never backflushed: release stores it unflagged even when the release asks for
+it, so it is issued by hand like any other.
+
+**Why.** A job that made 80 of 100 consumed 80 units' worth of material, and
+charging it the full kit would overstate the cost of every short run; one that
+over-delivers used more, and is charged for it. A backflush posts a movement
+nobody is looking at, so nobody would choose its lot or name its units, and a
+tracked issue has to say what the job consumed.
+
+**Where.** `src/modules/production/service.py` - `backflush_quantity`,
+`plan_components`, `_backflush_components`.
+
+**Impact if wrong.** If output above plan should draw no more material, cap the
+produced quantity at the planned one in `backflush_quantity`. A tracked
+component can be backflushed only once something at completion names its lot
+and units.
+
+## §PROD-3. An operation is costed at its clocked time, or at its plan once completed
+
+**Assumed.** A job's actual operation cost charges each work order its clocked
+elapsed time when both actual times are recorded - downtime booked inside that
+time included - its planned setup plus run time when it completed without being
+clocked, and nothing when it was neither clocked nor completed. Time on an
+outsourced operation is not charged at the work-centre rate.
+
+**Why.** The centre was occupied by the job while it stood idle. An operation
+that completed certainly happened, and costing it at zero would understate every
+job whose operators forgot to press start; charging planned time for work never
+done would inflate the cost of every short-closed job.
+
+**Where.** `src/modules/production/service.py` - `charged_minutes`,
+`operation_cost_line`, `_compute_cost`.
+
+**Impact if wrong.** `charged_minutes` decides all three cases; deducting
+downtime, or costing an unclocked completion at zero, is a change there alone.
+
 ## §JW-1. A job-work receipt may run 2% over the expected output
 
 **Assumed.** A vendor may return up to 2% more output than a job-work line
@@ -5630,6 +5677,51 @@ even split puts doubtful material into a customer's hands.
 **Impact if wrong.** A check that must fail on true needs a column saying so. A
 default sampling plan for unspecified items would replace the full inspection in
 `_prepare`.
+
+## §QC-2. A critical failure forbids accepting or reworking the lot, and a deviation recommends rework
+
+**Assumed.** A critical parameter out of specification forbids accepting or
+reworking any part of the lot: a decision that tries is refused, while routing
+part of it to scrap stays permitted. A deviation on a parameter nobody
+classified as critical recommends `REWORK` rather than `ACCEPTED`; the
+recommendation is advisory, and the inspector decides.
+
+**Why.** The contract forces a critical failure to REJECTED "regardless of the
+others". Scrap is a strictly harsher disposition than rejection, never a softer
+one, so routing part of such a lot to scrap stays permitted. Defaulting a
+deviating lot towards acceptance would make the check sheet decorative.
+
+**Where.** `src/modules/quality/service.py` - `assert_critical_override`,
+`evaluate_inspection`.
+
+**Impact if wrong.** If a critical failure must be rejected outright, refuse
+scrap in `assert_critical_override` too. If a minor deviation should recommend
+acceptance, that is one branch of `evaluate_inspection`.
+
+## §QC-3. Held quantity keeps an inspection open, and a vendor rejection flags a return
+
+**Assumed.** An inspection's status says what is left to do, not what it
+concluded: any quantity left on rework or hold keeps it in a re-openable
+`REWORK` or `HOLD` status whatever its result - `REWORK` when both carry
+quantity - and the result becomes the status only once nothing is held. A
+rejection against a named vendor, or a rework sent back to the vendor, sets
+`return_required`, and the purchase roles (`QC_RETURN_ROLE_CODES`) are told, at
+critical severity, that a return or a replacement is owed. Quality does not
+raise the purchase return itself.
+
+**Why.** A lot of 100 with 60 released and 40 sent for rework reads ACCEPTED,
+but those 40 pieces still owe a second decision, and a decided status would
+close their only way out of the QC hold pool. Rework outranks hold because it is
+work somebody has been asked to do, where hold is a question somebody has been
+asked to answer. Raising the return is procurement's decision, its numbering
+series and its approval.
+
+**Where.** `src/modules/quality/service.py` - `status_for`; `decide_inspection`
+and `complete_rework` set the flag, and `_announce_failure` sends the notice.
+
+**Impact if wrong.** If a rejection should raise the purchase return itself,
+quality would need procurement's numbering and approval; the flag is the seam
+for that hand-off.
 
 ## §USER-1. A held role cannot be retired, and nobody retires or deactivates their own account
 
@@ -6033,6 +6125,68 @@ distributor channel (§C3-2).
 
 **Impact if wrong.** If distributors should have a master price, add the column
 and map `DISTRIBUTOR` to it.
+
+## §DISPATCH-1. A consignment may name a vendor, and an unapproved vendor is refused
+
+**Assumed.** `dispatches` carries `vendor_id` beside `customer_id`, although the
+contract's column list names only the customer: a `PURCHASE_RETURN` or
+`JOB_WORK` consignment must name a vendor (`vendor_dispatch_names_a_vendor`), as
+a `SALES` one must name a customer. A vendor a consignment names must be active
+and approved: `vendors` has no block flag of its own, so an unapproved vendor is
+refused as blocked. Dispatch now raises sales consignments only (§G1-1), so the
+vendor-bound types are the ones raised before that rule.
+
+**Why.** The tracking board in master rules section 23 has a "vendor / customer"
+column, and two of the four dispatch types go to a vendor; without the column
+the counterparty on a purchase return or a job-work challan could not be named.
+Approval is the control that says the company does business with a vendor, so
+sending goods to one nobody has vetted is the conservative thing to refuse.
+
+**Where.** `src/modules/dispatch/models.py` - `Dispatch.vendor_id` and the
+`vendor_dispatch_names_a_vendor` CHECK; `src/modules/dispatch/repository.py` -
+`VendorLookupRepository.get_facts`; `src/modules/dispatch/service.py` -
+`_validate_header`.
+
+**Impact if wrong.** If vendors gain a block flag of their own, `get_facts` reads
+it in place of approval.
+
+## §DISPATCH-2. The board reads "QC pending" and "GRN pending" off the consignment's status
+
+**Assumed.** The tracking board's "QC pending" column is a consignment in
+`QC_PENDING`, and its "GRN pending" column one that has been delivered and has
+not reached `GRN_COMPLETED` (`GRN_OUTSTANDING_STATUSES`): the receiver's
+booking-in sequence, `DELIVERED`, `QC_PENDING`, `RECEIVED`, `QC_COMPLETED`,
+`GRN_COMPLETED`, which the dispatch flow in master rules section 7 models.
+
+**Why.** Deriving the columns from the quality and procurement tables instead
+would need a link from a dispatch to an inspection or a goods receipt, which the
+contract does not define.
+
+**Where.** `src/modules/dispatch/repository.py` - `GRN_OUTSTANDING_STATUSES`,
+`DispatchRepository.tracking_board_stmt`.
+
+**Impact if wrong.** The columns are only as current as the status a consignment
+is moved to. Reading the far end's own documents needs that link in the
+contract first.
+
+## §DISPATCH-3. The legacy delay sweep writes one audit entry per company
+
+**Assumed.** The legacy cross-tenant delay sweep (`scan_delays`, kept for older
+integration callers; Celery uses the shared smart-alert engine) raises one alert
+per company, not one per consignment, and records one audit entry per company
+per sweep: against the most delayed consignment, naming every flagged code and
+the number of people told in its context.
+
+**Why.** A row-per-consignment trail of an automated hourly job would bury the
+human actions the audit log exists to make findable, and the fact being
+recorded - these were flagged, and these people were told - is one event.
+
+**Where.** `src/modules/dispatch/service.py` - `scan_delays`,
+`_raise_delay_alert`.
+
+**Impact if wrong.** If each consignment needs its own audit row,
+`_raise_delay_alert` writes one per flagged consignment, in the same
+transaction.
 
 ## §PACK-1. A carton's type is one of seven descriptive forms
 

@@ -217,10 +217,11 @@ class Dispatch(TenantEntity, OptimisticLockMixin):
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=True, index=True
     )
-    #: ASSUMPTION: the contract's column list names ``customer_id`` only, but the
-    #: tracking board in master rules section 23 has a "vendor / customer" column
-    #: and two of the four dispatch types go to a vendor. Without this the
-    #: counterparty on a purchase return or a job-work challan cannot be named.
+    #: ASSUMPTION (docs/assumptions.md §DISPATCH-1): the contract's column list
+    #: names ``customer_id`` only, but the tracking board in master rules
+    #: section 23 has a "vendor / customer" column and two of the four dispatch
+    #: types go to a vendor. Without this the counterparty on a purchase return
+    #: or a job-work challan cannot be named.
     vendor_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=True, index=True
     )
