@@ -17,7 +17,6 @@ per module, built once, with each test's writes rolled back.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
@@ -27,15 +26,13 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event, func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import event, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
-from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.state_machine import StateMachine
 from src.modules.allocation import service as allocation_service
@@ -104,7 +101,8 @@ from src.modules.products.models import (
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
+from tests.schema_support import prepare_metadata
 from tests.seed_support import seed_company, seed_user
 from tests.statement_support import counted
 
@@ -128,64 +126,23 @@ prepare_metadata()
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     """One private schema, two companies and a planner, built once."""
-    schema = f"it_mrp_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     other_company_id = uuid.uuid4()
     planner_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(setup_session: AsyncSession) -> None:
+        for cid, prefix in ((company_id, "ATC"), (other_company_id, "OTH")):
+            await seed_company(setup_session, company_id=cid, prefix=prefix)
+        await seed_user(
+            setup_session,
+            company_id=company_id,
+            user_id=planner_id,
+            email="planner@atcraft.test",
+            full_name="Planner",
+        )
 
-        eng = _schema_engine(schema)
-        try:
-            async with eng.begin() as conn:
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as setup_session, setup_session.begin():
-                for cid, prefix in ((company_id, "ATC"), (other_company_id, "OTH")):
-                    await seed_company(setup_session, company_id=cid, prefix=prefix)
-                await seed_user(
-                    setup_session,
-                    company_id=company_id,
-                    user_id=planner_id,
-                    email="planner@atcraft.test",
-                    full_name="Planner",
-                )
-        finally:
-            await eng.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, other_company_id, planner_id
-    asyncio.run(teardown())
-
-
-def _schema_engine(schema: str) -> Any:
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
+    with private_schema("it_mrp", seed) as schema:
+        yield schema, company_id, other_company_id, planner_id
 
 
 @pytest.fixture(autouse=True)
@@ -238,27 +195,14 @@ class Ctx:
 async def ctx(_schema: tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]) -> AsyncIterator[Ctx]:
     """A session whose writes are rolled back at the end of each test."""
     schema, company_id, other_company_id, planner_id = _schema
-    eng = _schema_engine(schema)
-    try:
-        async with eng.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                context = Ctx(
-                    session=session,
-                    tenant=TenantContext(company_id=company_id, user_id=planner_id),
-                    other=TenantContext(company_id=other_company_id, user_id=uuid.uuid4()),
-                )
-                await seed_master_data(context)
-                yield context
-            await outer.rollback()
-    finally:
-        await eng.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        context = Ctx(
+            session=session,
+            tenant=TenantContext(company_id=company_id, user_id=planner_id),
+            other=TenantContext(company_id=other_company_id, user_id=uuid.uuid4()),
+        )
+        await seed_master_data(context)
+        yield context
 
 
 # -----------------------------------------------------------------------------

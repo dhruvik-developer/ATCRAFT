@@ -23,7 +23,6 @@ unreserved. The wrapper records the calls the assertions below inspect.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import date, timedelta
@@ -31,9 +30,8 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
 from src.core.config import settings
@@ -47,7 +45,6 @@ from src.core.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
-from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.modules.allocation.models import (
@@ -89,7 +86,7 @@ from src.modules.sales.schemas import (
 )
 from src.modules.users.models import User
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
 
 pytestmark = pytest.mark.integration
 
@@ -99,92 +96,46 @@ pytestmark = pytest.mark.integration
 # -----------------------------------------------------------------------------
 
 
-def _schema_engine(schema: str):
-    """Engine pinned to one schema. ``public`` stays on the path for pg_trgm."""
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]]:
     """One private schema, two companies and two users, built once."""
-    prepare_metadata()
-
-    schema = f"it_sales_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     other_company_id = uuid.uuid4()
     author_id = uuid.uuid4()
     approver_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
-
-        eng = _schema_engine(schema)
-        try:
-            async with eng.begin() as conn:
-                # checkfirst=False: the shared conftest already created these
-                # tables in `public`, which stays on the search path.
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
+    async def seed(setup_session: AsyncSession) -> None:
+        for cid, code, state in (
+            (company_id, f"ATC{uuid.uuid4().hex[:6].upper()}", "27"),
+            (other_company_id, f"OTH{uuid.uuid4().hex[:6].upper()}", "27"),
+        ):
+            setup_session.add(
+                Company(
+                    id=cid,
+                    code=code,
+                    name="Atcraft Manufacturing",
+                    country="India",
+                    currency="INR",
+                    # Maharashtra: the seller's state, and therefore the
+                    # thing every GST assertion below turns on.
+                    state_code=state,
+                    is_active=True,
                 )
+            )
+        for uid, handle in ((author_id, "author"), (approver_id, "approver")):
+            setup_session.add(
+                User(
+                    id=uid,
+                    company_id=company_id,
+                    email=f"{handle}-{uuid.uuid4().hex[:6]}@atcraft.test",
+                    full_name="Tester",
+                    password_hash="x",
+                    is_active=True,
+                )
+            )
 
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as setup_session, setup_session.begin():
-                for cid, code, state in (
-                    (company_id, f"ATC{uuid.uuid4().hex[:6].upper()}", "27"),
-                    (other_company_id, f"OTH{uuid.uuid4().hex[:6].upper()}", "27"),
-                ):
-                    setup_session.add(
-                        Company(
-                            id=cid,
-                            code=code,
-                            name="Atcraft Manufacturing",
-                            country="India",
-                            currency="INR",
-                            # Maharashtra: the seller's state, and therefore the
-                            # thing every GST assertion below turns on.
-                            state_code=state,
-                            is_active=True,
-                        )
-                    )
-                for uid, handle in ((author_id, "author"), (approver_id, "approver")):
-                    setup_session.add(
-                        User(
-                            id=uid,
-                            company_id=company_id,
-                            email=f"{handle}-{uuid.uuid4().hex[:6]}@atcraft.test",
-                            full_name="Tester",
-                            password_hash="x",
-                            is_active=True,
-                        )
-                    )
-        finally:
-            await eng.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, other_company_id, author_id, approver_id
-    asyncio.run(teardown())
+    with private_schema("it_sales", seed) as schema:
+        yield schema, company_id, other_company_id, author_id, approver_id
 
 
 # -----------------------------------------------------------------------------
@@ -327,21 +278,8 @@ async def ctx(
     _schema: tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID],
 ) -> AsyncIterator[Ctx]:
     schema, company_id, other_company_id, author_id, approver_id = _schema
-    eng = _schema_engine(schema)
-    try:
-        async with eng.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield Ctx(session, company_id, other_company_id, author_id, approver_id)
-            await outer.rollback()
-    finally:
-        await eng.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        yield Ctx(session, company_id, other_company_id, author_id, approver_id)
 
 
 # -----------------------------------------------------------------------------

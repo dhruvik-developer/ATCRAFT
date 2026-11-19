@@ -13,7 +13,6 @@ schema per module, built once, with each test's writes rolled back.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import timedelta
@@ -22,14 +21,11 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
-from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError, SelfApprovalError
-from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
@@ -51,7 +47,8 @@ from src.modules.routing.models import (
     RoutingStatus,
     WorkCenter,
 )
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
+from tests.schema_support import prepare_metadata
 from tests.seed_support import seed_company, seed_user
 
 pytestmark = pytest.mark.integration
@@ -73,70 +70,24 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     fixture would need a module-scoped loop, and asyncpg connections cannot be
     shared across the function-scoped loops pytest-asyncio gives each test.
     """
-    schema = f"it_bom_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     other_company_id = uuid.uuid4()
     author_id = uuid.uuid4()
     reviewer_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(setup_session: AsyncSession) -> None:
+        for cid, prefix in ((company_id, "ATC"), (other_company_id, "OTH")):
+            await seed_company(setup_session, company_id=cid, prefix=prefix)
+        for uid, who in ((author_id, "author"), (reviewer_id, "reviewer")):
+            await seed_user(
+                setup_session,
+                company_id=company_id,
+                user_id=uid,
+                email=f"{who}@atcraft.test",
+            )
 
-        eng = _schema_engine(schema)
-        try:
-            async with eng.begin() as conn:
-                # checkfirst=False: the shared conftest already created these
-                # tables in `public`, which stays on the search path for the
-                # pg_trgm operator classes. With checkfirst=True SQLAlchemy
-                # would find them there and create nothing here.
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as setup_session, setup_session.begin():
-                for cid, prefix in ((company_id, "ATC"), (other_company_id, "OTH")):
-                    await seed_company(setup_session, company_id=cid, prefix=prefix)
-                for uid, who in ((author_id, "author"), (reviewer_id, "reviewer")):
-                    await seed_user(
-                        setup_session,
-                        company_id=company_id,
-                        user_id=uid,
-                        email=f"{who}@atcraft.test",
-                    )
-        finally:
-            await eng.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, other_company_id, author_id, reviewer_id
-    asyncio.run(teardown())
-
-
-def _schema_engine(schema: str):
-    """Engine pinned to one schema. `public` stays on the path for pg_trgm."""
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
+    with private_schema("it_bom", seed) as schema:
+        yield schema, company_id, other_company_id, author_id, reviewer_id
 
 
 class Ctx:
@@ -182,28 +133,15 @@ async def ctx(
     database untouched.
     """
     schema, company_id, other_company_id, author_id, reviewer_id = _schema
-    eng = _schema_engine(schema)
-    try:
-        async with eng.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield Ctx(
-                    session=session,
-                    author=TenantContext(company_id=company_id, user_id=author_id),
-                    reviewer=TenantContext(company_id=company_id, user_id=reviewer_id),
-                    author_principal=_principal(company_id, author_id),
-                    reviewer_principal=_principal(company_id, reviewer_id),
-                    other_tenant=TenantContext(company_id=other_company_id, user_id=uuid.uuid4()),
-                )
-            await outer.rollback()
-    finally:
-        await eng.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        yield Ctx(
+            session=session,
+            author=TenantContext(company_id=company_id, user_id=author_id),
+            reviewer=TenantContext(company_id=company_id, user_id=reviewer_id),
+            author_principal=_principal(company_id, author_id),
+            reviewer_principal=_principal(company_id, reviewer_id),
+            other_tenant=TenantContext(company_id=other_company_id, user_id=uuid.uuid4()),
+        )
 
 
 # -----------------------------------------------------------------------------

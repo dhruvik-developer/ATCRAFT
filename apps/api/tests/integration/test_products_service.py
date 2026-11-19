@@ -4,14 +4,14 @@ These need PostgreSQL because the behaviour under test is not expressible in
 SQLite: trigram search, partial and expression unique indexes, the materialised
 path subtree query, and the audit row written inside the same transaction.
 
-Isolation: every test builds its own throwaway schema and drops it afterwards,
-so the suite can run against a developer database without disturbing it and two
-parallel runs cannot collide.
+Isolation: the module builds one throwaway schema through
+``tests/private_schema_support.py`` and drops it afterwards, and every test's
+writes roll back, so the suite can run against a developer database without
+disturbing it and two parallel runs cannot collide.
 """
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import date
@@ -19,11 +19,9 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     BusinessRuleError,
@@ -33,7 +31,6 @@ from src.core.errors import (
     PermissionDeniedError,
     ValidationError,
 )
-from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.modules.audit.models import AuditLog
@@ -70,7 +67,8 @@ from src.modules.products.schemas import (
 )
 from src.modules.vendors.models import Vendor, VendorType
 from tests import seed_support
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
+from tests.schema_support import prepare_metadata
 
 pytestmark = pytest.mark.integration
 
@@ -95,68 +93,20 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     suite that runs in seconds and one that runs in minutes - ``create_all``
     over the full ERP metadata is not cheap, and it grows with every module.
     """
-    schema = f"it_products_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     user_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                # The GIN indexes on items.code/name use gin_trgm_ops.
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(setup_session: AsyncSession) -> None:
+        await seed_support.seed_company(setup_session, company_id=company_id)
+        await seed_support.seed_user(
+            setup_session,
+            company_id=company_id,
+            user_id=user_id,
+            email="tester@atcraft.test",
+        )
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                # checkfirst=False is load-bearing: the shared conftest already
-                # created these tables in `public`, which stays on the search
-                # path for the pg_trgm operator classes. With checkfirst=True
-                # SQLAlchemy would find them there, create nothing here, and
-                # every insert would land in the shared schema instead.
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as setup_session, setup_session.begin():
-                await seed_support.seed_company(setup_session, company_id=company_id)
-                await seed_support.seed_user(
-                    setup_session,
-                    company_id=company_id,
-                    user_id=user_id,
-                    email="tester@atcraft.test",
-                )
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, user_id
-    asyncio.run(teardown())
-
-
-def _schema_engine(schema: str):
-    """Engine pinned to one schema. `public` stays on the path for pg_trgm."""
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
+    with private_schema("it_products", seed) as schema:
+        yield schema, company_id, user_id
 
 
 @pytest_asyncio.fixture
@@ -171,7 +121,6 @@ async def ctx(
     a service commit normally while the test still leaves nothing behind.
     """
     schema, company_id, user_id = _schema
-    engine = _schema_engine(schema)
 
     tenant = TenantContext(company_id=company_id, user_id=user_id)
     principal = Principal(
@@ -182,21 +131,8 @@ async def ctx(
         is_superuser=False,
         permissions=frozenset({str(Permission.ITEM_VIEW)}),
     )
-
-    try:
-        async with engine.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield session, tenant, principal
-            await outer.rollback()
-    finally:
-        await engine.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        yield session, tenant, principal
 
 
 async def seed_units(session: AsyncSession, tenant: TenantContext) -> dict[str, uuid.UUID]:
