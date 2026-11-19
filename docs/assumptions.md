@@ -346,13 +346,17 @@ approved. Finance should confirm both figures.
 
 **Assumed.** An item with `production_type = MAKE_OR_BUY` is suggested for
 **manufacture** when an approved default BOM exists, and for **purchase**
-otherwise.
+otherwise. A `MAKE` item is suggested for manufacture whether or not it has one;
+without one, the run warns that no component demand was raised for it.
 
 **Why.** The existence of an approved BOM is the strongest available signal that
 the item is genuinely made in-house. The alternative — always purchase — would
-make the BOM pointless.
+make the BOM pointless. A `MAKE` item's master says it is made here, and quietly
+buying it instead would hide the missing BOM behind a purchase order; the
+warning gets the gap fixed.
 
-**Where.** `src/modules/mrp/engine.py` — suggestion type selection.
+**Where.** `src/modules/mrp/engine.py` — `choose_suggestion_type`, and the
+missing-structure warning in `plan()`.
 
 **Impact if wrong.** MRP proposes the wrong action for dual-sourced items. The
 planner sees and can change every suggestion before conversion, so the cost is
@@ -693,8 +697,11 @@ Related to open question 6 below.
 that requirement's own earliest required date. Supply promised *on* the required
 date counts as in time; one day later does not. Supply excluded for being late is
 never dropped silently — it is carried on the requirement as
-`late_incoming_quantity` / `late_in_production_quantity`. Where the requirement
-is still short, the item is also counted in
+`late_incoming_quantity` / `late_in_production_quantity`, one quantity per feed.
+Each feed's late supply is dated by its earliest late tranche
+(`first_late_*_date`) and by its last (`last_late_*_date`); a feed with no late
+supply reports `None` rather than any date. Where the requirement is still
+short, the item is also counted in
 `result_summary["late_supply_item_count"]` and named in a run warning giving the
 item, the quantity, the date it does arrive and the date it was needed; an item
 its own stock covers carries the late figure on its row and raises no warning,
@@ -704,7 +711,10 @@ because the plan for it is right.
 cancelled a shortage due at the start of it: a line needing 100 bolts in two days
 was netted against an order arriving in six weeks, and the run reported no
 shortage and raised no suggestion. Under-ordering stops the shop floor; the
-opposite failure is a purchase order a buyer can see and cancel.
+opposite failure is a purchase order a buyer can see and cancel. The earliest
+late tranche is the soonest that feed could relieve the shortage without a new
+order, which is the question a planner asks; a sentinel date in place of `None`
+would merge "this feed excluded nothing" with "this feed lands that day".
 
 **Where.** `src/modules/mrp/engine.py` — `supply_split()` / `SupplySplit`, which
 is the single place the split is computed (each feed through `split_supply`),
@@ -5904,6 +5914,141 @@ recipient reservation, and `_notify_donor_owner`.
 in `reallocate`, knowing the next request may then take it unapproved. If the
 demand's own owner should hear, that module raises the notification from its
 own side rather than allocation growing a dependency on it.
+
+## §MRP-1. Safety stock is held back from the netting unless a run says otherwise
+
+**Assumed.** A run nets demand against each item's free stock less its safety
+stock, floored at zero, so a plan never proposes running the buffer down. A run
+request may set `respect_safety_stock` to false - a planner deliberately drawing
+the buffer down - and a company's scheduled runs carry the same switch in their
+settings; both default to true.
+
+**Why.** The master rules (section 14) say neither way. Protecting the buffer is
+the conservative direction: its failure is ordering slightly early, not
+discovering that the buffer was planned away.
+
+**Where.** `src/modules/mrp/engine.py` - `planning_available`;
+`src/modules/mrp/schemas.py` - `respect_safety_stock` on `MrpRunRequest` and
+`MrpScheduleSettingsUpdate`.
+
+**Impact if wrong.** If the buffer is meant to be consumed before reordering,
+flip the defaults in the schemas; every plan then orders later, by up to each
+item's safety stock.
+
+## §MRP-2. An MRP run in flight for two hours was abandoned
+
+**Assumed.** A run still `QUEUED` or `RUNNING` two hours after it started - or,
+if it never started, after it was created (`RUN_STALE_AFTER_SECONDS`, 7 200 s) -
+is presumed abandoned: the worker died, or the broker lost the task. When the
+company's next run is requested, such a run is moved to `FAILED` through the
+state machine, with a message saying no plan was produced and a status-change
+audit, instead of refusing the new run. A younger run still refuses it
+(`MRP_RUN_IN_PROGRESS`).
+
+**Why.** Planning must not be blocked for ever by a process that no longer
+exists. Two hours is deliberately longer than Celery's one-hour hard time limit,
+so a run that is merely slow is never taken for a dead one; §REP-1 applies the
+same reasoning to report jobs.
+
+**Where.** `src/modules/mrp/service.py` - `RUN_STALE_AFTER_SECONDS`,
+`_close_abandoned_runs`, called from `start_run`.
+
+**Impact if wrong.** Raising Celery's time limit needs the constant raised with
+it, or a run still working would be failed underneath its own worker.
+
+## §MRP-3. A suggestion converted while its owning module is absent is still closed
+
+**Assumed.** Converting a suggestion marks it `CONVERTED` even when the module
+that would create the document - procurement, production or job work - is not
+deployed, so no document exists. The result's `handled` is false, the
+suggestion's `converted_to_id` is NULL, the status change's reason says document
+creation was deferred, and the typed conversion request is returned for the
+caller to action. A module that is deployed but takes no conversions from
+planning is refused instead, and the suggestion stays `OPEN`.
+
+**Why.** The planner has made the decision, and leaving the suggestion open
+would have the next screen offer it again. `handled` and the NULL document id
+say whether a document exists, so the gap is visible rather than implied by a
+status.
+
+**Where.** `src/modules/mrp/service.py` - `convert_suggestion`,
+`_invoke_conversion_hook`.
+
+**Impact if wrong.** If an absent module should block the conversion, refuse
+and leave the suggestion `OPEN`, as the deployed-without-hook case already does.
+
+## §ITEM-1. An item needs a capability, and the ones its production type implies
+
+**Assumed.** An item with every capability flag off is refused, on create and on
+every update (`REQUIRE_AT_LEAST_ONE_CAPABILITY`). Its `production_type` must
+agree with its flags (`PRODUCTION_TYPE_REQUIRED_CAPABILITIES`): `MAKE` needs
+`can_manufacture`, `BUY` needs `can_purchase`, `MAKE_OR_BUY` needs both and
+`JOB_WORK` needs `can_job_work`. The refusal names the form's checkbox
+(`CAPABILITY_LABELS`). The check reads `production_type`, never `item_group`.
+
+**Why.** An item with no capability is unusable by every module and is far more
+likely a data-entry mistake than an intent; an item is retired through
+`is_active` or a soft delete, not by clearing its flags. Without the agreement
+rule, MRP would raise a `MANUFACTURE` suggestion for an item no production order
+may be created for.
+
+**Where.** `src/modules/products/service.py` - `REQUIRE_AT_LEAST_ONE_CAPABILITY`,
+`PRODUCTION_TYPE_REQUIRED_CAPABILITIES`, `validate_capabilities`, called from
+`create_item` and `update_item`.
+
+**Impact if wrong.** Set the flag False to allow an item with no capability; a
+production type's requirement is its one entry in the mapping.
+
+## §ITEM-2. A purchase or sale unit must convert to the stock unit
+
+**Assumed.** An item's purchase and sale units, where they differ from its base
+(stock) unit, must convert to it through the unit-of-measure graph. An item
+naming a trading unit with no defined conversion is refused when it is saved -
+on create, and on an update that changes a unit - with an error naming both
+units.
+
+**Why.** The alternative is discovering it at the goods receipt that cannot
+post, with the vendor's lorry at the gate.
+
+**Where.** `src/modules/products/service.py` - `_validate_item_units`, called
+from `create_item` and `update_item`.
+
+**Impact if wrong.** If an item may be saved before its conversion exists, the
+refusal moves to the first document that converts the unit, where the goods are
+already waiting.
+
+## §ITEM-3. An unpriced sale or dealer price falls back to the item master; a distributor price does not
+
+**Assumed.** When no price-list row matches, `resolve_price` falls back to the
+item master - `SALE` to `items.sale_price`, `DEALER` to `items.dealer_price`,
+plus a variant's price delta (`ITEM_MASTER_FALLBACK_FIELD`). `DISTRIBUTOR` has no
+item-master column, so the resolver refuses and asks for a price-list row.
+
+**Why.** Reusing the dealer price for a distributor would quietly invoice the
+wrong party at the wrong rate. The dealer catalogue applies the same rule to its
+distributor channel (§C3-2).
+
+**Where.** `src/modules/products/service.py` - `ITEM_MASTER_FALLBACK_FIELD`,
+`resolve_price`.
+
+**Impact if wrong.** If distributors should have a master price, add the column
+and map `DISTRIBUTOR` to it.
+
+## §PACK-1. A carton's type is one of seven descriptive forms
+
+**Assumed.** A carton's `carton_type` is one of `BOX` (the default), `CARTON`,
+`CRATE`, `PALLET`, `BAG`, `DRUM` and `SHRINK_WRAP` (`CartonType`), held to that
+list by the `carton_type_is_known` CHECK. The value is descriptive - it is
+printed on the carton label - and no rule branches on it.
+
+**Why.** The contract does not fix this vocabulary; these are the forms a
+hardware manufacturer actually ships in.
+
+**Where.** `src/modules/packing/models.py` - `CartonType`, `Carton.carton_type`
+and the `carton_type_is_known` CHECK.
+
+**Impact if wrong.** Another form is one enum member and the CHECK, through a
+migration.
 
 ## §PRIORITY-1. A sales or purchase priority is 1 to 9, 5 by default
 

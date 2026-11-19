@@ -428,18 +428,18 @@ class Requirement:
     #: supply at all: "nothing was excluded" and "something was excluded and
     #: lands today" are different answers and a sentinel date would merge them.
     #:
-    #: ASSUMPTION: the *earliest* late tranche of each feed is the one reported,
-    #: and a feed with no late supply reports ``None`` rather than any date.
-    #: Section 14 does not discuss reporting the excluded supply at all. The
-    #: earliest is the soonest that feed could relieve the shortage without a
-    #: new order, which is the question a planner is actually asking; a later
-    #: tranche is worse news and reporting it would over-state the delay. A
-    #: feed's full schedule is not summarised into one date - the quantity
-    #: beside it says how much, and the orders themselves say the rest. ``None``
-    #: rather than the required date or a far-future sentinel because "this feed
-    #: excluded nothing" and "this feed lands on that day" are different facts,
-    #: and a sentinel makes a client's date arithmetic silently wrong instead of
-    #: making the absence visible.
+    #: ASSUMPTION (docs/assumptions.md section 21): the *earliest* late tranche
+    #: of each feed is the one reported, and a feed with no late supply reports
+    #: ``None`` rather than any date. Section 14 does not discuss reporting the
+    #: excluded supply at all. The earliest is the soonest that feed could
+    #: relieve the shortage without a new order, which is the question a planner
+    #: is actually asking; a later tranche is worse news and reporting it would
+    #: over-state the delay. A feed's full schedule is not summarised into one
+    #: date - the quantity beside it says how much, and the orders themselves
+    #: say the rest. ``None`` rather than the required date or a far-future
+    #: sentinel because "this feed excluded nothing" and "this feed lands on
+    #: that day" are different facts, and a sentinel makes a client's date
+    #: arithmetic silently wrong instead of making the absence visible.
     first_late_incoming_date: date | None = None
     first_late_in_production_date: date | None = None
     first_late_in_assembly_date: date | None = None
@@ -600,13 +600,13 @@ class MrpPlan:
 def planning_available(position: StockPosition, safety_stock: Decimal, *, respect: bool) -> Decimal:
     """Free stock the run is allowed to plan against.
 
-    ASSUMPTION: safety stock is *protected* by default - it is held back from
-    the netting rather than consumed by it, so a plan never proposes running the
-    buffer down to zero. Section 14 does not say either way, and this is the
-    conservative direction: the failure mode is ordering slightly early, not
-    discovering the buffer was planned away. ``respect`` makes it a per-run
-    decision (``respect_safety_stock`` on the request) so a planner deliberately
-    drawing the buffer down can say so.
+    ASSUMPTION (docs/assumptions.md §MRP-1): safety stock is *protected* by
+    default - it is held back from the netting rather than consumed by it, so a
+    plan never proposes running the buffer down to zero. Section 14 does not say
+    either way, and this is the conservative direction: the failure mode is
+    ordering slightly early, not discovering the buffer was planned away.
+    ``respect`` makes it a per-run decision (``respect_safety_stock`` on the
+    request) so a planner deliberately drawing the buffer down can say so.
     """
     free = position.available
     if respect and safety_stock > 0:
@@ -918,10 +918,11 @@ def choose_suggestion_type(item: PlanningItem, *, has_default_bom: bool) -> MrpS
     their BOM pointless. The planner sees and can change every suggestion before
     converting it, so a wrong guess costs noise rather than a wrong transaction.
 
-    ASSUMPTION: a ``MAKE`` item with no approved BOM is still suggested for
-    manufacture. The item master says it is made here; silently reclassifying it
-    as a purchase would hide a missing BOM behind a purchase order. The run
-    reports it as a warning instead so the gap gets fixed.
+    ASSUMPTION (docs/assumptions.md section 6): a ``MAKE`` item with no approved
+    BOM is still suggested for manufacture. The item master says it is made
+    here; silently reclassifying it as a purchase would hide a missing BOM
+    behind a purchase order. The run reports it as a warning instead so the gap
+    gets fixed.
     """
     production_type = ProductionType(item.production_type)
 

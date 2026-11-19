@@ -161,11 +161,11 @@ MRP_TASK_NAME = "mrp.run"
 #: and short enough that a worker killed mid-run does not block planning for a day.
 RUN_LOCK_TTL_SECONDS = 4200
 
-#: ASSUMPTION: a run that has been QUEUED or RUNNING for longer than this was
-#: abandoned - the worker died, or the broker lost the task. It is closed off as
-#: FAILED so planning is not blocked forever by a process that no longer exists.
-#: Deliberately longer than the Celery hard time limit, so a task that is merely
-#: slow is never mistaken for a dead one.
+#: ASSUMPTION (docs/assumptions.md §MRP-2): a run that has been QUEUED or
+#: RUNNING for longer than this was abandoned - the worker died, or the broker
+#: lost the task. It is closed off as FAILED so planning is not blocked forever
+#: by a process that no longer exists. Deliberately longer than the Celery hard
+#: time limit, so a task that is merely slow is never mistaken for a dead one.
 RUN_STALE_AFTER_SECONDS = 7200
 
 _STALE_RUN_MESSAGE = (
@@ -1598,12 +1598,12 @@ async def convert_suggestion(
         created = await _invoke_conversion_hook(session, tenant, target, request)
 
         suggestion.status = MrpSuggestionStatus.CONVERTED
-        # ASSUMPTION: the suggestion is marked CONVERTED even when the owning
-        # module is absent and no document was created. The planner has made the
-        # decision, and leaving it OPEN would have the next screen offer it again.
-        # `handled` on the result - and a NULL converted_to_id - are what say
-        # whether a document actually exists, so the gap is visible rather than
-        # implied by a status.
+        # ASSUMPTION (docs/assumptions.md §MRP-3): the suggestion is marked
+        # CONVERTED even when the owning module is absent and no document was
+        # created. The planner has made the decision, and leaving it OPEN would
+        # have the next screen offer it again. `handled` on the result - and a
+        # NULL converted_to_id - are what say whether a document actually
+        # exists, so the gap is visible rather than implied by a status.
         suggestion.converted_to_type = target.value.lower()
         suggestion.converted_to_id = created[0] if created else None
         suggestion.converted_at = utcnow()

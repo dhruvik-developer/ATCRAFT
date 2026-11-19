@@ -242,17 +242,18 @@ CAPABILITY_FIELDS = (
     "can_scrap",
 )
 
-# ASSUMPTION: an item must be able to do at least one thing. An item master row
-# with every capability off is unusable by every module and is far more likely to
-# be a data-entry mistake than an intent, so creation is refused. Retiring an
-# item is expressed by is_active/soft delete, not by clearing its capabilities.
+# ASSUMPTION (docs/assumptions.md §ITEM-1): an item must be able to do at least
+# one thing. An item master row with every capability off is unusable by every
+# module and is far more likely to be a data-entry mistake than an intent, so
+# it is refused on create and on update. Retiring an item is expressed by
+# is_active/soft delete, not by clearing its capabilities.
 REQUIRE_AT_LEAST_ONE_CAPABILITY = True
 
-# ASSUMPTION: production_type and the capability flags must agree - MAKE needs
-# can_manufacture, BUY needs can_purchase, MAKE_OR_BUY needs both, JOB_WORK needs
-# can_job_work. Without this, MRP would raise a MANUFACTURE suggestion for an
-# item no production order may be created for. Note this reads production_type,
-# never item_group.
+# ASSUMPTION (docs/assumptions.md §ITEM-1): production_type and the capability
+# flags must agree - MAKE needs can_manufacture, BUY needs can_purchase,
+# MAKE_OR_BUY needs both, JOB_WORK needs can_job_work. Without this, MRP would
+# raise a MANUFACTURE suggestion for an item no production order may be created
+# for. Note this reads production_type, never item_group.
 #: How the item form labels each capability (``CAPABILITY_META`` in the
 #: frontend's ``features/items/item-model.ts``), so a refusal names the box
 #: to tick rather than the column behind it.
@@ -1163,9 +1164,10 @@ async def _validate_item_units(
 ) -> None:
     """Every unit exists, and the trading units convert to the stocking unit.
 
-    ASSUMPTION: a purchase or sale unit that cannot be converted to the base
-    unit is rejected at save time. The alternative is discovering it at the
-    goods receipt that cannot post, with the vendor's lorry at the gate.
+    ASSUMPTION (docs/assumptions.md §ITEM-2): a purchase or sale unit that
+    cannot be converted to the base unit is rejected at save time. The
+    alternative is discovering it at the goods receipt that cannot post, with
+    the vendor's lorry at the gate.
     """
     uom_repo = UnitOfMeasureRepository(session, tenant)
     if await uom_repo.get(base_uom_id) is None:
@@ -2474,10 +2476,11 @@ async def list_variants(
 # Prices
 # -----------------------------------------------------------------------------
 
-# ASSUMPTION: when no price-list row matches, SALE falls back to items.sale_price
-# and DEALER to items.dealer_price. DISTRIBUTOR has no column on the item master,
-# so rather than reusing the dealer price - which would quietly invoice the wrong
-# party at the wrong rate - the resolver refuses and asks for a price list row.
+# ASSUMPTION (docs/assumptions.md §ITEM-3): when no price-list row matches, SALE
+# falls back to items.sale_price and DEALER to items.dealer_price. DISTRIBUTOR
+# has no column on the item master, so rather than reusing the dealer price -
+# which would quietly invoice the wrong party at the wrong rate - the resolver
+# refuses and asks for a price list row.
 ITEM_MASTER_FALLBACK_FIELD: dict[PriceType, str | None] = {
     PriceType.SALE: "sale_price",
     PriceType.DEALER: "dealer_price",

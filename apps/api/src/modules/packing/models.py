@@ -123,10 +123,11 @@ class PackingOrderStatus(StrEnum):
 class CartonType(StrEnum):
     """Physical form of the outer pack.
 
-    ASSUMPTION: the contract does not fix this vocabulary. These are the forms a
-    hardware manufacturer actually ships in. The value is descriptive - it drives
-    the label and the freight paperwork, and no rule in this module branches on
-    it - so extending the list is a one-line change here plus the CHECK below.
+    ASSUMPTION (docs/assumptions.md §PACK-1): the contract does not fix this
+    vocabulary. These are the forms a hardware manufacturer actually ships in.
+    The value is descriptive - it drives the label and the freight paperwork,
+    and no rule in this module branches on it - so extending the list is a
+    one-line change here plus the CHECK below.
     """
 
     BOX = "BOX"
