@@ -21,7 +21,6 @@ from there; they live here so no test file is another's library.
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import uuid
 from collections.abc import AsyncIterator, Iterator
@@ -31,14 +30,11 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
-from src.core.config import settings
 from src.core.deps import Principal, TenantContext
-from src.core.models import Base
 from src.core.permissions import Permission
 from src.modules.organization.models import Company
 from src.modules.procurement import service
@@ -62,106 +58,52 @@ from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfM
 from src.modules.users.models import User
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata, report_database_setup_failure
-
-
-def _schema_engine(schema: str):
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
+from tests.private_schema_support import private_schema, rolled_back_session
 
 
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]]:
     """One private schema, two companies and two users, built once."""
-    prepare_metadata()
-
-    schema = f"it_proc_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     other_company_id = uuid.uuid4()
     buyer_id = uuid.uuid4()
     approver_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
-
-        eng = _schema_engine(schema)
-        try:
-            async with eng.begin() as conn:
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
+    async def seed(setup_session: AsyncSession) -> None:
+        for cid in (company_id, other_company_id):
+            setup_session.add(
+                Company(
+                    id=cid,
+                    code=f"ATC{uuid.uuid4().hex[:6].upper()}",
+                    name="Atcraft Manufacturing",
+                    country="India",
+                    currency="INR",
+                    state_code="27",
+                    is_active=True,
                 )
+            )
+        for uid, handle in ((buyer_id, "buyer"), (approver_id, "approver")):
+            setup_session.add(
+                User(
+                    id=uid,
+                    company_id=company_id,
+                    email=f"{handle}-{uuid.uuid4().hex[:6]}@atcraft.test",
+                    full_name="Tester",
+                    password_hash="x",
+                    is_active=True,
+                )
+            )
 
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as setup_session, setup_session.begin():
-                for cid in (company_id, other_company_id):
-                    setup_session.add(
-                        Company(
-                            id=cid,
-                            code=f"ATC{uuid.uuid4().hex[:6].upper()}",
-                            name="Atcraft Manufacturing",
-                            country="India",
-                            currency="INR",
-                            state_code="27",
-                            is_active=True,
-                        )
-                    )
-                for uid, handle in ((buyer_id, "buyer"), (approver_id, "approver")):
-                    setup_session.add(
-                        User(
-                            id=uid,
-                            company_id=company_id,
-                            email=f"{handle}-{uuid.uuid4().hex[:6]}@atcraft.test",
-                            full_name="Tester",
-                            password_hash="x",
-                            is_active=True,
-                        )
-                    )
-        finally:
-            await eng.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, other_company_id, buyer_id, approver_id
-    asyncio.run(teardown())
+    with private_schema("it_proc", seed) as schema:
+        yield schema, company_id, other_company_id, buyer_id, approver_id
 
 
 @pytest_asyncio.fixture
 async def db(_schema) -> AsyncIterator[AsyncSession]:
     """A session whose writes are rolled back at the end of the test."""
     schema, *_ = _schema
-    eng = _schema_engine(schema)
-    async with eng.connect() as connection:
-        outer = await connection.begin()
-        maker = async_sessionmaker(
-            bind=connection,
-            expire_on_commit=False,
-            autoflush=False,
-            join_transaction_mode="create_savepoint",
-        )
-        async with maker() as session:
-            yield session
-        await outer.rollback()
-    await eng.dispose()
+    async with rolled_back_session(schema, autoflush=False) as session:
+        yield session
 
 
 @pytest.fixture
@@ -514,7 +456,6 @@ async def linked_order(db, tenant, buyer, masters, allocations, *, quantity=None
 __all__ = [
     "_principal",
     "_schema",
-    "_schema_engine",
     "approved_request",
     "approver",
     "buyer",

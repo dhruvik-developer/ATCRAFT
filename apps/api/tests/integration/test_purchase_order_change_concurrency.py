@@ -33,9 +33,9 @@ from src.modules.procurement.schemas import (
     PurchaseOrderLineIn,
 )
 from tests import seed_support
+from tests.private_schema_support import schema_engine
 from tests.procurement_support import _schema as _schema
 from tests.procurement_support import (
-    _schema_engine,
     approved_request,
     fresh,
     linked_order,
@@ -59,7 +59,7 @@ async def test_receipt_creation_and_amendment_serialize_on_the_same_refreshed_he
     _schema, tenant, buyer, monkeypatch, first_actor
 ):
     """Events establish lock order; no timing sleep decides the winner."""
-    engine = _schema_engine(_schema[0])
+    engine = schema_engine(_schema[0])
     factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     tasks = []
     release_first = asyncio.Event()
