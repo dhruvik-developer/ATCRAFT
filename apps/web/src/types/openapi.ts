@@ -17436,10 +17436,11 @@ export interface components {
          * CartonType
          * @description Physical form of the outer pack.
          *
-         *     ASSUMPTION: the contract does not fix this vocabulary. These are the forms a
-         *     hardware manufacturer actually ships in. The value is descriptive - it drives
-         *     the label and the freight paperwork, and no rule in this module branches on
-         *     it - so extending the list is a one-line change here plus the CHECK below.
+         *     ASSUMPTION (docs/assumptions.md §PACK-1): the contract does not fix this
+         *     vocabulary. These are the forms a hardware manufacturer actually ships in.
+         *     The value is descriptive - it drives the label and the freight paperwork,
+         *     and no rule in this module branches on it - so extending the list is a
+         *     one-line change here plus the CHECK below.
          * @enum {string}
          */
         CartonType: "BOX" | "CARTON" | "CRATE" | "PALLET" | "BAG" | "DRUM" | "SHRINK_WRAP";
@@ -39733,9 +39734,10 @@ export interface components {
          * @description Payload for creating an internal staff or vendor-portal account.
          *
          *     ``is_superuser`` is deliberately absent - see the ASSUMPTION note in the
-         *     service. ``must_change_password`` defaults to True because an administrator
-         *     choosing someone else's first password means that password has been typed
-         *     into a chat window or read out over a telephone.
+         *     service and docs/assumptions.md §USER-2. ``must_change_password`` defaults
+         *     to True because an administrator choosing someone else's first password
+         *     means that password has been typed into a chat window or read out over a
+         *     telephone.
          */
         UserCreate: {
             /** Allowed Category Ids */

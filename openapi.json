@@ -13740,7 +13740,7 @@
         "type": "object"
       },
       "CartonType": {
-        "description": "Physical form of the outer pack.\n\nASSUMPTION: the contract does not fix this vocabulary. These are the forms a\nhardware manufacturer actually ships in. The value is descriptive - it drives\nthe label and the freight paperwork, and no rule in this module branches on\nit - so extending the list is a one-line change here plus the CHECK below.",
+        "description": "Physical form of the outer pack.\n\nASSUMPTION (docs/assumptions.md §PACK-1): the contract does not fix this\nvocabulary. These are the forms a hardware manufacturer actually ships in.\nThe value is descriptive - it drives the label and the freight paperwork,\nand no rule in this module branches on it - so extending the list is a\none-line change here plus the CHECK below.",
         "enum": [
           "BOX",
           "CARTON",
@@ -74780,7 +74780,7 @@
       },
       "UserCreate": {
         "additionalProperties": false,
-        "description": "Payload for creating an internal staff or vendor-portal account.\n\n``is_superuser`` is deliberately absent - see the ASSUMPTION note in the\nservice. ``must_change_password`` defaults to True because an administrator\nchoosing someone else's first password means that password has been typed\ninto a chat window or read out over a telephone.",
+        "description": "Payload for creating an internal staff or vendor-portal account.\n\n``is_superuser`` is deliberately absent - see the ASSUMPTION note in the\nservice and docs/assumptions.md §USER-2. ``must_change_password`` defaults\nto True because an administrator choosing someone else's first password\nmeans that password has been typed into a chat window or read out over a\ntelephone.",
         "properties": {
           "allowed_category_ids": {
             "items": {
