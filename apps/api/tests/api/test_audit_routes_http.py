@@ -29,7 +29,9 @@ from httpx import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.deps import TenantContext
+from src.core.messages import REASON_TOO_SHORT
 from src.core.permissions import Permission
 from src.modules.audit import service as audit_service
 from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog, CompanyApprovalSettings
@@ -275,7 +277,7 @@ async def test_a_detached_decision_is_refused_and_leaves_the_request_pending(
     assert audited == 0
 
 
-@pytest.mark.parametrize("body", [{}, {"note": "   "}, {"note": "no"}])
+@pytest.mark.parametrize("body", [{}, {"note": "   "}, {"note": "x" * (REASON_MIN_LENGTH - 1)}])
 async def test_a_rejection_must_state_its_reason_before_anything_else_is_checked(
     api_client, session, pending, body
 ):
@@ -285,7 +287,9 @@ async def test_a_rejection_must_state_its_reason_before_anything_else_is_checked
         "VALIDATION_ERROR",
     )
 
-    assert error["details"]["field"] == "note"
+    # Every audited reason's floor and sentence, not a pair of its own.
+    assert error["message"] == REASON_TOO_SHORT
+    assert error["details"] == {"field": "note", "min_length": REASON_MIN_LENGTH}
     assert (await request_state(session, pending))[0] == ApprovalStatus.PENDING.value
 
 

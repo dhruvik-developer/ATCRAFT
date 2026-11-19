@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.actors import actor_id
 from src.core.clock import utcnow
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
@@ -54,7 +55,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import date_before, self_approval_refused, too_long
+from src.core.messages import REASON_TOO_SHORT, date_before, self_approval_refused, too_long
 from src.core.pagination import CursorParams, PageParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -92,13 +93,6 @@ MAX_WINDOW_DAYS = 366
 
 _DEFAULT_WINDOW = timedelta(days=DEFAULT_WINDOW_DAYS)
 _MAX_WINDOW = timedelta(days=MAX_WINDOW_DAYS)
-
-# ASSUMPTION (docs/assumptions.md §AUDIT-2): a rejection must carry a note and an
-# approval need not. A rejection is an instruction to someone else to change
-# something, and "rejected, no reason given" is not evidence of a judgement - it
-# is the start of a phone call. This is the conservative reading of master rules
-# section 42.
-MIN_REJECTION_NOTE_LENGTH = 3
 
 #: The inbox shows it beside a request its own raiser cannot decide, and
 #: :func:`assert_may_decide` refuses in it - the one segregation-of-duties sentence.
@@ -644,12 +638,16 @@ class ApprovalService:
     ) -> ApprovalRequestRead:
         """Refuse detached decisions that would leave the owning document pending."""
         note = payload.note
-        if target is ApprovalStatus.REJECTED and (
-            note is None or len(note) < MIN_REJECTION_NOTE_LENGTH
-        ):
+        # ASSUMPTION (docs/assumptions.md §AUDIT-2): a rejection must carry a note
+        # and an approval need not. A rejection is an instruction to someone else
+        # to change something, and "rejected, no reason given" is not evidence of a
+        # judgement - it is the start of a phone call. This is the conservative
+        # reading of master rules section 42. The note is an audited reason, so its
+        # floor and its refusal are every reason's.
+        if target is ApprovalStatus.REJECTED and (note is None or len(note) < REASON_MIN_LENGTH):
             raise ValidationError(
-                "A rejection must state a reason.",
-                details={"field": "note", "min_length": MIN_REJECTION_NOTE_LENGTH},
+                REASON_TOO_SHORT,
+                details={"field": "note", "min_length": REASON_MIN_LENGTH},
             )
 
         async with transaction(self.session):
@@ -683,7 +681,6 @@ __all__ = [
     "DECIDABLE_PERMISSIONS",
     "DEFAULT_WINDOW_DAYS",
     "MAX_WINDOW_DAYS",
-    "MIN_REJECTION_NOTE_LENGTH",
     "SELF_APPROVAL_BLOCKED",
     "ApprovalService",
     "AuditQueryService",
