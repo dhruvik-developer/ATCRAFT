@@ -20,7 +20,7 @@
 
 import Decimal from 'decimal.js'
 
-import { EMPTY_VALUE, toDecimal } from '@/lib/format'
+import { toDecimal } from '@/lib/format'
 import { queryKeys } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
 
@@ -300,16 +300,6 @@ export interface ReadyForPackingRow {
 }
 
 // -------------------------------------------------------------- derived -----
-
-/**
- * The item an order builds, or a component draws, as a person reads it: its
- * code, then its name. The read names both - an archived item too - so the
- * empty mark is for an id the API could not resolve, never a UUID prefix.
- */
-export function itemLabel(row: { item_code?: string | null; item_name?: string | null }): string {
-  if (!row.item_code) return EMPTY_VALUE
-  return row.item_name ? `${row.item_code} - ${row.item_name}` : row.item_code
-}
 
 const ZERO = new Decimal(0)
 

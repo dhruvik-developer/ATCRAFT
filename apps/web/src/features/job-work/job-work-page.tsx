@@ -837,8 +837,9 @@ function PendingPanel() {
   const vendorId = searchParams.get('vendor_id') ?? ''
   const overdueOnly = searchParams.get('overdue_only') === 'true'
 
-  // The rows carry ids only. Both lookups are bounded reference lists shared
-  // with the rest of the app, and each fails soft to a dash rather than a uuid.
+  // The rows name their item, but carry only `vendor_id` and `warehouse_id`.
+  // These two lookups resolve those: bounded reference lists shared with the
+  // rest of the app, each failing soft to a dash rather than a uuid.
   const vendors = useVendorOptions(can(P.VENDOR_VIEW))
   const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
   const warehouses = useWarehouseOptions(can(P.WAREHOUSE_VIEW))

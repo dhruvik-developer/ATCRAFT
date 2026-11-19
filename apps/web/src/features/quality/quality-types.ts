@@ -13,10 +13,13 @@
  *
  * Three properties of the current contract shape everything above it:
  *
- * 1. **Inspection rows are not denormalised.** They carry `item_id`,
- *    `vendor_id`, `warehouse_id` and `batch_id` - no codes, no names, no UoM.
- *    The screens therefore show what the row actually contains and link out by
- *    id rather than rendering blanks.
+ * 1. **Inspection rows name what they inspect.** Beside `item_id`,
+ *    `warehouse_id` and `batch_id` the reads join in `item_code` and
+ *    `item_name`, `warehouse_code` and `batch_number`, so a screen draws the
+ *    names straight off the row and never resolves them one by one. A null
+ *    among them - an id naming nothing of this company - reads as
+ *    `EMPTY_VALUE`, never as a raw id (`itemLabel` in `lib/format.ts`).
+ *    `vendor_id` stays an id, and there is no UoM.
  * 2. **The verdict is the server's, not the form's.** `POST .../decide` takes
  *    the five quantities and a reason; it does not take a result. The API
  *    derives the result from how the quantity was split, and returns it along
@@ -28,7 +31,7 @@
  */
 
 import { decimalPattern } from '@/lib/decimal-input'
-import { daysUntil, EMPTY_VALUE, toDecimal } from '@/lib/format'
+import { daysUntil, toDecimal } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
@@ -227,16 +230,6 @@ export function referenceLink(
     default:
       return null
   }
-}
-
-/**
- * How a quality screen names an item: its code and name, as the reads join them
- * in (`InspectionSummary`, `VendorQualityItemRow`). The code is null only when
- * the id names no item of this company, which reads as a blank, never a raw id.
- */
-export function itemLabel(row: { item_code?: string | null; item_name?: string | null }): string {
-  if (!row.item_code) return EMPTY_VALUE
-  return row.item_name ? `${row.item_code} - ${row.item_name}` : row.item_code
 }
 
 /**

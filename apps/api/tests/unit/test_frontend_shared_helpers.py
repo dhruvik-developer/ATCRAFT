@@ -8,9 +8,10 @@ three names (``asDecimal`` six times, ``zeroIfBlank``, ``asDelta``) while the
 settings page defined an ``asDecimal`` meaning the *opposite* - blank is null,
 because zero is a real threshold there - so the copy-paste hazard was a blank
 threshold silently becoming a real zero. About fifty more payloads spelled the
-same two rules inline. ``indexById`` was redefined twice beside lib's, and
-"today" was wrapped in six private helpers and rebuilt by hand from
-``getMonth()`` in two more.
+same two rules inline. ``indexById`` was redefined twice beside lib's,
+``itemLabel`` was exported twice, byte for byte, by the assembly and quality
+models (now once, in ``lib/format.ts``), and "today" was wrapped in six private
+helpers and rebuilt by hand from ``getMonth()`` in two more.
 
 So outside ``lib/``:
 
@@ -125,9 +126,15 @@ def _sources() -> list[Path]:
 
 def test_the_scan_reaches_the_screens_and_the_helpers_exist() -> None:
     assert len(_sources()) > 250, "source discovery found too few files"
-    assert {"asText", "asId", "asUpperText", "zeroIfBlank", "indexById", "toDateInput"} <= (
-        lib_names()
-    )
+    assert {
+        "asText",
+        "asId",
+        "asUpperText",
+        "zeroIfBlank",
+        "indexById",
+        "toDateInput",
+        "itemLabel",
+    } <= lib_names()
 
 
 def test_no_screen_spells_a_lib_rule_inline() -> None:
@@ -213,7 +220,7 @@ def test_the_rule_leaves_other_shapes_alone() -> None:
 
 
 def test_the_rule_finds_a_module_level_copy_of_a_lib_helper() -> None:
-    names = {"indexById", "asText", "plural"}
+    names = {"indexById", "asText", "plural", "itemLabel"}
     source = "\n".join(
         [
             "export function indexById<T extends { id: string }>(rows: readonly T[]) {",
@@ -222,9 +229,16 @@ def test_the_rule_finds_a_module_level_copy_of_a_lib_helper() -> None:
             "const asText = (value: string) => value.trim() || null",
             "function Component() {",
             "  const plural = count === 1 ? '' : 's'",
+            "  const itemLabel = demand.itemCode ?? 'this item'",
             "}",
             "// function indexById() {}",
             "const indexByCode = new Map()",
+            # The copy that shipped beside assembly-model's, in quality-types.ts.
+            "export function itemLabel(row: { item_code?: string | null }): string {",
         ]
     )
-    assert redefinitions(source, names) == ["line 1: indexById", "line 4: asText"]
+    assert redefinitions(source, names) == [
+        "line 1: indexById",
+        "line 4: asText",
+        "line 11: itemLabel",
+    ]

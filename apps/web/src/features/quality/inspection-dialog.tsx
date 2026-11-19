@@ -61,7 +61,14 @@ import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { OPTIONAL_QUANTITY_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, zeroIfBlank } from '@/lib/form-values'
-import { EMPTY_VALUE, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatQuantity,
+  humanise,
+  itemLabel,
+  toDecimal,
+} from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -75,7 +82,6 @@ import {
   hasFailed,
   isInspectable,
   isOutOfSpec,
-  itemLabel,
   referenceLink,
   specLabel,
   type QcDecisionResponse,

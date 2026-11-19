@@ -294,6 +294,18 @@ export function formatFileSize(bytes: number | null | undefined): string {
   return `${(bytes / 1024 ** exponent).toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
 }
 
+/**
+ * An item as a person reads it: its code, then its name - `"HNG-0042 - Brass
+ * hinge"`. The reads join both in beside `item_id` (an archived item too), so
+ * the code is missing only for an id that names no item of this company, and
+ * that reads as `EMPTY_VALUE`, never as a raw id or a UUID prefix. One
+ * definition, so the assembly and quality screens cannot name one item two ways.
+ */
+export function itemLabel(row: { item_code?: string | null; item_name?: string | null }): string {
+  if (!row.item_code) return EMPTY_VALUE
+  return row.item_name ? `${row.item_code} - ${row.item_name}` : row.item_code
+}
+
 /** Turn CONSTANT_CASE enum values into readable labels. */
 export function humanise(value: string | null | undefined): string {
   if (!value) return EMPTY_VALUE

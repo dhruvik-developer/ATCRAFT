@@ -67,12 +67,12 @@ import {
   formatNumber,
   formatPercent,
   formatQuantity,
+  itemLabel,
   toDecimal,
 } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import {
-  itemLabel,
   type ItemQualityHistory as ItemQualityHistoryPayload,
   type VendorQualitySummary as VendorQualitySummaryPayload,
 } from './quality-types'

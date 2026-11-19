@@ -39,6 +39,7 @@ import {
   fromDateTimeInput,
   humanise,
   isIsoCalendarDate,
+  itemLabel,
   plural,
   toDateInput,
   toDateTimeInput,
@@ -352,6 +353,20 @@ describe('formatFileSize', () => {
     expect(formatFileSize(0)).toMatch(/0/)
     expect(formatFileSize(2048)).toMatch(/2/)
     expect(formatFileSize(5 * 1024 * 1024)).toMatch(/5/)
+  })
+})
+
+describe('itemLabel', () => {
+  it('names an item by its code, then its name, as the reads join them in', () => {
+    expect(itemLabel({ item_code: 'HNG-0042', item_name: 'Brass hinge' })).toBe(
+      'HNG-0042 - Brass hinge',
+    )
+    expect(itemLabel({ item_code: 'HNG-0042', item_name: null })).toBe('HNG-0042')
+  })
+
+  it('reads an item the API could not name as the one blank, never a raw id', () => {
+    expect(itemLabel({ item_code: null, item_name: 'Brass hinge' })).toBe(EMPTY_VALUE)
+    expect(itemLabel({})).toBe(EMPTY_VALUE)
   })
 })
 

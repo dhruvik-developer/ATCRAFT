@@ -31,7 +31,7 @@ import {
 import { Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
-import { EMPTY_VALUE, formatDateTime, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDateTime, formatQuantity, humanise, itemLabel } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -39,7 +39,6 @@ import { InspectionAttachments, PhotoThumb } from './inspection-attachments'
 import {
   isInspectable,
   inspectionBadgeStatus,
-  itemLabel,
   referenceLink,
   type QcInspectionDetail,
   type QcInspectionRow,

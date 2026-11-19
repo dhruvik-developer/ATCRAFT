@@ -60,6 +60,7 @@ import {
   formatDateTime,
   formatQuantity,
   humanise,
+  itemLabel,
   plural,
   toDecimal,
 } from '@/lib/format'
@@ -86,7 +87,6 @@ import {
   isEditable,
   isReleasable,
   isStartable,
-  itemLabel,
   onBenchQuantity,
   outstandingQuantity,
   remainingToAssemble,
