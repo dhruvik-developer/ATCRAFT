@@ -4603,12 +4603,12 @@ module is used in production:
    rejected. A first PO signature cannot be completed by the same user, and an
    auto-approved requisition leaves no human approval evidence. Draft
    requisitions use the current limit when submitted; changing a limit never
-   auto-approves an item already in the manual queue. Pending purchase orders
-   use the current limit when approval is attempted, but once a first signature
-   exists it remains required if the limit rises, until an amendment clears that
-   evidence. Price-override approval is still not a threshold. Overturn any
-   amount through the settings API before production if the business names
-   different limits.
+   auto-approves an item already in the manual queue (§REQ-1). Pending purchase
+   orders use the current limit when approval is attempted, but once a first
+   signature exists it remains required if the limit rises, until an amendment
+   clears that evidence. Price-override approval is still not a threshold.
+   Overturn any amount through the settings API before production if the
+   business names different limits.
 3. **Multi-currency / FX.** **Standing default: company currency only for
    customer money.** Companies have a configurable currency; customer orders,
    invoices and credit flows use that company currency. Vendor documents can
@@ -6409,7 +6409,8 @@ it in place of approval.
 `QC_PENDING`, and its "GRN pending" column one that has been delivered and has
 not reached `GRN_COMPLETED` (`GRN_OUTSTANDING_STATUSES`): the receiver's
 booking-in sequence, `DELIVERED`, `QC_PENDING`, `RECEIVED`, `QC_COMPLETED`,
-`GRN_COMPLETED`, which the dispatch flow in master rules section 7 models.
+`GRN_COMPLETED`, which the dispatch state machine in database.md section 7
+models.
 
 **Why.** Deriving the columns from the quality and procurement tables instead
 would need a link from a dispatch to an inspection or a goods receipt, which the
@@ -6957,3 +6958,56 @@ an inspection is outstanding.
 `_advance_order_after_receipt` always takes QC_PENDING - and an order leaves
 QC_PENDING only when its inspections are decided (§E4-2), so one with nothing to
 inspect would need another way out.
+
+## §PO-3. An order line nobody has dated is not supply
+
+**Assumed.** MRP nets the undelivered balance of a purchase-order line as supply
+due on the line's `required_date`, else on its order's `expected_delivery_date`.
+A line with neither date is left out of every run: it is not netted against any
+requirement, and it is not reported as late supply either. This is the reading
+§E3b-4 gives an assembly order with no planned end.
+
+**Why.** Nobody has committed to when such a line arrives, so the honest answer
+to "does it land before this date?" is "unknown", and the two ways of resolving
+it are not symmetric. Counting it understates the shortage, and the shortfall
+shows up as a stockout on the shop floor; leaving it out overstates the
+shortage, and the worst case is a duplicate order a buyer can see, question and
+cancel. Undated orders are also the ones most likely to be stale.
+
+**Where.** `src/modules/procurement/repository.py` -
+`PurchaseOrderLineRepository.incoming_by_item`, which MRP reads through
+`src/modules/procurement/service.py` - `incoming_quantities`.
+
+**Impact if wrong.** Counting an undated balance means inventing the date it
+counts under, which the time-phased netting of section 21 would then trust as a
+promise. As it is, a run says nothing about the balance it left out; once the
+line or its order is dated, the next run nets it like any other tranche.
+
+## §REQ-1. A requisition is held to the auto-approval limit in force when it is submitted
+
+**Assumed.** A requisition is compared with the company's
+`requisition_auto_approve_limit` once, when its draft is submitted. It goes
+straight from `DRAFT` to `APPROVED` when the limit is positive, it has at least
+one line, every line carries an estimated unit price and the money-rounded
+estimated total is at or below the limit; otherwise it waits in
+`PENDING_APPROVAL` for an approver. Nothing reads the limit again, so raising it
+never approves a requisition already waiting in that queue. An auto-approval
+names no approver, and its audit row records the estimated value and the limit
+it was approved under.
+
+**Why.** A requisition in the manual queue was sent to a person to decide.
+Approving it because a setting changed afterwards would be an approval nobody
+gave, under a limit that was not in force when it was submitted. Reading the
+limit at submission is also what lets the audit row name the setting that
+approved it.
+
+**Where.** `src/modules/procurement/service.py` - `transition_requisition`;
+`src/modules/procurement/service_rules.py` - `requisition_auto_approval` and the
+`DRAFT` to `APPROVED` edge of `REQUISITION_LIFECYCLE`;
+`src/modules/audit/service.py` - `DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT`, zero,
+which leaves the rule off (open question 2).
+
+**Impact if wrong.** If a raised limit should release requisitions already
+waiting, that is a deliberate step taken when the setting changes, approving and
+auditing each one under the new limit - not a second reading of the limit at
+approval time.

@@ -1238,16 +1238,16 @@ class PurchaseOrderLineRepository(BaseRepository[PurchaseOrderLine]):
         # NULL, and a NULL comparison is not TRUE, so such a line drops out of
         # the horizon filter below.
         #
-        # ASSUMPTION: an order line with no date on either the line or the
-        # header is NOT counted as supply inside any horizon. Nobody has
-        # committed to when it arrives, so the honest answer to "does it land
-        # before this date?" is "unknown", and the two ways of resolving an
-        # unknown are not symmetric: counting it under-states the shortage and
-        # the shortfall shows up as a stockout on the shop floor, while leaving
-        # it out over-states the shortage and the worst case is a duplicate
-        # order a buyer can see, question and cancel. Undated orders are also
-        # the ones most likely to be stale. The conservative reading is the one
-        # whose failure is visible, so an undated balance is left out.
+        # ASSUMPTION (docs/assumptions.md §PO-3): an order line with no date on
+        # either the line or the header is NOT counted as supply inside any
+        # horizon. Nobody has committed to when it arrives, so the honest answer
+        # to "does it land before this date?" is "unknown", and the two ways of
+        # resolving an unknown are not symmetric: counting it under-states the
+        # shortage and the shortfall shows up as a stockout on the shop floor,
+        # while leaving it out over-states the shortage and the worst case is a
+        # duplicate order a buyer can see, question and cancel. Undated orders
+        # are also the ones most likely to be stale. The conservative reading is
+        # the one whose failure is visible, so an undated balance is left out.
         due_date = func.coalesce(
             PurchaseOrderLine.required_date, PurchaseOrder.expected_delivery_date
         )

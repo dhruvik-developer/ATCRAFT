@@ -701,10 +701,10 @@ def evaluate_inspection(
     elif missing:
         recommended, conclusive = InspectionResult.PENDING, False
     elif failures:
-        # ASSUMPTION: a deviation nobody classified as critical recommends
-        # REWORK, not ACCEPTED. Advisory only - the inspector decides - but
-        # defaulting a deviating lot towards acceptance would make the whole
-        # check sheet decorative.
+        # ASSUMPTION (docs/assumptions.md §QC-2): a deviation nobody classified
+        # as critical recommends REWORK, not ACCEPTED. Advisory only - the
+        # inspector decides - but defaulting a deviating lot towards acceptance
+        # would make the whole check sheet decorative.
         recommended, conclusive = InspectionResult.REWORK, True
     else:
         recommended, conclusive = InspectionResult.ACCEPTED, True
@@ -745,8 +745,9 @@ def status_for(disposition: Disposition, result: InspectionResult) -> Inspection
     """Where a decision leaves the *document*, which is not the same question as
     what it concluded about the *goods*.
 
-    ASSUMPTION: any quantity left on QC hold keeps the document in a re-openable
-    state, and REWORK outranks HOLD when both carry quantity.
+    ASSUMPTION (docs/assumptions.md §QC-3): any quantity left on QC hold keeps
+    the document in a re-openable state, and REWORK outranks HOLD when both
+    carry quantity.
 
     ``result`` is the verdict; ``status`` is what is left to do. A lot of 100 with
     60 released and 40 sent for rework has a verdict of ACCEPTED - most of it was
@@ -808,9 +809,10 @@ def validate_disposition(inspected_quantity: Decimal, disposition: Disposition) 
 def assert_critical_override(evaluation: ParameterEvaluation, disposition: Disposition) -> None:
     """A critical failure forbids accepting or reworking any of the lot.
 
-    ASSUMPTION: routing part of such a lot to SCRAP stays permitted. The contract
-    forces REJECTED "regardless of the others", and scrap is a strictly harsher
-    disposition than rejection, never a softer one.
+    ASSUMPTION (docs/assumptions.md §QC-2): routing part of such a lot to SCRAP
+    stays permitted. The contract forces REJECTED "regardless of the others",
+    and scrap is a strictly harsher disposition than rejection, never a softer
+    one.
     """
     if not evaluation.has_critical_failure:
         return
@@ -2147,10 +2149,10 @@ async def decide_inspection(
         inspection.inspector_user_id = tenant.user_id
         inspection.inspected_at = decided_at
 
-        # ASSUMPTION: a rejection against a named vendor sets a flag, not a
-        # purchase return. Raising the return is procurement's decision, its
-        # numbering series and its approval; quality states the requirement and
-        # notifies the buyers.
+        # ASSUMPTION (docs/assumptions.md §QC-3): a rejection against a named
+        # vendor sets a flag, not a purchase return. Raising the return is
+        # procurement's decision, its numbering series and its approval; quality
+        # states the requirement and notifies the buyers.
         inspection.return_required = requested.rejected > ZERO and inspection.vendor_id is not None
 
         # Deliberately not flushed here: ``_transition`` writes the status and

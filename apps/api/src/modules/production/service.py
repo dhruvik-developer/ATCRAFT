@@ -657,8 +657,9 @@ def backflush_quantity(
     made 80 of 100 consumed 80 units' worth of material, and charging it the
     full kit would overstate the cost of every short run.
 
-    ASSUMPTION: output above plan backflushes proportionally too, so a job that
-    over-delivers is charged for the material it really used.
+    ASSUMPTION (docs/assumptions.md §PROD-2): output above plan backflushes
+    proportionally too, so a job that over-delivers is charged for the material
+    it really used.
     """
     planned = to_quantity(planned_quantity)
     if planned <= ZERO:  # pragma: no cover - a CHECK constraint forbids it
@@ -802,7 +803,8 @@ def _elapsed_minutes(start: datetime, end: datetime) -> Decimal:
 def charged_minutes(operation: OperationCostInput) -> tuple[Decimal, bool]:
     """Minutes this operation is costed for, and whether they were measured.
 
-    ASSUMPTION about the three cases the shop floor actually produces:
+    ASSUMPTION (docs/assumptions.md §PROD-3) about the three cases the shop
+    floor actually produces:
 
     * clocked (both actual times present) - charge the elapsed time. Downtime
       recorded on the bookings is *inside* that elapsed time and is deliberately
@@ -968,10 +970,10 @@ def plan_components(
     own is drawn from where the job lives, which is the only answer that cannot
     be wrong for a single-store plant.
 
-    ASSUMPTION: a batch- or serial-tracked component may not be backflushed.
-    Backflushing posts a movement nobody is looking at, and the inventory engine
-    requires a lot or a serial on every movement of such an item - there is
-    nothing to pick it automatically from.
+    ASSUMPTION (docs/assumptions.md §PROD-2): a batch- or serial-tracked
+    component may not be backflushed. Backflushing posts a movement nobody is
+    looking at, so nobody would choose its lot or name its units, and an issue
+    of a tracked item has to say what the job consumed.
     """
     plans: list[ComponentPlan] = []
     for index, component in enumerate(explosion.components, start=1):
@@ -3715,12 +3717,13 @@ async def _post_output_receipt(
 ) -> PostedMovement:
     """Put finished goods into the output warehouse.
 
-    ASSUMPTION: the receipt is valued at the item's standard cost, which is what
-    the inventory engine falls back to when a movement carries no unit cost. The
-    job's *actual* cost is not known until it closes - material is still being
-    issued and operations are still running - and revaluing finished stock from
-    standard to actual is a finance function this module does not own. The actual
-    figure is computed at closure and reported by ``GET /production/{id}/cost``.
+    ASSUMPTION (docs/assumptions.md §E7-1): the receipt is valued at the item's
+    standard cost, which is what the inventory engine falls back to when a
+    movement carries no unit cost. The job's *actual* cost is not known until it
+    closes - material is still being issued and operations are still running -
+    and revaluing finished stock from standard to actual is a finance function
+    this module does not own. The actual figure is computed at closure and
+    reported by ``GET /production/{id}/cost``.
 
     A tracked output posts one movement per physical unit. The lot and the units
     are recorded on the booking, so "which shift made this serial?" is one read

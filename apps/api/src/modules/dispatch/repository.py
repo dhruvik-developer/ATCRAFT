@@ -84,14 +84,15 @@ from src.modules.products.models import Item
 from src.modules.sales.models import SalesOrder, SalesOrderLine
 from src.modules.vendors.models import Transporter, Vendor
 
-#: ASSUMPTION: the board's "QC pending" and "GRN pending" columns are read off
-#: the consignment's own status, which is what the section 7 dispatch flow
-#: models: DELIVERED -> QC_PENDING -> RECEIVED -> QC_COMPLETED -> GRN_COMPLETED
-#: is the receiver's booking-in sequence. A consignment that has arrived and has
-#: not reached GRN_COMPLETED still owes a goods receipt at the far end; one
-#: sitting in QC_PENDING still owes an inspection. Deriving these from the
-#: quality and procurement tables instead would need a link from a dispatch to
-#: an inspection that the contract does not define.
+#: ASSUMPTION (docs/assumptions.md §DISPATCH-2): the board's "QC pending" and
+#: "GRN pending" columns are read off the consignment's own status, which is
+#: what the dispatch flow in database.md section 7 models:
+#: DELIVERED -> QC_PENDING -> RECEIVED -> QC_COMPLETED -> GRN_COMPLETED is the
+#: receiver's booking-in sequence. A consignment that has arrived and has not
+#: reached GRN_COMPLETED still owes a goods receipt at the far end; one sitting
+#: in QC_PENDING still owes an inspection. Deriving these from the quality and
+#: procurement tables instead would need a link from a dispatch to an
+#: inspection that the contract does not define.
 GRN_OUTSTANDING_STATUSES: tuple[DispatchStatus, ...] = tuple(
     status for status in DELIVERED_STATUSES if status is not DispatchStatus.GRN_COMPLETED
 )
@@ -228,11 +229,12 @@ class VendorLookupRepository(BaseRepository[Vendor]):
         row = (await self.session.execute(stmt)).first()
         if row is None:
             return None
-        # ASSUMPTION: ``vendors`` has no block flag of its own, so an unapproved
-        # vendor is treated as blocked for the purpose of sending them goods.
-        # Approval is precisely the control that says "we do business with these
-        # people"; shipping a purchase return or job-work material to a vendor
-        # nobody has vetted is the conservative thing to refuse.
+        # ASSUMPTION (docs/assumptions.md §DISPATCH-1): ``vendors`` has no block
+        # flag of its own, so an unapproved vendor is treated as blocked for the
+        # purpose of sending them goods. Approval is precisely the control that
+        # says "we do business with these people"; shipping a purchase return or
+        # job-work material to a vendor nobody has vetted is the conservative
+        # thing to refuse.
         return PartyFacts(
             id=row.id,
             code=row.code,

@@ -2630,11 +2630,12 @@ async def scan_delays(
     collapses the hourly re-run onto the same unread bell row rather than adding
     one every hour until somebody mutes the type.
 
-    ASSUMPTION: the audit trail records one entry per company per sweep, naming
-    the consignments flagged in its context, rather than one entry per row. A
-    row-per-consignment trail of an automated hourly job would bury the human
-    actions the audit log exists to make findable, and the fact being recorded -
-    "these were flagged, and these people were told" - is one event.
+    ASSUMPTION (docs/assumptions.md §DISPATCH-3): the audit trail records one
+    entry per company per sweep, naming the consignments flagged in its context,
+    rather than one entry per row. A row-per-consignment trail of an automated
+    hourly job would bury the human actions the audit log exists to make
+    findable, and the fact being recorded - "these were flagged, and these
+    people were told" - is one event.
 
     Each company's work runs in its own nested transaction so one tenant's
     failure cannot roll back the alerts already raised for another.

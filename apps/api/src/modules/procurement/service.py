@@ -1377,9 +1377,10 @@ async def transition_requisition(
         transition_reason = reason
         audit_context: dict[str, Any] | None = None
         if target is RequisitionStatus.PENDING_APPROVAL and current is RequisitionStatus.DRAFT:
-            # ASSUMPTION: a draft is evaluated against the current setting when
-            # submitted; changing the limit never silently approves a document
-            # that is already waiting in the manual queue.
+            # ASSUMPTION (docs/assumptions.md §REQ-1): a draft is evaluated
+            # against the current setting when submitted; changing the limit
+            # never silently approves a document that is already waiting in the
+            # manual queue.
             settings = await get_company_approval_settings(session, tenant)
             lines = await line_repo.list_for_requisition(requisition.id)
             auto = requisition_auto_approval(
