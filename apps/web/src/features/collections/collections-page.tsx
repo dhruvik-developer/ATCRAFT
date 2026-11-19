@@ -100,8 +100,12 @@ export default function CollectionsPage() {
   const registerAssignedToMe = searchParams.get('followup_assigned_to_me') === 'true'
   const settledMobileSearch = useDebouncedValue(mobileSearch)
 
+  // The box follows the URL's search, but keeps its own text while that text
+  // already means the same search: the box's own write sends the trimmed value,
+  // and replacing what was typed with it ate the space before a second word.
   useEffect(() => {
-    setMobileSearch(searchParams.get('q') ?? '')
+    const q = searchParams.get('q') ?? ''
+    setMobileSearch((current) => (current.trim() === q.trim() ? current : q))
   }, [searchParams])
 
   const worklist = useListQuery<WorklistRow>({
@@ -149,12 +153,15 @@ export default function CollectionsPage() {
   // what it settled on changes, and only then. Both boxes stay mounted at every
   // width, so a search typed in the table reaches the URL while this box still
   // holds its old settled value: answering every URL that disagreed with it
-  // wrote that stale value straight back over the table's search.
+  // wrote that stale value straight back over the table's search. The settled
+  // value is trimmed and the table writes what was typed, so the two are
+  // compared trimmed: a table search ending in a space is the same search, and
+  // writing the trimmed one back erased the space and anything typed after it.
   const pushedMobileSearch = useRef(settledMobileSearch)
   useEffect(() => {
     if (settledMobileSearch === pushedMobileSearch.current) return
     pushedMobileSearch.current = settledMobileSearch
-    if (settledMobileSearch === (searchParams.get('q') ?? '')) return
+    if (settledMobileSearch === (searchParams.get('q') ?? '').trim()) return
     writeWorklist({ q: settledMobileSearch })
   }, [searchParams, settledMobileSearch, writeWorklist])
 

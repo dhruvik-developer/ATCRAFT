@@ -394,4 +394,38 @@ describe('searching the worklist', () => {
     expect(reads.at(-1)?.get('search')).toBe('north')
     expect(screen.getByRole('textbox', { name: SEARCH })).toHaveValue('north')
   })
+
+  // A pause after the first word of a two-word name: the space is part of what
+  // was typed, and the next word goes after it.
+  it('keeps the space a table search ends in, and reads it once', async () => {
+    const { user, reads } = renderWorklist()
+    const table = await screen.findByRole('textbox', { name: SEARCH })
+
+    await user.type(table, 'north ')
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('north '))
+    await debouncesSettle()
+
+    expect(table).toHaveValue('north ')
+    expect(screen.getByRole('searchbox', { name: SEARCH })).toHaveValue('north ')
+    expect(reads.filter((read) => read.get('search')?.trim() === 'north')).toHaveLength(1)
+
+    await user.type(table, 'east')
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('north east'))
+    expect(table).toHaveValue('north east')
+  })
+
+  it('keeps the space a phone search ends in', async () => {
+    const { user, reads } = renderWorklist()
+    const phone = await screen.findByRole('searchbox', { name: SEARCH })
+
+    await user.type(phone, 'north ')
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('north'))
+    await debouncesSettle()
+
+    expect(phone).toHaveValue('north ')
+
+    await user.type(phone, 'east')
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('north east'))
+    expect(phone).toHaveValue('north east')
+  })
 })
