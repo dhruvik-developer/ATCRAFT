@@ -289,6 +289,16 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     )
     assert len(demand_refs_index) == 1
     assert "USING gin" in str(demand_refs_index[0][0])
+    # 20261129_0100: the document read policies' correlated lookup, partial so
+    # an inline result costs the index nothing.
+    snapshot_document_index = query(
+        dsn,
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' "
+        "AND tablename = 'report_snapshots' "
+        "AND indexname = 'ix_report_snapshots_document_id'",
+    )
+    assert len(snapshot_document_index) == 1
+    assert "(document_id) WHERE (document_id IS NOT NULL)" in str(snapshot_document_index[0][0])
     transfer_columns = column_names(dsn, "stock_transfers")
     assert {"source_type", "source_id"} <= transfer_columns
     assert {column.name for column in StockTransfer.__table__.columns} == transfer_columns

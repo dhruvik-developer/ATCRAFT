@@ -270,6 +270,17 @@ class ReportSnapshot(TenantEntity):
             "parameters_hash",
             text("created_at DESC"),
         ),
+        # "Which job produced this file?" The generic document read policies
+        # (``ReportSnapshotRepository.*_visibility``) ask it of every document a
+        # restricted principal lists, counts or downloads, and deleting a
+        # document nulls the link through this foreign key. Unindexed, each
+        # question compared a document with every linked snapshot of its
+        # company. Partial: an inline result links no file.
+        Index(
+            "ix_report_snapshots_document_id",
+            "document_id",
+            postgresql_where=text("document_id IS NOT NULL"),
+        ),
         CheckConstraint("row_count >= 0", name="row_count_is_not_negative"),
         CheckConstraint(f"status IN ({sql_in_list(ReportJobStatus)})", name="status_is_known"),
         CheckConstraint(f"report_key IN ({sql_in_list(ReportKey)})", name="report_key_is_known"),

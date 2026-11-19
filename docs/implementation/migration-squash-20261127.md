@@ -23,7 +23,8 @@ by hash where the tag has not been fetched). The earlier October squash remains
 at `pre-migration-squash-20261019` (commit `af1186b4`).
 
 Revisions written after the squash revise the baseline, so the chain is no
-longer a single file: `20261128_0100` (batch SKU conversion lineage) follows it.
+longer a single file: `20261128_0100` (batch SKU conversion lineage) follows it,
+and `20261129_0100` (the index on `report_snapshots.document_id`) follows that.
 The commands below say which output depends on that.
 
 ## How the baseline was produced
@@ -42,7 +43,7 @@ catalog category above.
 ```bash
 cd apps/api
 alembic upgrade head   # the baseline, then every later revision
-alembic current        # 20261128_0100 (head), until a later revision lands
+alembic current        # 20261129_0100 (head), until a later revision lands
 ```
 
 ## Existing database: verify, then stamp
@@ -62,7 +63,7 @@ Existing databases that already sit at former head `20261126_0100` must be
    alembic stamp --purge 20261127_0100
    alembic current                     # 20261127_0100 - no longer head
    alembic upgrade head                # runs only the revisions after the baseline
-   alembic current                     # 20261128_0100 (head), or a later one
+   alembic current                     # 20261129_0100 (head), or a later one
    ```
 
 4. Confirm catalog counts still match the baseline plus the later revisions;
@@ -88,11 +89,12 @@ stages.
 ## Next migration
 
 A new revision's `down_revision` is the current head as `alembic heads` prints
-it, not the baseline: `20261128_0100` already revises `20261127_0100`, so the
-next one names `20261128_0100` unless another has landed since.
+it, not the baseline: `20261128_0100` already revises `20261127_0100` and
+`20261129_0100` revises it, so the next one names `20261129_0100` unless another
+has landed since.
 
 ```python
-down_revision = "20261128_0100"
+down_revision = "20261129_0100"
 ```
 
 `alembic heads` must print exactly one head after every change.

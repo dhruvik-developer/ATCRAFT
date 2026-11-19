@@ -10,7 +10,7 @@ This document records the repository's database contract. Where it and
 The migration chain and ORM metadata must agree under an unfiltered
 `alembic check`. The chain starts from one baseline, `20261127_0100`, squashed on
 8 November 2026 from a `pg_dump --schema-only` of the former head
-`20261126_0100`; later revisions follow it (currently `20261128_0100`). Every
+`20261126_0100`; later revisions follow it (currently `20261129_0100`). Every
 timestamp default, tenant foreign key, index and CHECK the retired revisions
 reconciled is part of that baseline. Its downgrade drops every table with
 `CASCADE`, unconditionally: it exists for disposable databases and tests only,
