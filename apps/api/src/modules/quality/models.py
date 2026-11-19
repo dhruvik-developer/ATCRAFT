@@ -546,10 +546,13 @@ class QcInspection(TenantEntity):
     inspected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    #: Set when a rejection still owes the vendor a return or a replacement, and
-    #: cleared when procurement raises the purchase return. A flag rather than a
-    #: document created from here because the return is procurement's decision,
-    #: its numbering series and its approval - see ``service.decide_inspection``.
+    #: Set when a rejection, or a rework cycle completed as RETURNED, finds the
+    #: vendor owes a return or a replacement (docs/assumptions.md §QC-3). It only
+    #: rises - nothing clears it, procurement included - so it records that a
+    #: return was owed rather than that one is still outstanding. A flag rather
+    #: than a document created from here because the return is procurement's
+    #: decision, its numbering series and its approval - see
+    #: ``service.decide_inspection``.
     return_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )

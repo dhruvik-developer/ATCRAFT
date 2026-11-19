@@ -2152,8 +2152,15 @@ async def decide_inspection(
         # ASSUMPTION (docs/assumptions.md §QC-3): a rejection against a named
         # vendor sets a flag, not a purchase return. Raising the return is
         # procurement's decision, its numbering series and its approval; quality
-        # states the requirement and notifies the buyers.
-        inspection.return_required = requested.rejected > ZERO and inspection.vendor_id is not None
+        # states the requirement and notifies the buyers. The flag only ever
+        # rises: a rejected quantity cannot shrink, and a return a rework cycle
+        # completed as RETURNED found owed is not taken back by the re-decision
+        # that books that quantity - scrapped, the vendor still owes the
+        # replacement. The buyers are told once, when it rises.
+        return_was_owed = inspection.return_required
+        inspection.return_required = return_was_owed or (
+            requested.rejected > ZERO and inspection.vendor_id is not None
+        )
 
         # Deliberately not flushed here: ``_transition`` writes the status and
         # the verdict together in one UPDATE, because the database refuses a row
@@ -2232,6 +2239,18 @@ async def decide_inspection(
         await owners.notify_owner(session, tenant, inspection, reason=payload.reason)
 
         await _announce_failure(session, tenant, inspection, requested)
+        if inspection.return_required and not return_was_owed:
+            await _announce_return(
+                session,
+                tenant,
+                inspection,
+                owed=(
+                    f"{inspection.rejected_quantity} rejected at incoming inspection "
+                    f"{inspection.code}"
+                    + (f" against {inspection.reference_code}" if inspection.reference_code else "")
+                    + "."
+                ),
+            )
 
         decisions = await QcInspectionDecisionRepository(session, tenant).list_for_inspection(
             inspection.id
@@ -2407,28 +2426,38 @@ async def _announce_failure(
         actor_id=tenant.user_id,
     )
 
-    if inspection.return_required:
-        await notify_role(
-            session,
-            company_id=tenant.company_id,
-            role_codes=QC_RETURN_ROLE_CODES,
-            notification_type=NotificationType.QC_FAILED,
-            # CRITICAL: material the company has already taken custody of is
-            # sitting in the damaged pool and the vendor has to be told before
-            # the invoice is paid. That escalation is why this is not INFO.
-            severity=NotificationSeverity.CRITICAL,
-            title=f"Vendor return owed for {inspection.code}",
-            body=(
-                f"{inspection.rejected_quantity} rejected at incoming inspection "
-                f"{inspection.code}"
-                + (f" against {inspection.reference_code}" if inspection.reference_code else "")
-                + ". Raise a purchase return or agree a replacement with the vendor."
-            ),
-            entity_type=AUDIT_QC_INSPECTION,
-            entity_id=inspection.id,
-            group_key=f"qc-return:{inspection.id}",
-            actor_id=tenant.user_id,
-        )
+
+async def _announce_return(
+    session: AsyncSession,
+    tenant: TenantContext,
+    inspection: QcInspection,
+    *,
+    owed: str,
+) -> None:
+    """Tell the buyers the vendor owes a return or a replacement.
+
+    Called once per inspection, by whichever raised ``return_required`` - a
+    rejecting decision or a rework cycle completed as RETURNED - and never by a
+    decision that found it already raised (docs/assumptions.md §QC-3): the
+    re-decision of a quantity the buyers were already told about tells them
+    nothing new. ``owed`` is the sentence saying what is owed and why.
+    """
+    await notify_role(
+        session,
+        company_id=tenant.company_id,
+        role_codes=QC_RETURN_ROLE_CODES,
+        notification_type=NotificationType.QC_FAILED,
+        # CRITICAL: material the company has already taken custody of is
+        # waiting on the vendor, and the vendor has to be told before the
+        # invoice is paid. That escalation is why this is not INFO.
+        severity=NotificationSeverity.CRITICAL,
+        title=f"Vendor return owed for {inspection.code}",
+        body=f"{owed} Raise a purchase return or agree a replacement with the vendor.",
+        entity_type=AUDIT_QC_INSPECTION,
+        entity_id=inspection.id,
+        group_key=f"qc-return:{inspection.id}",
+        actor_id=tenant.user_id,
+    )
 
 
 async def _close(
@@ -2653,7 +2682,8 @@ async def complete_rework(
     scrap on re-decision. The inspection is re-opened (REWORK -> IN_PROGRESS,
     result back to PENDING) so the re-decision is owed, not optional. A
     RETURNED outcome against a named vendor flags the inspection for a vendor
-    return the way a rejection does (docs/assumptions.md §E5-6).
+    return the way a rejection does (docs/assumptions.md §E5-6), and tells the
+    buyers unless a return was already owed (§QC-3).
     """
     repo = QcReworkRepository(session, tenant)
     inspection_repo = QcInspectionRepository(session, tenant)
@@ -2692,7 +2722,16 @@ async def complete_rework(
         repo.touch(record)
         await session.flush()
 
-        if payload.outcome is ReworkOutcome.RETURNED and inspection.vendor_id is not None:
+        # ASSUMPTION (docs/assumptions.md §QC-3): the bench sending the quantity
+        # back to the vendor owes a return the way a rejection does, and the
+        # buyers are told now - the re-decision that books the quantity keeps
+        # the flag and does not tell them again.
+        return_raised = (
+            payload.outcome is ReworkOutcome.RETURNED
+            and inspection.vendor_id is not None
+            and not inspection.return_required
+        )
+        if return_raised:
             inspection.return_required = True
             inspection_repo.touch(inspection)
 
@@ -2718,6 +2757,35 @@ async def complete_rework(
             action=AuditAction.STATUS_CHANGE,
             reason=f"{payload.reason} (outcome {payload.outcome})",
         )
+
+        if return_raised:
+            returned = _plain_quantity(Decimal(record.quantity))
+            await record_audit(
+                session,
+                company_id=tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_QC_INSPECTION,
+                entity_id=inspection.id,
+                entity_code=inspection.code,
+                summary=f"{inspection.code} owes the vendor a return: rework {record.code} "
+                f"sent {returned} back",
+                user_id=tenant.user_id,
+                old_values={"return_required": False},
+                new_values={"return_required": True},
+                context={"rework_id": str(record.id), "reason": payload.reason},
+            )
+            await _announce_return(
+                session,
+                tenant,
+                inspection,
+                owed=(
+                    f"Rework {record.code} found {returned} "
+                    f"of {inspection.code}"
+                    + (f" against {inspection.reference_code}" if inspection.reference_code else "")
+                    + " has to go back to the vendor; it stays on QC hold until the "
+                    "inspection is re-decided."
+                ),
+            )
 
     return record
 

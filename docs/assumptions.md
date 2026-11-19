@@ -3737,7 +3737,8 @@ inspection (REWORK to IN_PROGRESS, verdict back to PENDING) so re-decision is
 owed. Even a SCRAPPED outcome leaves the quantity in QC hold for the inspector
 to scrap on re-decision, because the decision is the one release path. A
 RETURNED outcome against a named vendor flags the inspection for a vendor
-return the way a rejection does.
+return the way a rejection does, and tells the buyers then; the re-decision
+keeps the flag (§QC-3).
 
 **Why:** A second movement path out of the hold would be the two-release-paths
 defect again: the completion would release stock the decision also releases.
@@ -5918,24 +5919,37 @@ acceptance, that is one branch of `evaluate_inspection`.
 concluded: any quantity left on rework or hold keeps it in a re-openable
 `REWORK` or `HOLD` status whatever its result - `REWORK` when both carry
 quantity - and the result becomes the status only once nothing is held. A
-rejection against a named vendor, or a rework sent back to the vendor, sets
-`return_required`, and the purchase roles (`QC_RETURN_ROLE_CODES`) are told, at
-critical severity, that a return or a replacement is owed. Quality does not
-raise the purchase return itself.
+rejection against a named vendor, or a rework cycle completed as `RETURNED`
+(sent back to the vendor), sets `return_required`, and the purchase roles
+(`QC_RETURN_ROLE_CODES`) are told, at critical severity, that a return or a
+replacement is owed. The flag only rises and nothing clears it: a rejected
+quantity cannot shrink, and the re-decision that books a returned rework's
+quantity keeps it, whether as scrap or as accepted. The buyers are told once
+per inspection, by whichever raised the flag; a later decision tells them
+nothing more, and the inspection carries the quantities. Quality does not raise
+the purchase return itself.
 
 **Why.** A lot of 100 with 60 released and 40 sent for rework reads ACCEPTED,
 but those 40 pieces still owe a second decision, and a decided status would
 close their only way out of the QC hold pool. Rework outranks hold because it is
 work somebody has been asked to do, where hold is a question somebody has been
 asked to answer. Raising the return is procurement's decision, its numbering
-series and its approval.
+series and its approval. A returned rework's quantity stays on QC hold until it
+is re-decided, and recomputing the flag from that decision's rejected quantity
+cleared it when the inspector booked the quantity as scrap - which no purchase
+return can draw from, while the vendor still owes the replacement - and nobody
+had been told. Telling the buyers again at every re-decision repeated a critical
+notice about quantity they already knew of.
 
 **Where.** `src/modules/quality/service.py` - `status_for`; `decide_inspection`
-and `complete_rework` set the flag, and `_announce_failure` sends the notice.
+and `complete_rework` raise the flag, and `_announce_return` sends the notice.
 
 **Impact if wrong.** If a rejection should raise the purchase return itself,
 quality would need procurement's numbering and approval; the flag is the seam
-for that hand-off.
+for that hand-off. If a later decision that rejects more should tell the buyers
+again, notify on a grown rejected quantity rather than on the flag rising; if
+the inspector's re-decision should be able to withdraw a returned rework's
+claim, that needs its own audited action rather than a silent overwrite.
 
 ## §USER-1. A held role cannot be retired, and nobody retires or deactivates their own account
 

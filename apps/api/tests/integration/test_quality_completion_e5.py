@@ -24,7 +24,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers, UploadFile
 
@@ -40,6 +40,7 @@ from src.modules.documents.schemas import DocumentFilters, DocumentUploadRequest
 from src.modules.documents.service import DocumentService
 from src.modules.inventory.models import InventoryBalance, TransactionType
 from src.modules.inventory.service import post_movement
+from src.modules.notifications.models import Notification
 from src.modules.organization.models import Company
 from src.modules.packing import service as packing_service
 from src.modules.packing.models import PackingOrderLine
@@ -101,7 +102,7 @@ from src.modules.routing.models import (
     RoutingStatus,
     WorkCenter,
 )
-from src.modules.users.models import User
+from src.modules.users.models import Role, User, user_roles
 from src.modules.warehouses.models import Warehouse, WarehouseType
 from tests.dispatch_support import consignment_line, raise_consignment
 from tests.private_schema_support import private_schema, rolled_back_session
@@ -915,6 +916,125 @@ async def test_a_returned_cycle_flags_the_vendor_return(db, tenant, masters) -> 
         await db.execute(select(QcInspection).where(QcInspection.id == inspection.id))
     ).scalar_one()
     assert reread.return_required is True
+
+
+async def _a_buyer(db: AsyncSession, tenant: TenantContext, approver: Principal) -> None:
+    """Give the approver one of the purchase roles a vendor-return notice goes to."""
+    role = Role(
+        company_id=tenant.company_id,
+        code=quality_service.QC_RETURN_ROLE_CODES[0],
+        name="Purchase manager",
+        permissions=[],
+    )
+    db.add(role)
+    await db.flush()
+    await db.execute(insert(user_roles).values(user_id=approver.user_id, role_id=role.id))
+
+
+async def return_notices(db: AsyncSession, inspection_id: uuid.UUID) -> list[Notification]:
+    """The vendor-return notices raised for one inspection, oldest first."""
+    stmt = (
+        select(Notification)
+        .where(Notification.group_key == f"qc-return:{inspection_id}")
+        .order_by(Notification.created_at, Notification.id)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _vendor_inspection(db: AsyncSession, tenant: TenantContext, masters) -> QcInspection:
+    vendor = await seed_vendor(db, company_id=tenant.company_id)
+    await stock(db, tenant, masters["final_item"], masters["warehouse"], "50")
+    return await quality_service.create_inspection(
+        db,
+        tenant,
+        InspectionCreate(
+            item_id=masters["final_item"].id,
+            warehouse_id=masters["warehouse"].id,
+            qc_stage="INCOMING",
+            inspected_quantity=Decimal("50"),
+            vendor_id=vendor.id,
+            hold_stock=True,
+            reason="Vendor lot held",
+        ),
+    )
+
+
+async def test_a_returned_cycle_tells_the_buyers_once_and_outlives_the_re_decision(
+    db, tenant, masters, approver
+) -> None:
+    """§QC-3: a rework sent back to the vendor owes a return the way a rejection does.
+
+    The buyers are told when the cycle completes, and not again when the
+    inspector re-decides the quantity. Booking it as scrap on that re-decision
+    does not clear the flag: scrapped here, it can no longer go back, but the
+    vendor still owes the replacement the buyers were told to agree.
+    """
+    await _a_buyer(db, tenant, approver)
+    inspection = await _vendor_inspection(db, tenant, masters)
+    inspection_id = inspection.id
+    await quality_service.decide_inspection(
+        db, tenant, inspection_id, decide_payload(accepted="30", rework="20")
+    )
+    record = await quality_service.create_rework(
+        db,
+        tenant,
+        ReworkCreate(
+            inspection_id=inspection_id,
+            quantity=Decimal("20"),
+            work_center_id=masters["work_centre"].id,
+            reason="Vendor sorts it",
+        ),
+    )
+    await quality_service.start_rework(db, tenant, record.id, reason="On the bench")
+    await quality_service.complete_rework(
+        db,
+        tenant,
+        record.id,
+        ReworkCompleteRequest(outcome="RETURNED", reason="Beyond repair here"),
+    )
+
+    [told] = await return_notices(db, inspection_id)
+    assert (told.user_id, told.severity, told.entity_id) == (
+        approver.user_id,
+        "CRITICAL",
+        inspection_id,
+    )
+    assert told.title == f"Vendor return owed for {inspection.code}"
+    assert f"Rework {record.code} found 20 of {inspection.code}" in told.body
+
+    outcome = await quality_service.decide_inspection(
+        db, tenant, inspection_id, decide_payload(accepted="30", scrap="20")
+    )
+
+    assert outcome.return_required is True
+    reread = (
+        await db.execute(select(QcInspection).where(QcInspection.id == inspection_id))
+    ).scalar_one()
+    assert reread.return_required is True
+    [still_once] = await return_notices(db, inspection_id)
+    assert (still_once.id, still_once.occurrence_count) == (told.id, 1)
+
+
+async def test_a_re_decision_that_rejects_nothing_new_tells_the_buyers_nothing_new(
+    db, tenant, masters, approver
+) -> None:
+    """The rejection that first owes the vendor a return tells the buyers once."""
+    await _a_buyer(db, tenant, approver)
+    inspection = await _vendor_inspection(db, tenant, masters)
+    inspection_id = inspection.id
+    first = await quality_service.decide_inspection(
+        db, tenant, inspection_id, decide_payload(accepted="20", rejected="10", hold="20")
+    )
+    assert first.return_required is True
+    [told] = await return_notices(db, inspection_id)
+    assert f"rejected at incoming inspection {inspection.code}" in told.body
+
+    await quality_service.decide_inspection(
+        db, tenant, inspection_id, decide_payload(accepted="40", rejected="10")
+    )
+
+    [still_once] = await return_notices(db, inspection_id)
+    assert (still_once.id, still_once.occurrence_count) == (told.id, 1)
 
 
 # -----------------------------------------------------------------------------
