@@ -35,19 +35,17 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import AppError, ErrorCode
-from src.core.models import Base
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import TransactionType
 from src.modules.inventory.repository import LedgerRepository
 from tests import seed_support
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, schema_engine
+from tests.schema_support import prepare_metadata
 
 pytestmark = [pytest.mark.integration, pytest.mark.concurrency]
 
@@ -67,74 +65,28 @@ REFUSAL_CODES = {
 }
 
 
-def _schema_engine(schema: str):
-    """Engine pinned to the test schema, one connection per session (NullPool).
-
-    NullPool matters here: the point of the test is that two sessions hold two
-    *different* PostgreSQL backends, so one can genuinely block on the other's
-    row lock.
-    """
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 @pytest.fixture(scope="module")
 def concurrency_schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
-    schema = f"it_inv_conc_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     user_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(session: AsyncSession) -> None:
+        await seed_support.seed_company(session, company_id=company_id, prefix="CONC")
+        await seed_support.seed_user(
+            session,
+            company_id=company_id,
+            user_id=user_id,
+            email=f"conc-{uuid.uuid4().hex[:8]}@atcraft.test",
+        )
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                await seed_support.seed_company(session, company_id=company_id, prefix="CONC")
-                await seed_support.seed_user(
-                    session,
-                    company_id=company_id,
-                    user_id=user_id,
-                    email=f"conc-{uuid.uuid4().hex[:8]}@atcraft.test",
-                )
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, user_id
-    asyncio.run(teardown())
+    with private_schema("it_inv_conc", seed) as schema:
+        yield schema, company_id, user_id
 
 
 @pytest_asyncio.fixture
 async def engine(concurrency_schema: tuple[str, uuid.UUID, uuid.UUID]) -> AsyncIterator[Any]:
     schema, _, _ = concurrency_schema
-    eng = _schema_engine(schema)
+    eng = schema_engine(schema)
     try:
         yield eng
     finally:

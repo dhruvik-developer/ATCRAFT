@@ -25,107 +25,48 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-import warnings
 from collections.abc import AsyncIterator, Iterator
 from decimal import Decimal
 from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.core.config import settings
 from src.core.deps import Principal, TenantContext
-from src.core.models import Base
 from src.core.permissions import Permission
 from src.modules.bom import service
 from src.modules.bom.models import Bom, BomStatus
 from src.modules.bom.schemas import BomCreate, BomLineIn
 from src.modules.products.models import ProductionType
 from tests import seed_support
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, schema_engine
+from tests.schema_support import prepare_metadata
 
 pytestmark = [pytest.mark.integration, pytest.mark.concurrency]
 
 prepare_metadata()
 
 
-def _schema_engine(schema: str) -> Any:
-    """Engine pinned to the test schema, one connection per session (NullPool).
-
-    NullPool matters: the point is that the two approvals hold two *different*
-    PostgreSQL backends, so one can genuinely block on the other.
-    """
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 @pytest.fixture(scope="module")
 def bom_conc_schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
-    schema = f"it_bom_conc_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     author_id = uuid.uuid4()
     reviewer_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
-
-        eng = _schema_engine(schema)
-        try:
-            async with eng.begin() as conn:
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                await seed_support.seed_company(session, company_id=company_id, prefix="BOMC")
-                for who, uid in (("author", author_id), ("reviewer", reviewer_id)):
-                    await seed_support.seed_user(
-                        session,
-                        company_id=company_id,
-                        user_id=uid,
-                        email=f"{who}-{uuid.uuid4().hex[:8]}@atcraft.test",
-                    )
-        finally:
-            await eng.dispose()
-
-    async def teardown() -> None:
-        # Best effort. ``DROP SCHEMA ... CASCADE`` takes one lock per object in a
-        # single transaction, and a developer box left at the default
-        # ``max_locks_per_transaction = 64`` can run the shared lock table out
-        # while another schema-per-module suite is up. A schema this run failed
-        # to clean up is disposable - failing the suite over it would report an
-        # environment limit as a defect in the code under test.
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        except Exception as exc:  # pragma: no cover - environment, not a test failure
-            warnings.warn(
-                f"could not drop test schema {schema}: {exc}",
-                stacklevel=1,
+    async def seed(session: AsyncSession) -> None:
+        await seed_support.seed_company(session, company_id=company_id, prefix="BOMC")
+        for who, uid in (("author", author_id), ("reviewer", reviewer_id)):
+            await seed_support.seed_user(
+                session,
+                company_id=company_id,
+                user_id=uid,
+                email=f"{who}-{uuid.uuid4().hex[:8]}@atcraft.test",
             )
-        finally:
-            await admin.dispose()
 
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, author_id, reviewer_id
-    asyncio.run(teardown())
+    with private_schema("it_bom_conc", seed, best_effort_drop=True) as schema:
+        yield schema, company_id, author_id, reviewer_id
 
 
 @pytest_asyncio.fixture
@@ -133,7 +74,7 @@ async def engine(
     bom_conc_schema: tuple[str, uuid.UUID, uuid.UUID, uuid.UUID],
 ) -> AsyncIterator[Any]:
     schema, _, _, _ = bom_conc_schema
-    eng = _schema_engine(schema)
+    eng = schema_engine(schema)
     try:
         yield eng
     finally:
