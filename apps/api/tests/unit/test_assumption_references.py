@@ -406,7 +406,10 @@ def test_the_marker_rule_finds_a_paragraph_that_cites_no_recorded_section() -> N
         "LIMIT = 5  # ASSUMPTION: a trailing comment that cites nothing.\n"
     )
 
-    uncited = uncited_assumptions(source, {"DISPATCH-2", "DISPATCH-3"})
+    # "7" is recorded, as the document's "## 7." heading is, so the first
+    # paragraph is reported because a bare number after a section sign is no
+    # citation - not because the number names no section.
+    uncited = uncited_assumptions(source, {"DISPATCH-2", "DISPATCH-3", "7"})
 
     assert [number for number, _ in uncited] == [1, 11, 17, 20]
 
