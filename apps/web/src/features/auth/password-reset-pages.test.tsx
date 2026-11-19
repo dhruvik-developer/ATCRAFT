@@ -33,6 +33,33 @@ describe('password recovery', () => {
     })
   })
 
+  it('sends a blank company code as none at all', async () => {
+    // The code is optional; "" or "  " would be looked up as a company code
+    // that cannot exist rather than as "the person's own company".
+    const { user, fetch } = renderScreen(
+      <Routes>
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      </Routes>,
+      {
+        route: '/forgot-password',
+        restoreSession: false,
+        routes: {
+          'POST /auth/password-reset/request': ok({ acknowledged: true }),
+        },
+      },
+    )
+
+    await user.type(screen.getByLabelText(/Email/), 'person@example.com')
+    await user.type(screen.getByLabelText(/Company code/), '   ')
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeVisible()
+    expect(fetch.requestFor('POST', '/auth/password-reset/request')).toEqual({
+      email: 'person@example.com',
+      company_code: null,
+    })
+  })
+
   it('announces a missing email and reads it as the description of the email input', async () => {
     const { user, fetch } = renderScreen(
       <Routes>

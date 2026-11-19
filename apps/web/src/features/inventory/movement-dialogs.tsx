@@ -58,6 +58,7 @@ import { api, ApiError } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { decimalPattern, QUANTITY, QUANTITY_INPUT, UNIT_PRICE_INPUT } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { asText } from '@/lib/form-values'
 import {
   EMPTY_VALUE,
   formatMoney,
@@ -896,7 +897,7 @@ export function CreatePhysicalCountDialog({
         warehouse_id: values.warehouse_id,
         count_date: values.count_date,
         reason: values.reason.trim(),
-        notes: values.notes?.trim() || null,
+        notes: asText(values.notes ?? ''),
         ...(values.location_id ? { location_id: values.location_id } : {}),
       }),
     onSuccess: (result) => {

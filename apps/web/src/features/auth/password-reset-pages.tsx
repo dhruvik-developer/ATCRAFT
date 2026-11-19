@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/primitives'
 import { describeError, validation } from '@/lib/messages'
 import { api } from '@/lib/api-client'
+import { asText } from '@/lib/form-values'
 
 import { passwordField } from './password-policy'
 
@@ -69,7 +70,7 @@ export function ForgotPasswordPage() {
         '/auth/password-reset/request',
         {
           email: values.email,
-          company_code: values.company_code?.trim() || null,
+          company_code: asText(values.company_code ?? ''),
         },
         { anonymous: true },
       )
