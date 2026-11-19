@@ -32,6 +32,7 @@ from src.modules.mrp.engine import (
     SupplyArrival,
 )
 from src.modules.mrp.models import MAX_DEMAND_LINES, MrpDemandSource, MrpSuggestionType
+from src.modules.products.models import ProductionType
 from tests.mrp_support import (
     AS_OF,
     HORIZON_END,
@@ -448,6 +449,11 @@ async def test_a_netting_stage_that_could_not_run_is_reported_not_hidden() -> No
     assert any("incoming purchase orders" in w for w in plan.warnings)
 
 
+def missing_structure_warnings(plan: engine.MrpPlan) -> list[str]:
+    """The run warnings that name a manufactured item with no structure."""
+    return [w for w in plan.warnings if "no component demand was raised" in w]
+
+
 @pytest.mark.asyncio
 async def test_a_make_item_with_no_structure_is_reported() -> None:
     """No BOM means no component demand was raised - a gap worth naming."""
@@ -457,7 +463,85 @@ async def test_a_make_item_with_no_structure_is_reported() -> None:
     plan = await run(source, [sales_line(kit, "80", code="SO/0001")])
 
     assert {r.item_code for r in plan.requirements} == {"LOCK-KIT"}
-    assert any("no approved default bill of materials" in w for w in plan.warnings)
+    assert missing_structure_warnings(plan) == [
+        "1 item suggested for manufacture has no approved bill of materials effective "
+        f"on {AS_OF.isoformat()}, so no component demand was raised for it: LOCK-KIT"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_sub_assembly_with_no_structure_is_reported_and_a_bought_item_is_not() -> None:
+    """docs/assumptions.md section 6: the warning follows the suggestion.
+
+    SUB is a MAKE sub-assembly with no structure and no demand of its own. The
+    kit's explosion raises 20 of it and the run suggests making them, so nothing
+    raised demand for what SUB is made from - exactly the gap the warning names,
+    and the run used to say nothing because only directly demanded items were
+    checked. MOB is MAKE_OR_BUY with no default structure, which section 6 buys:
+    the run used to tell the planner it "is planned as manufactured" beside the
+    purchase suggestion that said otherwise.
+    """
+    sub = make_product("SUB")
+    kit = make_product("KIT")
+    mob = make_item("MOB", production_type=ProductionType.MAKE_OR_BUY, can_manufacture=True)
+    source = FakeSource(
+        items={part.id: part for part in (kit, sub, mob)},
+        structure={kit.id: [(sub, "2")]},
+        default_bom={kit.id},
+    )
+
+    plan = await run(
+        source,
+        [sales_line(kit, "10", code="SO/0001"), sales_line(mob, "5", code="SO/0002")],
+    )
+
+    assert {(s.item_code, s.suggestion_type, s.suggested_quantity) for s in plan.suggestions} == {
+        ("KIT", MrpSuggestionType.MANUFACTURE, D("10")),
+        ("SUB", MrpSuggestionType.MANUFACTURE, D("20")),
+        ("MOB", MrpSuggestionType.PURCHASE, D("5")),
+    }
+    assert missing_structure_warnings(plan) == [
+        "1 item suggested for manufacture has no approved bill of materials effective "
+        f"on {AS_OF.isoformat()}, so no component demand was raised for it: SUB"
+    ]
+    assert not [w for w in plan.warnings if "MOB" in w], plan.warnings
+
+
+@pytest.mark.asyncio
+async def test_a_make_item_with_no_structure_that_stock_covers_is_not_reported() -> None:
+    """Section 6, like section 21: a caveat is raised only where it made a difference.
+
+    The kit's stock covers the order, so the run suggests nothing and would have
+    raised no component demand with a structure either. Warning anyway is the
+    noise that trains a planner to skip the warnings that matter.
+    """
+    kit = make_product("LOCK-KIT")
+    source = FakeSource(items={kit.id: kit}, stock={kit.id: StockPosition(on_hand=D("100"))})
+
+    plan = await run(source, [sales_line(kit, "80", code="SO/0001")])
+
+    assert plan.suggestions == ()
+    assert missing_structure_warnings(plan) == []
+
+
+@pytest.mark.asyncio
+async def test_several_unstructured_items_share_one_bounded_warning() -> None:
+    """One sentence for the run, every item counted, the listing capped."""
+    parts = [make_product(f"SUB-{index:02d}") for index in range(12)]
+    source = FakeSource(items={part.id: part for part in parts})
+
+    plan = await run(
+        source,
+        [sales_line(part, "1", code=f"SO/{index:04d}") for index, part in enumerate(parts)],
+    )
+
+    [warning] = missing_structure_warnings(plan)
+    listed = ", ".join(part.code for part in parts[: engine.MAX_UNSTRUCTURED_LISTED])
+    assert warning == (
+        "12 items suggested for manufacture have no approved bill of materials effective "
+        f"on {AS_OF.isoformat()}, so no component demand was raised for them: "
+        f"{listed} (and {12 - engine.MAX_UNSTRUCTURED_LISTED} more)"
+    )
 
 
 # -----------------------------------------------------------------------------

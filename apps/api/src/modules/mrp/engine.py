@@ -921,8 +921,9 @@ def choose_suggestion_type(item: PlanningItem, *, has_default_bom: bool) -> MrpS
     ASSUMPTION (docs/assumptions.md section 6): a ``MAKE`` item with no approved
     BOM is still suggested for manufacture. The item master says it is made
     here; silently reclassifying it as a purchase would hide a missing BOM
-    behind a purchase order. The run reports it as a warning instead so the gap
-    gets fixed.
+    behind a purchase order. The run names every item it suggests making with
+    no structure in a warning instead - a sub-assembly as much as a product a
+    customer ordered - so the gap gets fixed.
     """
     production_type = ProductionType(item.production_type)
 
@@ -1651,6 +1652,34 @@ def _late_supply_warning(entries: Sequence[tuple[str, SupplySplit]]) -> str:
     )
 
 
+#: How many items the missing-structure warning names before it summarises.
+MAX_UNSTRUCTURED_LISTED = 10
+
+
+def _unstructured_manufacture_warning(codes: Sequence[str], as_of: date) -> str:
+    """Name the items the run suggests making with nothing to explode.
+
+    The suggestion stands - section 6 keeps a ``MAKE`` item made rather than
+    hide its missing BOM behind a purchase order - but whatever the item is
+    made from was never planned, and only this sentence says so. "Effective on"
+    rather than "default": the engine explodes any approved structure in force
+    on the run date, so an approved one that starts next month is no help today.
+    """
+    one = len(codes) == 1
+    listed = ", ".join(codes[:MAX_UNSTRUCTURED_LISTED])
+    suffix = (
+        f" (and {len(codes) - MAX_UNSTRUCTURED_LISTED} more)"
+        if len(codes) > MAX_UNSTRUCTURED_LISTED
+        else ""
+    )
+    return (
+        f"{plural(len(codes), 'item')} suggested for manufacture "
+        f"{'has' if one else 'have'} no approved bill of materials effective on "
+        f"{as_of.isoformat()}, so no component demand was raised for "
+        f"{'it' if one else 'them'}: {listed}{suffix}"
+    )
+
+
 def _missing_item_warning(item_ids: Iterable[uuid.UUID]) -> str:
     ids = sorted(str(i) for i in item_ids)
     listed = ", ".join(ids[:10])
@@ -1745,20 +1774,6 @@ async def plan(
             + ", ".join(codes[:10])
             + (f" (and {len(codes) - 10} more)" if len(codes) > 10 else "")
         )
-
-    for item_id, bucket in buckets.items():
-        info = items.get(item_id)
-        if info is None or bucket.direct <= 0:
-            continue
-        if (
-            ProductionType(info.production_type)
-            in (ProductionType.MAKE, ProductionType.MAKE_OR_BUY)
-            and item_id not in structures
-        ):
-            warnings.append(
-                f"{info.code} is planned as manufactured but has no approved default "
-                "bill of materials, so no component demand was raised for it."
-            )
 
     if not incoming_ok:
         warnings.append(
@@ -2144,11 +2159,24 @@ async def plan(
 
     suggestions: list[Suggestion] = []
     planned_availability: dict[uuid.UUID, date] = {}
+    #: Codes of the items suggested for manufacture with no structure to explode.
+    unstructured: list[str] = []
     for requirement, item in shortages:
         structure = structures.get(requirement.item_id)
         suggestion_type = choose_suggestion_type(
             item, has_default_bom=bool(structure and structure.is_default)
         )
+        # ASSUMPTION (docs/assumptions.md section 6): the missing-structure
+        # warning is read off the suggestion, not the demand. Every item the run
+        # suggests making with no approved structure is named, whether a sales
+        # line asked for it or a parent's explosion did - a sub-assembly is
+        # where a missing BOM usually hides - and nothing else is: a MAKE_OR_BUY
+        # item with no default structure is bought, which is the rule working,
+        # and an item its own stock covers raises no suggestion, so the missing
+        # structure changed nothing in this plan (the section 21 rule for
+        # caveats).
+        if suggestion_type is MrpSuggestionType.MANUFACTURE and structure is None:
+            unstructured.append(item.code)
         policy = terms.get(requirement.item_id, SupplyTerms())
 
         # A vendor's lead time only governs when the item is being bought from
@@ -2308,6 +2336,9 @@ async def plan(
         if existing is not None and existing.expected_available_date != when:
             requirements[item_id] = replace(existing, expected_available_date=when)
 
+    if unstructured:
+        warnings.append(_unstructured_manufacture_warning(sorted(unstructured), as_of))
+
     if late_supply:
         # By code, which is unique per run - one entry per item - so two runs of
         # the same plan produce the same warning text. Keyed rather than sorted
@@ -2382,6 +2413,7 @@ __all__ = [
     "DEFAULT_DEMAND_PRIORITY",
     "MAX_LATE_SUPPLY_LISTED",
     "MAX_STRUCTURE_LEVELS",
+    "MAX_UNSTRUCTURED_LISTED",
     "BomComponent",
     "BomStructure",
     "DemandBucket",

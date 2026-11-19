@@ -346,21 +346,34 @@ approved. Finance should confirm both figures.
 
 **Assumed.** An item with `production_type = MAKE_OR_BUY` is suggested for
 **manufacture** when an approved default BOM exists, and for **purchase**
-otherwise. A `MAKE` item is suggested for manufacture whether or not it has one;
-without one, the run warns that no component demand was raised for it.
+otherwise, with no warning: buying it is this rule working, not a gap. A `MAKE`
+item is suggested for manufacture whether or not it has a structure. Every item
+the run suggests manufacturing with no approved BOM effective on the run date is
+named in one run warning saying that no component demand was raised for it,
+whether a demand line asked for the item or a parent's explosion did. The warning
+lists `MAX_UNSTRUCTURED_LISTED` codes and counts the rest. An item its own stock
+covers raises no suggestion, and so no warning: the missing structure changed
+nothing in that plan, which is the section 21 rule for caveats.
 
 **Why.** The existence of an approved BOM is the strongest available signal that
 the item is genuinely made in-house. The alternative — always purchase — would
 make the BOM pointless. A `MAKE` item's master says it is made here, and quietly
 buying it instead would hide the missing BOM behind a purchase order; the
-warning gets the gap fixed.
+warning gets the gap fixed. It is read off the suggestions rather than the
+demand lines because a sub-assembly is where a missing structure usually hides:
+nobody orders it by name, so a check of the directly demanded items said nothing
+while its components went unplanned, and told the planner a bought
+`MAKE_OR_BUY` item "is planned as manufactured" beside the purchase suggestion.
 
 **Where.** `src/modules/mrp/engine.py` — `choose_suggestion_type`, and the
-missing-structure warning in `plan()`.
+missing-structure warning built from the suggestions in `plan()`
+(`_unstructured_manufacture_warning`, `MAX_UNSTRUCTURED_LISTED`).
 
 **Impact if wrong.** MRP proposes the wrong action for dual-sourced items. The
 planner sees and can change every suggestion before conversion, so the cost is
-noise rather than a wrong transaction.
+noise rather than a wrong transaction. If a missing structure should be reported
+even where stock covers the item, read the warning off the requirements instead
+of the suggestions.
 
 ---
 
