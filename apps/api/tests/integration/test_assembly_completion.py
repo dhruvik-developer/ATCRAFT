@@ -13,7 +13,6 @@ created once and dropped afterwards, with every test's writes rolled back.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
@@ -21,12 +20,10 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
-from src.core.config import settings
 from src.core.deps import TenantContext, system_tenant
 from src.core.errors import (
     BusinessRuleError,
@@ -34,7 +31,6 @@ from src.core.errors import (
     InvalidStateTransitionError,
     ValidationError,
 )
-from src.core.models import Base
 from src.core.pagination import PageParams
 from src.modules.allocation.models import StockReservation
 from src.modules.assembly import service
@@ -67,71 +63,32 @@ from tests.assembly_support import (
     stock_in,
     to_in_progress,
 )
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
+from tests.schema_support import prepare_metadata
 
 pytestmark = pytest.mark.integration
 
 prepare_metadata()
 
 
-def _schema_engine(schema: str):
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     """Private schema with one company and one operator."""
-    schema = f"it_asm_e4_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     user_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(session: AsyncSession) -> None:
+        await seed_support.seed_company(session, company_id=company_id, prefix="AE4")
+        await seed_support.seed_user(
+            session,
+            company_id=company_id,
+            user_id=user_id,
+            email="bench@atcraft.test",
+            full_name="Bench Lead",
+        )
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                await seed_support.seed_company(session, company_id=company_id, prefix="AE4")
-                await seed_support.seed_user(
-                    session,
-                    company_id=company_id,
-                    user_id=user_id,
-                    email="bench@atcraft.test",
-                    full_name="Bench Lead",
-                )
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, user_id
-    asyncio.run(teardown())
+    with private_schema("it_asm_e4", seed) as schema:
+        yield schema, company_id, user_id
 
 
 @pytest_asyncio.fixture
@@ -140,22 +97,9 @@ async def ctx(
 ) -> AsyncIterator[tuple[AsyncSession, TenantContext]]:
     """A session whose writes are rolled back at the end of each test."""
     schema, company_id, user_id = _schema
-    engine = _schema_engine(schema)
     tenant = TenantContext(company_id=company_id, user_id=user_id)
-    try:
-        async with engine.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield session, tenant
-            await outer.rollback()
-    finally:
-        await engine.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        yield session, tenant
 
 
 # -----------------------------------------------------------------------------

@@ -19,7 +19,8 @@ and it is idempotent, so any number of modules may call it.
 
 The same file owns :func:`report_database_setup_failure`, the one place that
 decides what a database set-up error means for the run - so a module fixture
-that builds its own schema cannot quietly turn a broken model into a skip.
+that builds its own schema cannot quietly turn a broken model into a skip - and
+``DATABASE_EXTENSIONS``, the extensions ``create_all`` needs installed.
 """
 
 from __future__ import annotations
@@ -34,6 +35,13 @@ from sqlalchemy import Column, Table
 from src.core.models import Base
 from src.core.registry import import_all_models
 from src.core.types import GUID
+
+#: The extensions a test database carries, as the baseline migration installs
+#: them. ``create_all`` cannot build the item search indexes without ``pg_trgm``
+#: (``gin_trgm_ops``) or the shift-roster EXCLUDE constraints without
+#: ``btree_gist`` (GiST equality on uuid). The conftest database and every
+#: private schema (``tests/private_schema_support.py``) install the same list.
+DATABASE_EXTENSIONS = ("pgcrypto", "pg_trgm", "btree_gist")
 
 #: asyncpg's own "the server is not taking connections" family. Anything else
 #: it raises - a refused CREATE DATABASE, a missing extension, a broken model

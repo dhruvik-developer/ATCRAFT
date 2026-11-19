@@ -114,7 +114,11 @@ from src.core.deps import Principal, TenantContext
 from src.core.models import Base
 from src.core.permissions import Permission
 from src.core.security import hash_password
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.schema_support import (
+    DATABASE_EXTENSIONS,
+    prepare_metadata,
+    report_database_setup_failure,
+)
 
 ADMIN_DSN = f"postgresql+asyncpg://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/postgres"
 TEST_DSN = os.environ["DATABASE_URL"]
@@ -230,7 +234,7 @@ def _database() -> None:
         engine = create_async_engine(TEST_DSN, poolclass=NullPool)
         try:
             async with engine.begin() as conn:
-                for extension in ("pgcrypto", "pg_trgm", "btree_gist"):
+                for extension in DATABASE_EXTENSIONS:
                     await conn.execute(text(f'CREATE EXTENSION IF NOT EXISTS "{extension}"'))
                 await conn.execute(text(_DROP_EVERY_PUBLIC_TABLE))
                 await conn.run_sync(Base.metadata.create_all)
