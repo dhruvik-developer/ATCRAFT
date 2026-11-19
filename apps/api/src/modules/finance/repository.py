@@ -2026,11 +2026,11 @@ class ReportingCurrencyRepository(BaseRepository[Company]):
     async def reporting_currency(self) -> str:
         stmt = select(Company.currency).where(Company.id == self.tenant.company_id)
         found = (await self.session.execute(stmt.limit(1))).scalar_one_or_none()
-        # ASSUMPTION: a tenant whose company row cannot be read falls back to
-        # the module's default denomination rather than failing the report. The
-        # figures are still single-currency and the response names the currency
-        # they are in, so the caller can see the fallback rather than inherit it
-        # silently.
+        # ASSUMPTION (docs/assumptions.md §FIN-2): a tenant whose company row
+        # cannot be read falls back to ``DEFAULT_CURRENCY`` rather than failing
+        # the report. The figures are still single-currency and the response
+        # names the currency they are in, so the caller can see the fallback
+        # rather than inherit it silently.
         return str(found) if found else DEFAULT_CURRENCY
 
     async def financial_year_start_month(self) -> int:

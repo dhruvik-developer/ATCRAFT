@@ -609,14 +609,14 @@ class ChartSeed:
     account_type: LedgerAccountType
 
 
-# ASSUMPTION: the control accounts the automatic postings need are provisioned
-# on first use rather than requiring a chart of accounts to be configured before
-# the first invoice can be approved. They are created as `is_system` rows with a
-# fixed `system_code`, are audited like any other creation, and may be renamed
-# afterwards - the postings resolve the system code, not the name or the code.
-# The alternative, refusing to post until somebody sets up a chart, would make
-# the module unusable on day one for a company that does not yet run a general
-# ledger. Recorded in the returned notes.
+# ASSUMPTION (docs/assumptions.md §FIN-1): the control accounts the automatic
+# postings need are provisioned on first use rather than requiring a chart of
+# accounts to be configured before the first invoice can be approved. They are
+# created as `is_system` rows with a fixed `system_code`, are audited like any
+# other creation, and may be renamed afterwards - the postings resolve the system
+# code, not the name or the code. The alternative, refusing to post until
+# somebody sets up a chart, would make the module unusable on day one for a
+# company that does not yet run a general ledger.
 DEFAULT_CHART: tuple[ChartSeed, ...] = (
     ChartSeed(
         SystemAccount.ACCOUNTS_RECEIVABLE, "1100", "Accounts Receivable", LedgerAccountType.ASSET
@@ -958,13 +958,13 @@ def evaluate_match(
     lets the tolerance behaviour be pinned down by unit tests rather than
     inferred from a passing integration run.
 
-    ASSUMPTION: a line with no purchase-order line behind it blocks approval.
-    Freight, packing and handling charges a vendor adds after the fact are
-    exactly the overbilling master rules section 24 asks this match to catch, so
-    they are surfaced rather than waved through - and an authorised override
-    with a recorded reason takes one action. For the same reason an invoice with
-    no purchase order at all is reported as unmatched: non-order spend is
-    approved deliberately, not by default.
+    ASSUMPTION (docs/assumptions.md §FIN-3): a line with no purchase-order line
+    behind it blocks approval. Freight, packing and handling charges a vendor
+    adds after the fact are exactly the overbilling master rules section 24 asks
+    this match to catch, so they are surfaced rather than waved through - and an
+    authorised override with a recorded reason takes one action. For the same
+    reason an invoice with no purchase order at all is reported as unmatched:
+    non-order spend is approved deliberately, not by default.
 
     A JOB_WORK invoice takes a different branch: the expected line amount
     follows ``rate_basis`` - for PER_PIECE and PER_KG it is the receipt line's
@@ -1580,11 +1580,13 @@ async def post_journal(
     query at all. A reversal leg is exempt from the "active" half - see
     :func:`_assert_cost_centres_postable`.
 
-    ASSUMPTION: ``currency`` left unset means the company's own - the same
-    column an invoice and a payment default to. Every posting this module makes
-    itself passes the source document's denomination explicitly; the default is
-    for a direct journal, and a module constant there would put rows in the
-    ledger denominated in a currency the company does not keep books in.
+    ASSUMPTION (docs/assumptions.md §FIN-2): ``currency`` left unset means the
+    company's own - the same column an invoice and a payment default to. Every
+    posting this module makes from an invoice, a payment, a credit or debit note
+    or a reversal passes that document's denomination explicitly; the default
+    serves a posting with no document currency to pass - a customer adjustment
+    (§38) - and a module constant there would put rows in the ledger denominated
+    in a currency the company does not keep books in.
     """
     totals = assert_balanced(lines)
     denomination = currency or await company_currency(session, tenant)
@@ -2572,10 +2574,10 @@ async def create_invoice(
         )
         subtotal, tax, total = _invoice_totals(resolved, payload.round_off_amount)
 
-        # ASSUMPTION: a bill that does not name a currency is denominated in the
-        # company's own - see `company_currency`. Frozen onto the row here, so a
-        # company that later changes its books' denomination does not restate
-        # invoices it has already recorded.
+        # ASSUMPTION (docs/assumptions.md §FIN-2): a bill that does not name a
+        # currency is denominated in the company's own - see `company_currency`.
+        # Frozen onto the row here, so a company that later changes its books'
+        # denomination does not restate invoices it has already recorded.
         denomination = payload.currency or await company_currency(session, tenant)
 
         code = await next_document_number(session, tenant.company_id, DocTypes.VENDOR_INVOICE)
@@ -4016,9 +4018,10 @@ async def create_payment(
         assert_money_movement_method(payload.payment_method)
         await _party_facts(session, tenant, payload.party_type, payload.party_id)
 
-        # ASSUMPTION: as for an invoice, money that does not name a currency is
-        # in the company's own. The two must default the same way or an
-        # allocation would refuse the pair on a denomination nobody chose.
+        # ASSUMPTION (docs/assumptions.md §FIN-2): as for an invoice, money that
+        # does not name a currency is in the company's own. The two must default
+        # the same way or an allocation would refuse the pair on a denomination
+        # nobody chose.
         home_currency = await company_currency(session, tenant)
         denomination = payload.currency or home_currency
 
@@ -5278,14 +5281,14 @@ def normalise_currency(raw: str | None) -> str | None:
 async def company_currency(session: AsyncSession, tenant: TenantContext) -> str:
     """``companies.currency`` - the denomination this tenant keeps its books in.
 
-    ASSUMPTION: a document that does not name a currency is denominated in the
-    company's own. That column is the one the organization module already lets
-    an administrator set and the one a balance sheet is prepared in; a module
-    constant is not, and defaulting to one would let a company keeping books in
-    a currency it never chose accumulate invoices in a currency it never chose
-    either. This is the single place both halves come from - the denomination a
-    report defaults to and the denomination a written document defaults to - so
-    the two cannot drift apart.
+    ASSUMPTION (docs/assumptions.md §FIN-2): a document that does not name a
+    currency is denominated in the company's own. That column is the one the
+    organization module already lets an administrator set and the one a balance
+    sheet is prepared in; a module constant is not, and defaulting to one would
+    let a company keeping books in a currency it never chose accumulate invoices
+    in a currency it never chose either. This is the single place both halves
+    come from - the denomination a report defaults to and the denomination a
+    written document defaults to - so the two cannot drift apart.
     """
     return await ReportingCurrencyRepository(session, tenant).reporting_currency()
 

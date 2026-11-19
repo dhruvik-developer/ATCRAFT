@@ -6693,3 +6693,85 @@ that read them (`holds_super_admin`, `caller_holds_super_admin`,
 the first constant. Making the flag settable, or allowing revocation without
 authority, is a deliberate loosening of the security model and needs a decision
 of its own.
+
+## §FIN-1. The control accounts are provisioned on first use
+
+**Assumed.** Approving a vendor invoice or a payment, issuing a sales invoice or
+a credit note, and posting a purchase-return debit note or a customer adjustment
+each first make sure the control accounts exist (`ensure_system_accounts`). Any
+the chart lacks is created from `DEFAULT_CHART` - accounts receivable 1100, bank
+1200, cash 1210, input GST 1300, accounts payable 2100, output GST 2200,
+purchases 5100, job-work charges 5150 (§B3-4), sales revenue 4500 and rounding
+5900 - as an `is_system` row with a fixed `system_code`, audited as a creation;
+a preferred code already in use moves up to the next free one. Postings resolve
+the system code, never the name or the chart code, so a control account may be
+renamed or moved in the tree, but it cannot be deactivated or retired.
+
+**Why.** Refusing to post until somebody sets up a chart of accounts would make
+the module unusable on day one for a company that does not yet run a general
+ledger, and automatic postings cannot ask a person which account to use.
+
+**Where.** `src/modules/finance/service.py` - `DEFAULT_CHART`,
+`ensure_system_accounts`, `pick_free_chart_code`, and the deactivation and
+retirement guards in `update_account` and `delete_account`;
+`src/modules/finance/models.py` - `SystemAccount`.
+
+**Impact if wrong.** If the chart must be configured first, provisioning becomes
+a refusal that names the missing system codes, and every automatic posting
+fails until they exist. No request can set `system_code` - the create schema
+leaves it out so a client cannot redirect the postings - so pointing them at a
+client's own accounts needs a deliberate mapping step of its own.
+
+## §FIN-2. A finance document that names no currency is in the company's own
+
+**Assumed.** A vendor invoice or a payment that names no currency is
+denominated in `companies.currency`, read by `company_currency`, and keeps that
+denomination on its row once created; a receipt must be in it anyway
+(§ADDITIONAL11-2). `post_journal` takes the currency its caller passes - every
+posting made from an invoice, a payment, a credit or debit note or a reversal
+passes its document's - and the company's otherwise, which is what a customer
+adjustment takes (§38). The same function supplies a finance report's default
+denomination (section 27 qualifies it for ageing). If the company row cannot be
+read, it falls back to `DEFAULT_CURRENCY` (INR) rather than failing, and a
+report names the currency it is in.
+
+**Why.** `companies.currency` is the column the organization module lets an
+administrator set and the one a balance sheet is prepared in; a module constant
+is neither, and defaulting to one would let a company that keeps its books in
+another currency accumulate invoices in a currency it never chose. An allocation
+refuses a payment and an invoice in different denominations, so the two must
+default alike. Keeping the denomination on the row means a company that later
+changes its own does not restate what it has already recorded.
+
+**Where.** `src/modules/finance/service.py` - `company_currency`,
+`reporting_currency`, `post_journal`, `create_invoice`, `create_payment`;
+`src/modules/finance/repository.py` -
+`ReportingCurrencyRepository.reporting_currency`; `src/core/constants.py` -
+`DEFAULT_CURRENCY`.
+
+**Impact if wrong.** A different default is one function for documents and
+reports alike. A company that keeps its books in more than one currency needs
+the exchange-rate work of open question 3, not a second default.
+
+## §FIN-3. A bill line with no order line behind it, or a bill with no order, does not match
+
+**Assumed.** The three-way match (section 5) counts a purchase-invoice line that
+names no purchase-order line as a variance - "Line N is not billed against any
+purchase order line." - and an invoice linked to no purchase order as one too,
+so either blocks approval until a holder of `vendor_invoice.approve` overrides
+it with a recorded reason. A job-work invoice is held the same way: a line with
+no job-work receipt line behind it, or an invoice naming no job-work order, is a
+variance.
+
+**Why.** Freight, packing and handling charges a vendor adds after the fact are
+exactly the overbilling the match exists to catch (master rules section 24), so
+they are surfaced rather than waved through, and the override is one deliberate
+action with a reason against it. Spend with no order behind it is approved
+deliberately, never by default.
+
+**Where.** `src/modules/finance/service.py` - `evaluate_match`,
+`_evaluate_job_work_line`, `approve_invoice`, `assert_may_override_variance`.
+
+**Impact if wrong.** If charges with no order line should pass, they need a line
+type of their own with a tolerance of its own - exempting every unlinked line
+would let any added line through.
