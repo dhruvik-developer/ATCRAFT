@@ -5,6 +5,11 @@ engineering baseline, together with the focused decisions under `docs/`.
 `docs/development-standards.md` maps the shared implementation points and
 required completion checks across the existing application.
 
+There are exactly two environments: local development on `develop`, and
+production releases from `main`. Do not create a separate hosted development,
+staging or preview environment. Automated tests use the local test database
+`atcraft_erp_test`; they do not constitute another deployment.
+
 ## What this is
 
 A manufacturing ERP for architectural hardware. It is not a CRUD app. The hard
@@ -699,9 +704,9 @@ running the local development and checking targets. The PowerShell wrapper uses
 the backend interpreter explicitly for its backend commands.
 
 All development, fixes and integration work use `develop` in this checkout.
-Keep the verified revision synchronized to `main`. The deployment guard maps
-deployment `main` to branch `main` and deployment `dev` to branch `develop`;
-deployment names do not require additional Git branches.
+Keep the verified revision synchronized to `main`. Production releases use
+`main`; `develop` is for local development and pushing verified changes. Do not
+create an additional deployment for `develop`.
 
 The hooks are defined in `.pre-commit-config.yaml`. `pre-commit` runs the
 formatters, linters and file-hygiene checks on the staged files; `pre-push`

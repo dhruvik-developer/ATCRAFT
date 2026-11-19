@@ -5,6 +5,11 @@ agent, whichever tool runs it. Read it before changing anything.
 
 ## One working copy
 
+There are exactly two environments: **development**, running locally from
+`develop`, and **production**, released from `main`. Do not create additional
+hosted development, staging or preview environments. Automated tests use
+`atcraft_erp_test` within local development; they are not another deployment.
+
 This repository has exactly one working copy on this machine,
 `C:\Project\Other\ATCRAFT`, and the owner wants no other.
 
