@@ -26,10 +26,10 @@ $ErrorActionPreference = 'Stop'
 $Root    = $PSScriptRoot
 $ApiDir  = Join-Path $Root 'apps\api'
 $WebDir  = Join-Path $Root 'apps\web'
-# The local development stack is a THIRD stack, separate from the two
-# deployments, and needs its own project name: docker-compose.yml requires
-# COMPOSE_PROJECT_NAME so a bare `docker compose up` cannot put two
-# deployments into one project and have them silently share a database.
+# The local development stack is separate from the production deployment
+# and needs its own project name: docker-compose.yml requires
+# COMPOSE_PROJECT_NAME so a bare `docker compose up` cannot put two stacks
+# into one project and have them silently share a database.
 #
 # 'atcraft-erp' is deliberately the historical name, so the volumes an
 # existing checkout already has - and the demo data in them - stay put.

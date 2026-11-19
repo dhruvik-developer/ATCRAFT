@@ -302,7 +302,7 @@ jobs:
       POSTGRES_PASSWORD: ci-only-password
       JWT_SECRET: ci-only-secret-not-used-outside-actions-0123456789
       CREDENTIAL_ENCRYPTION_KEY: ci-only-independent-credential-key-0123456789
-      APP_ENV: staging
+      APP_ENV: production
       CORS_ORIGINS: https://ci.invalid
       ALLOWED_HOSTS: ci.invalid
       HTTP_PORT: "18080"

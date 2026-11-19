@@ -57,9 +57,9 @@ tests/e2e/test-results/
 tests/e2e/playwright-report/
 playwright/.cache/
 
-# --- Deployment env files (one per deployment, real secrets, NEVER committed)
-# The .example templates are committed; the populated files are not. Each
-# deployment gets its own generated secrets - see scripts/deploy.sh init.
+# --- The deployment env file (deploy/main.env: real secrets, NEVER committed)
+# The .example template is committed; the populated file is not. Its secrets
+# are generated on the server - see `scripts/deploy.sh main init`.
 deploy/*.env
 !deploy/*.env.example
 deploy/.locks/
