@@ -893,7 +893,7 @@ database that never reached the November chain; its own procedure is
 `docs/implementation/migration-squash-20261021.md`. Then verify a clone and run
 `alembic stamp --purge 20261127_0100` in the maintenance window before starting
 the new release. Stamping is only the bridge: the normal `up` then applies the
-revisions after the baseline (currently `20261128_0100`). See
+revisions after the baseline (currently `20261128_0100` and `20261129_0100`). See
 `docs/implementation/migration-squash-20261127.md` for the verification,
 stamp and recovery procedure.
 

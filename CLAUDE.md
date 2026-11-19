@@ -161,8 +161,9 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   to dodge this.
 - **Integration tests share one schema per module, not per test.** Building the
   full metadata per test took 20 s a test and grows with every module. Use the
-  `session` fixture from `tests/conftest.py`, or the module-scoped schema
-  pattern in `tests/integration/test_products_service.py`.
+  `session` fixture from `tests/conftest.py`, or a module-scoped schema from
+  `tests/private_schema_support.py` (`private_schema`, `rolled_back_session`),
+  the one place a test may build a schema.
 - **Never call `session.rollback()` inside a service.** `transaction()` runs its
   body in a SAVEPOINT and only the outermost frame COMMITs, precisely so a
   failure unwinds *that operation* and nothing else. A bare `rollback()`
