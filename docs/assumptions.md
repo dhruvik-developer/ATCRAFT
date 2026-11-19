@@ -5310,6 +5310,58 @@ again. To hold another entity type to its records, register its owner's
 description. Remove an access-check registration to hold a report job to the
 company alone again.
 
+## §DOC-3. An upload is accepted only in a type whose content can be checked
+
+**Assumed.** An upload's declared type must be in `ALLOWED_UPLOAD_MIME_TYPES`
+and also in `KNOWN_TYPES`, the table of types whose leading bytes the documents
+module can check - a signature, or the text test for CSV. A type an operator
+allows that is not in the table is refused with `400 FILE_TYPE_NOT_ALLOWED`,
+"Files of type '<type>' cannot be content-verified and are not accepted.", and
+logged as `documents.unverifiable_mime_type`. The default allow-list - JPEG,
+PNG, WebP, PDF, CSV and XLSX - is exactly the table.
+
+**Why.** Without a signature the only evidence of what a file contains is the
+client's own claim, which is what the content check exists not to trust.
+Refusing the type couples the two lists on purpose: widening the allow-list
+cannot silently switch the content check off.
+
+**Where.** `src/modules/documents/service.py` - `KNOWN_TYPES`,
+`assert_upload_allowed`, `assert_content_matches`; `src/core/config.py` -
+`allowed_upload_mime_types`; `tests/unit/test_documents_content_validation.py`.
+
+**Impact if wrong.** A new type needs its signature in `KNOWN_TYPES` in the same
+change that allows it. Accepting a type nothing can check means trusting the
+declared one.
+
+## §DOC-4. Scratch files and exports expire by default, and nothing else does
+
+**Assumed.** A document stored without an `expires_at` takes its category's
+default retention (`DEFAULT_RETENTION`): a TEMP file 24 hours, an EXPORT 7 days.
+DOCUMENT, ATTACHMENT and REPORT files have none - a report's file, an issued
+invoice's PDF among them, is kept (§A2-6). A document past its `expires_at`
+drops out of the list unless expired ones are asked for, and reading or
+downloading it answers `404` as for a missing one; it can still be deleted.
+`DocumentService.purge_expired` deletes lapsed rows and their files in bounded
+batches, but no scheduled task calls it yet, so a lapsed export stays on disk
+until someone deletes it. The maintenance sweep deletes the files under
+`storage/temp`, where TEMP documents are stored, once they are 24 hours old
+(§SWEEP-1).
+
+**Why.** A scratch file or an export is produced to be collected, and one
+nobody collects should not be served for ever. An uploaded business document is
+a record: silently deleting a supplier's QC certificate would be a data-loss
+bug, not housekeeping, so it lapses only when whoever stores it names a date.
+
+**Where.** `src/modules/documents/service.py` - `DEFAULT_RETENTION`,
+`default_expiry`, `DocumentService.purge_expired`;
+`src/modules/documents/repository.py` - `document_not_expired`;
+`src/workers/tasks/maintenance.py` - `purge_temp_files`.
+
+**Impact if wrong.** A category's default is one entry in `DEFAULT_RETENTION`,
+and it applies to files stored after the change. Removing lapsed exports from
+disk needs a scheduled task that calls `DocumentService.purge_expired` for each
+company.
+
 ## §PROMO-1. A banner whose image has lapsed is not shown to dealers
 
 **Assumed.** `GET /dealer-portal/banners` lists an active banner only while its
@@ -6348,6 +6400,53 @@ every role before anyone could dismiss a bell.
 
 **Impact if wrong.** If writing preferences should be restricted, add a
 permission to the catalogue and to every preset that may hold it.
+
+## §NOTIF-2. A notification type nobody configured is delivered in-app, not by e-mail
+
+**Assumed.** For a person who has saved no preference for a notification type,
+the type is delivered in-app (`DEFAULT_IN_APP_ENABLED`) and not by e-mail
+(`DEFAULT_EMAIL_ENABLED` is False); push is on but reaches only a browser the
+person has registered (§C1-12), and WhatsApp and SMS are off. The preferences
+screen shows those defaults for every type without a saved row. A CRITICAL
+notification is in-app only, whatever the preferences say
+(`SEVERITIES_IGNORING_PREFERENCES`).
+
+**Why.** In-app costs the recipient one glance at a bell they chose to open.
+Unsolicited e-mail is intrusive, is not free to send, and is the setting people
+complain about, so making it opt-in is the conservative reading of "notify the
+user".
+
+**Where.** `src/modules/notifications/service.py` - `DEFAULT_IN_APP_ENABLED`,
+`DEFAULT_EMAIL_ENABLED`, `resolve_channels`, `effective_preferences`.
+
+**Impact if wrong.** Flipping `DEFAULT_EMAIL_ENABLED` changes every type, for
+everyone who has not saved a preference for it, from the next notification on.
+A type that must always e-mail needs a default of its own, not a flipped global
+one.
+
+## §NOTIF-3. A notification is delivered once it reaches its recipient by any channel
+
+**Assumed.** `notifications.delivered_at` means "reached the recipient through
+at least one channel". A row with the in-app channel is stamped when it is
+written, since the bell shows it at once. A row without it, an e-mail-only one
+for instance, stays NULL until a worker sends it through another channel, and a
+worker that stamped it gives the stamp back when its send fails (§MAIL-1). Each
+external channel keeps its own marker as well: `email_delivered_at`,
+`push_delivered_at`, `whatsapp_delivered_at` and `sms_delivered_at`.
+
+**Why.** In-app delivery is instantaneous, so the row is delivered the moment it
+exists, and a NULL on an e-mail-only row is what makes "queued but never sent"
+visible. Reading delivered as "the relay accepted the e-mail" would leave every
+in-app notification permanently undelivered.
+
+**Where.** `src/modules/notifications/service.py` - `notify`;
+`src/modules/notifications/models.py` - `Notification.delivered_at`;
+`src/workers/tasks/notifications.py` - `_deliver_notification_email`,
+`_deliver_notification_push`, `_deliver_notification_messaging`.
+
+**Impact if wrong.** A report that needs an external channel's acceptance reads
+that channel's own marker; `delivered_at` cannot be redefined as one without
+leaving the in-app rows undelivered.
 
 ## §ROUTING-1. Routing approval needs routing.manage, and waiting time is not charged
 

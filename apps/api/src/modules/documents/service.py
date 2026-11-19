@@ -251,11 +251,11 @@ def assert_upload_allowed(mime_type: str) -> FileTypeRule:
 
     rule = KNOWN_TYPES.get(mime_type)
     if rule is None:
-        # ASSUMPTION: an allowed-but-unverifiable type is rejected rather than
-        # waved through. Adding a type to ALLOWED_UPLOAD_MIME_TYPES therefore
-        # also requires adding its signature to KNOWN_TYPES - a deliberate
-        # coupling, so widening the allow-list cannot silently disable the
-        # content check.
+        # ASSUMPTION (docs/assumptions.md §DOC-3): an allowed-but-unverifiable
+        # type is rejected rather than waved through. Adding a type to
+        # ALLOWED_UPLOAD_MIME_TYPES therefore also requires adding its signature
+        # to KNOWN_TYPES - a deliberate coupling, so widening the allow-list
+        # cannot silently disable the content check.
         log.warning("documents.unverifiable_mime_type", mime_type=mime_type)
         raise FileValidationError(
             f"Files of type '{mime_type}' cannot be content-verified and are not accepted.",
@@ -331,11 +331,12 @@ CATEGORY_DIRECTORY: dict[DocumentCategory, str] = {
     DocumentCategory.TEMP: "temp",
 }
 
-#: ASSUMPTION: generated artefacts are transient and are given a default
-#: retention when the caller does not set one, so an export nobody collects does
-#: not sit on disk for ever. Uploaded business documents have no default expiry -
-#: silently deleting a supplier's QC certificate would be a data-loss bug, not
-#: housekeeping.
+#: ASSUMPTION (docs/assumptions.md §DOC-4): scratch files and exports are
+#: transient and are given a default retention when the caller does not set one,
+#: so an export nobody collects lapses rather than being served for ever.
+#: Uploaded business documents have no default expiry - silently deleting a
+#: supplier's QC certificate would be a data-loss bug, not housekeeping - and
+#: neither has a generated report (§A2-6).
 DEFAULT_RETENTION: dict[DocumentCategory, timedelta] = {
     DocumentCategory.TEMP: timedelta(hours=24),
     DocumentCategory.EXPORT: timedelta(days=7),

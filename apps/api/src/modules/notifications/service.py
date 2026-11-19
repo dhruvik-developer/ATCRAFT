@@ -101,11 +101,12 @@ NOTIFICATION_SMS_TASK = "notifications.send_sms"
 
 # --- Defaults for a user who has never opened the preferences screen ----------
 #
-# ASSUMPTION: an unconfigured notification type is delivered in-app and NOT by
-# e-mail. In-app costs the recipient one glance at a bell they chose to open;
-# unsolicited e-mail is intrusive, is not free to send, and is the setting people
-# complain about. Making e-mail opt-in is therefore the conservative reading of
-# "notify the user" (section 14). Change it here and nowhere else.
+# ASSUMPTION (docs/assumptions.md §NOTIF-2): an unconfigured notification type
+# is delivered in-app and NOT by e-mail. In-app costs the recipient one glance at
+# a bell they chose to open; unsolicited e-mail is intrusive, is not free to
+# send, and is the setting people complain about. Making e-mail opt-in is
+# therefore the conservative reading of "notify the user" (section 14). Change it
+# here and nowhere else.
 DEFAULT_IN_APP_ENABLED = True
 DEFAULT_EMAIL_ENABLED = False
 
@@ -692,14 +693,14 @@ async def notify(
                 "is_read": False,
                 "read_at": None,
                 "channels": list(channels),
-                # ASSUMPTION: ``delivered_at`` means "reached the recipient
-                # through at least one channel". In-app delivery is
-                # instantaneous, so the row is delivered the moment it exists;
-                # an e-mail-only row stays NULL until the sending worker fills
-                # it in, which is what makes "queued but never sent" visible.
-                # The alternative reading - delivered only once the e-mail is
-                # accepted by the relay - would leave every in-app notification
-                # permanently undelivered.
+                # ASSUMPTION (docs/assumptions.md §NOTIF-3): ``delivered_at``
+                # means "reached the recipient through at least one channel".
+                # In-app delivery is instantaneous, so the row is delivered the
+                # moment it exists; an e-mail-only row stays NULL until the
+                # sending worker fills it in, which is what makes "queued but
+                # never sent" visible. The alternative reading - delivered only
+                # once the e-mail is accepted by the relay - would leave every
+                # in-app notification permanently undelivered.
                 "delivered_at": moment if NotificationChannel.IN_APP.value in channels else None,
                 "group_key": clean_group_key,
                 "occurrence_count": 1,
