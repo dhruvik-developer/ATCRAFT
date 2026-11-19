@@ -11,8 +11,11 @@
  *
  * Two properties of the current contract shape the screens above it:
  *
- * 1. **Rows are not denormalised.** Item, warehouse and UoM arrive as ids with
- *    no accompanying code or name.
+ * 1. **Orders and components name their item; nothing else.** Both rows carry
+ *    `item_code` and `item_name` beside `item_id` (an archived item too), so
+ *    they are drawn through `itemLabel` (lib/format.ts) with no lookup, and the
+ *    code is null only for an id that names no item of this company. Warehouse
+ *    and UoM still arrive as ids alone.
  * 2. **Availability is not on the component.** The kitting list says what is
  *    required, issued and consumed; whether the shortfall can be covered is a
  *    question for the inventory module, not a field on this row.

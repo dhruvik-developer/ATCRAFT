@@ -18,8 +18,11 @@
  * 1. **An order is a header plus lines.** The list row carries the vendor, the
  *    process and the charges, but no item and no quantity - those live on the
  *    lines, which only `GET /job-work/{id}` returns.
- * 2. **Rows are not denormalised.** Vendor, item and warehouse arrive as ids
- *    with no accompanying code or name.
+ * 2. **Items are named; vendors and warehouses are not.** An order line carries
+ *    `item_code` and `item_name` for the item sent out and for the item
+ *    expected back, and the at-vendor feed names its item the same way. Vendor
+ *    and warehouse still arrive as ids alone, which the screens resolve through
+ *    their vendor and warehouse lookups.
  */
 
 import { useQuery } from '@tanstack/react-query'
