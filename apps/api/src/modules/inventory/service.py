@@ -1341,12 +1341,16 @@ def find_shortfall(
 # way, and never the *exit* of a quantity the position already holds.
 #
 # The exit half is the one this rule kept losing. Whichever flag is at stake -
-# inactive item, retired bin, batch tracking, serial tracking - a rule that can
-# refuse an outbound movement does not make the stock conform to the flag. It
-# makes the stock unreachable, which is the same failure as the in-transit one
-# below with a different document on the front of it. So every policy rule in
+# inactive item, retired bin, batch tracking - a rule that can refuse an
+# outbound movement does not make the stock conform to the flag. It makes the
+# stock unreachable, which is the same failure as the in-transit one below with
+# a different document on the front of it. So every policy rule in
 # :func:`validate_movement` is gated on ``gates_policy``, and ``gates_policy``
 # is computed from the movement's *resolved source pool* - see the note there.
+# Serial tracking is the deliberate exception (§23, §INV-5): ``serial_id`` is
+# not part of the balance grain, so the serial rule also gates every departure
+# that changes the unit's status, and folding it into the batch rule's
+# direction gate reintroduces a critical defect - see the note at the rule.
 #
 # The invariant a stock transfer needs is not "dispatch is strict" or "receive is
 # lenient". It is: **anything dispatch lets through, receive accepts.** Between

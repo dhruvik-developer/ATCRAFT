@@ -428,18 +428,20 @@ class Requirement:
     #: supply at all: "nothing was excluded" and "something was excluded and
     #: lands today" are different answers and a sentinel date would merge them.
     #:
-    #: ASSUMPTION (docs/assumptions.md section 21): the *earliest* late tranche
-    #: of each feed is the one reported, and a feed with no late supply reports
-    #: ``None`` rather than any date. Section 14 does not discuss reporting the
+    #: ASSUMPTION (docs/assumptions.md section 21): each feed reports its
+    #: *earliest* late tranche here, in ``first_late_*_date``, and its last in
+    #: ``last_late_*_date`` below; a feed with no late supply reports ``None``
+    #: in both rather than any date. Section 14 does not discuss reporting the
     #: excluded supply at all. The earliest is the soonest that feed could
     #: relieve the shortage without a new order, which is the question a planner
-    #: is actually asking; a later tranche is worse news and reporting it would
-    #: over-state the delay. A feed's full schedule is not summarised into one
-    #: date - the quantity beside it says how much, and the orders themselves
-    #: say the rest. ``None`` rather than the required date or a far-future
-    #: sentinel because "this feed excluded nothing" and "this feed lands on
-    #: that day" are different facts, and a sentinel makes a client's date
-    #: arithmetic silently wrong instead of making the absence visible.
+    #: is actually asking, and it is the date the run warning prints; the last
+    #: closes the interval, because the late quantity beside them is a sum and
+    #: one date describes only a single-tranche feed. Anything between the two
+    #: is left to the orders themselves. ``None`` rather than the required date
+    #: or a far-future sentinel because "this feed excluded nothing" and "this
+    #: feed lands on that day" are different facts, and a sentinel makes a
+    #: client's date arithmetic silently wrong instead of making the absence
+    #: visible.
     first_late_incoming_date: date | None = None
     first_late_in_production_date: date | None = None
     first_late_in_assembly_date: date | None = None

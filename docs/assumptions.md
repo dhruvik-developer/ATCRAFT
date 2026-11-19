@@ -5548,7 +5548,10 @@ range is better served by the export than by the page.
 the action awaiting approval (`purchase_order.approve`), and the approver needs
 that permission. An action the permission registry does not know is not guessed
 at: only a platform superuser may decide it. Rejecting a request needs a note of
-at least three characters (`MIN_REJECTION_NOTE_LENGTH`); approving one does not.
+at least `REASON_MIN_LENGTH` characters (`core/constants.py`, currently three),
+and a shorter one is refused with `REASON_TOO_SHORT` (`core/messages.py`);
+approving one does not. The note is an audited reason, so its floor is every
+audited reason's: raising `REASON_MIN_LENGTH` raises this one too.
 
 **Why.** Checking the approver against the registry the underlying action is
 checked against cannot drift, as a second mapping table could. A rejection is an
@@ -5557,8 +5560,8 @@ is not evidence of a judgement - the conservative reading of master rules
 section 42.
 
 **Where.** `src/modules/audit/query_service.py` - `permission_for_action`,
-`assert_may_decide`, `MIN_REJECTION_NOTE_LENGTH`. Who may decide a request they
-raised is section 2.
+`assert_may_decide`, `ApprovalService._decide` (the note floor, from
+`REASON_MIN_LENGTH`). Who may decide a request they raised is section 2.
 
 **Impact if wrong.** If approval needs its own vocabulary, it needs a mapping
 from action to permission, kept in step with the registry by a test. If an

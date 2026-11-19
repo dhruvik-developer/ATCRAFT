@@ -3717,13 +3717,14 @@ async def _post_output_receipt(
 ) -> PostedMovement:
     """Put finished goods into the output warehouse.
 
-    ASSUMPTION (docs/assumptions.md §E7-1): the receipt is valued at the item's
-    standard cost, which is what the inventory engine falls back to when a
-    movement carries no unit cost. The job's *actual* cost is not known until it
-    closes - material is still being issued and operations are still running -
-    and revaluing finished stock from standard to actual is a finance function
-    this module does not own. The actual figure is computed at closure and
-    reported by ``GET /production/{id}/cost``.
+    ASSUMPTION (docs/assumptions.md §E7-1): the receipt names no unit cost, so
+    the inventory engine prices it by its fixed precedence (§INV-3) - the
+    item's standard cost where it has one, and otherwise what the position's
+    remaining stock cost or its last derived cost. The job's *actual* cost is
+    not known until it closes - material is still being issued and operations
+    are still running - and revaluing finished stock from standard to actual is
+    a finance function this module does not own. The actual figure is computed
+    at closure and reported by ``GET /production/{id}/cost``.
 
     A tracked output posts one movement per physical unit. The lot and the units
     are recorded on the booking, so "which shift made this serial?" is one read

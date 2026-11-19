@@ -28,8 +28,9 @@ document records. A marker that cites nothing sends its reader nowhere, and the
 rule behind it is one the owner never sees: on 16 November, 94 of the 312 places
 the backend wrote it cited no section, and nothing failed for them either. A
 comment paragraph is the run of ``#`` lines around the marker, up to a bare
-``#`` or ``#:`` line; a docstring paragraph is the run of non-blank lines
-around it, inside its own string literal.
+``#`` or ``#:`` line or a line opening a ``* `` or ``- `` bullet; a docstring
+paragraph is the run of non-blank lines around it, inside its own string
+literal.
 
 docs/implementation is not read: the lane specs name sections by placeholder
 (``E2-n``) before anyone writes them, and the reports there are dated records.
@@ -81,6 +82,8 @@ _MARKER = re.compile(r"\bASSUMPTION\b")
 _COMMENT_LEADER = re.compile(r"^\s*#:?\s?")
 #: The lines that end one comment paragraph inside a longer comment block.
 _COMMENT_BREAKS = frozenset({"#", "#:"})
+#: A comment line that opens a ``* `` or ``- `` bullet, which starts a paragraph.
+_COMMENT_BULLET = re.compile(r"^\s*#:?\s*[*-]\s")
 
 
 def recorded_sections(document: str) -> set[str]:
@@ -131,9 +134,19 @@ def _continues_comment(line: str) -> bool:
     return stripped.startswith("#") and stripped not in _COMMENT_BREAKS
 
 
+def _opens_bullet(line: str) -> bool:
+    """Whether comment ``line`` opens a bullet, and so a paragraph of its own."""
+    return bool(_COMMENT_BULLET.match(line))
+
+
 def _continues_text(line: str) -> bool:
     """Whether ``line`` belongs to the docstring paragraph beside it."""
     return bool(line.strip())
+
+
+def _opens_nothing(line: str) -> bool:
+    """Docstring text: a paragraph runs to its blank line, bullets included."""
+    return False
 
 
 def _string_rows(source: str) -> list[tuple[int, int]]:
@@ -149,12 +162,14 @@ def marked_paragraphs(source: str) -> list[tuple[int, str]]:
     """Each comment or docstring paragraph of ``source`` that holds the marker.
 
     A comment paragraph is the run of ``#`` lines around the marker, ended by a
-    bare ``#`` or ``#:`` line. Any other line holding the marker is docstring
-    text - or a comment trailing code - and its paragraph is the run of
-    non-blank lines around it, kept inside the string literal it sits in, so
-    code after a docstring's closing quotes cannot lend it a citation. That is
-    the rule of the scan that found the uncited paragraphs, with a docstring
-    held to its own quotes.
+    bare ``#`` or ``#:`` line, and a line opening a ``* `` or ``- `` bullet
+    starts one - two bullets are two rules, and one's citation must not cover
+    the other's marker. Any other line holding the marker is docstring text -
+    or a comment trailing code - and its paragraph is the run of non-blank
+    lines around it, kept inside the string literal it sits in, so code after a
+    docstring's closing quotes cannot lend it a citation. That is the rule of
+    the scan that found the uncited paragraphs, with a docstring held to its
+    own quotes.
 
     Each paragraph comes back once, as ``(line of its first marker, text)``,
     with comment leaders dropped and its lines joined by single spaces - a
@@ -168,8 +183,9 @@ def marked_paragraphs(source: str) -> list[tuple[int, str]]:
         if not _MARKER.search(line):
             continue
         joins: Callable[[str], bool]
+        opens: Callable[[str], bool]
         if line.lstrip().startswith("#"):
-            low, high, joins = 0, last, _continues_comment
+            low, high, joins, opens = 0, last, _continues_comment, _opens_bullet
         else:
             if strings is None:
                 strings = _string_rows(source)
@@ -177,11 +193,11 @@ def marked_paragraphs(source: str) -> list[tuple[int, str]]:
                 ((first, final) for first, final in strings if first <= index <= final),
                 (0, last),
             )
-            joins = _continues_text
+            joins, opens = _continues_text, _opens_nothing
         start = end = index
-        while start > low and joins(lines[start - 1]):
+        while start > low and joins(lines[start - 1]) and not opens(lines[start]):
             start -= 1
-        while end < high and joins(lines[end + 1]):
+        while end < high and joins(lines[end + 1]) and not opens(lines[end + 1]):
             end += 1
         found.setdefault((start, end), index + 1)
     return [
@@ -331,6 +347,39 @@ def test_a_paragraph_ends_at_a_bare_comment_line_and_at_its_docstring_quotes() -
         (1, "ASSUMPTION: the first paragraph, wrapped onto a second line."),
         (11, 'ASSUMPTION: the docstring\'s paragraph. """'),
     ]
+
+
+def test_a_comment_bullet_opens_a_paragraph_of_its_own() -> None:
+    """Two bullets of one comment block are two rules, each with its own citation.
+
+    Read as one paragraph, the first bullet's citation covered the second's
+    marker - the shape of the purchase order graph's edge list.
+    """
+    source = (
+        "# The order graph, plus two edges it does not draw:\n"
+        "#\n"
+        "# * SENT -> RECEIVED. ASSUMPTION (docs/assumptions.md §PO-1): goods that\n"
+        "#   arrive can be received.\n"
+        "# * RECEIVED -> DONE. ASSUMPTION: an order with nothing to inspect\n"
+        "#   completes, and this bullet cites nothing of its own.\n"
+        "# - A dash bullet. ASSUMPTION: neither does this one.\n"
+        "GRAPH = 1\n"
+    )
+
+    assert marked_paragraphs(source) == [
+        (
+            3,
+            "* SENT -> RECEIVED. ASSUMPTION (docs/assumptions.md §PO-1): goods that "
+            "arrive can be received.",
+        ),
+        (
+            5,
+            "* RECEIVED -> DONE. ASSUMPTION: an order with nothing to inspect "
+            "completes, and this bullet cites nothing of its own.",
+        ),
+        (7, "- A dash bullet. ASSUMPTION: neither does this one."),
+    ]
+    assert [number for number, _ in uncited_assumptions(source, {"PO-1"})] == [5, 7]
 
 
 def test_the_marker_rule_finds_a_paragraph_that_cites_no_recorded_section() -> None:
