@@ -37,6 +37,7 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { APP_SHORT_NAME } from '@/lib/constants'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
 import { formatDateTime, formatRelative, plural } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
@@ -480,7 +481,7 @@ export function ChangePasswordCard({ autoFocus }: { autoFocus: boolean }) {
 
 // ---------------------------------------------------- two-factor auth ------
 
-function MfaCard() {
+function MfaCard({ autoFocus = false }: { autoFocus?: boolean }) {
   const { user, refreshUser } = useAuth()
   const [currentPassword, setCurrentPassword] = useState('')
   const [code, setCode] = useState('')
@@ -566,6 +567,7 @@ function MfaCard() {
               <Input
                 id="mfa-setup-password"
                 type="password"
+                autoFocus={autoFocus}
                 autoComplete="current-password"
                 value={currentPassword}
                 onChange={(event) => setCurrentPassword(event.target.value)}
@@ -872,11 +874,41 @@ function SessionsCard() {
 
 // ------------------------------------------------------------------ page ----
 
+/** Only account-security controls mount while the API requires enrolment. */
+function MfaSetupPage() {
+  const { logout } = useAuth()
+
+  return (
+    <main className="min-h-dvh bg-muted/20 p-4 sm:p-6">
+      <div className="mx-auto max-w-2xl space-y-5 pt-[max(2rem,8vh)]">
+        <div>
+          <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-primary">
+            {APP_SHORT_NAME}
+          </p>
+          <PageHeader
+            title="Set up two-factor authentication"
+            description="Your role requires an authenticator code. Complete setup to open the application."
+          />
+        </div>
+
+        <MfaCard autoFocus />
+
+        <Button variant="ghost" onClick={() => void logout()}>
+          <LogOut aria-hidden />
+          Sign out instead
+        </Button>
+      </div>
+    </main>
+  )
+}
+
 export default function ProfilePage() {
   const { user, can } = useAuth()
   const [searchParams] = useSearchParams()
   const mustChangePassword = Boolean(user?.must_change_password)
   const focusPassword = searchParams.get('change-password') === '1' || mustChangePassword
+
+  if (user?.mfa_enrolment_required) return <MfaSetupPage />
 
   return (
     <div>

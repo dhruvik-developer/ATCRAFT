@@ -39609,6 +39609,10 @@
             "title": "Mfa Enabled",
             "type": "boolean"
           },
+          "mfa_enrolment_required": {
+            "title": "Mfa Enrolment Required",
+            "type": "boolean"
+          },
           "must_change_password": {
             "title": "Must Change Password",
             "type": "boolean"
@@ -39723,7 +39727,8 @@
           "full_name",
           "is_superuser",
           "must_change_password",
-          "mfa_enabled"
+          "mfa_enabled",
+          "mfa_enrolment_required"
         ],
         "title": "MeResponse",
         "type": "object"

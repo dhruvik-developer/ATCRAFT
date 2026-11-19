@@ -128,6 +128,12 @@ through. The client chooses the population and changing it needs no code change.
 Enabling it for a role whose staff have no authenticator locks those people out
 of business screens until they enrol.
 
+`GET /auth/me` exposes `mfa_enrolment_required` using the same policy as that
+request guard. After any required password change, the web application opens
+the two-factor setup view at `/profile` outside its normal shell. Notifications, messaging and
+business queries stay unmounted until enrolment completes; the account profile
+and normal navigation return after the refreshed identity clears the flag.
+
 **Password reset by email.** `POST /auth/password-reset/request` answers
 identically whether or not the address belongs to an account. The service
 stores only a SHA-256 digest of a 32-byte token in `password_reset_tokens`

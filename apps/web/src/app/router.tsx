@@ -165,6 +165,17 @@ function RequireAuth({ children }: { children: ReactNode }) {
     return <Navigate to="/change-password" replace />
   }
 
+  // Enrolment is another restricted authentication state. Keep the application
+  // shell and its background queries unmounted until the API permits them.
+  if (!user?.must_change_password && user?.mfa_enrolment_required) {
+    if (location.pathname !== '/profile') return <Navigate to="/profile" replace />
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <ProfilePage />
+      </Suspense>
+    )
+  }
+
   const portalRoot = user?.vendor_id ? '/vendor' : user?.customer_id ? '/dealer' : null
   const sharedPage = ['/profile', '/notifications', '/change-password'].includes(location.pathname)
   if (

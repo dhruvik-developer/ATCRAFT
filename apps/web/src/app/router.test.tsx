@@ -18,7 +18,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { ok, page, renderScreen, type RenderScreenOptions } from '@/test/harness'
+import { meResponse, ok, page, renderScreen, type RenderScreenOptions } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
 import { AppRouter } from './router'
@@ -167,6 +167,72 @@ describe('signing in first', () => {
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull()
     expect(fetch.calls.some((call) => call.path === '/audit/logs')).toBe(false)
     expect(fetch.calls.some((call) => call.path === '/auth/sessions')).toBe(false)
+  })
+})
+
+describe('required two-factor enrolment', () => {
+  it.each(['/profile', '/audit', '/notifications'])(
+    'opens setup without background business requests from %s',
+    async (route) => {
+      const { fetch } = renderAt(route, {
+        permissions: [P.AUDIT_LOG_VIEW, P.NOTIFICATION_VIEW, P.ITEM_VIEW],
+        user: { mfa_enrolment_required: true, roles: ['SUPER_ADMIN'] },
+        cachePolicy: 'production',
+      })
+
+      expect(
+        await screen.findByRole('heading', { name: 'Set up two-factor authentication' }),
+      ).toBeVisible()
+      expect(screen.getByLabelText(/Current password for two-factor setup/)).toHaveFocus()
+      expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull()
+      expect(fetch.calls.every((call) => call.path === '/auth/me')).toBe(true)
+    },
+  )
+
+  it('requires the password change before two-factor setup', async () => {
+    const { fetch } = renderAt('/profile', {
+      user: { must_change_password: true, mfa_enrolment_required: true },
+    })
+
+    expect(await screen.findByRole('heading', { name: 'Choose a new password' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Set up two-factor' })).toBeNull()
+    expect(fetch.calls.every((call) => call.path === '/auth/me')).toBe(true)
+  })
+
+  it('opens the profile after confirming the authenticator and refreshing the account', async () => {
+    let enrolled = false
+    const { fetch, user } = renderAt('/profile', {
+      routes: {
+        'GET /auth/me': () =>
+          meResponse([], {
+            mfa_enabled: enrolled,
+            mfa_enrolment_required: !enrolled,
+          }),
+        'POST /auth/mfa/setup': ok({
+          secret: 'JBSWY3DPEHPK3PXP',
+          provisioning_uri: 'otpauth://totp/ATCRAFT:test?secret=JBSWY3DPEHPK3PXP',
+        }),
+        'POST /auth/mfa/confirm': () => {
+          enrolled = true
+          return ok({ mfa_enabled: true, revoked_sessions: 0 })
+        },
+        'GET /auth/sessions': page([]),
+        'GET /notifications/channels': ok({ whatsapp_enabled: false, sms_enabled: false }),
+      },
+    })
+
+    await user.type(
+      await screen.findByLabelText(/Current password for two-factor setup/),
+      'My-New-Password-123!',
+    )
+    await user.click(screen.getByRole('button', { name: 'Set up two-factor' }))
+    expect(await screen.findByText('JBSWY3DPEHPK3PXP')).toBeVisible()
+    await user.type(screen.getByLabelText(/Authenticator code/), '123456')
+    await user.click(screen.getByRole('button', { name: 'Enable two-factor' }))
+
+    expect(await screen.findByRole('heading', { name: 'Your account' })).toBeVisible()
+    expect(await shell()).toBeVisible()
+    expect(fetch.requestFor('POST', '/auth/mfa/confirm')).toEqual({ code: '123456' })
   })
 })
 

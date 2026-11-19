@@ -779,6 +779,7 @@ class AuthService:
             is_superuser=principal.is_superuser,
             must_change_password=must_change_password,
             mfa_enabled=mfa_enabled,
+            mfa_enrolment_required=principal.mfa_enrolment_required,
             last_login_at=last_login_at,
             session_id=principal.session_id,
             roles=list(principal.role_codes),

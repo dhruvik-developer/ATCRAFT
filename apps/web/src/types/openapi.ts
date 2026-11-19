@@ -26248,6 +26248,8 @@ export interface components {
             last_login_at?: string | null;
             /** Mfa Enabled */
             mfa_enabled: boolean;
+            /** Mfa Enrolment Required */
+            mfa_enrolment_required: boolean;
             /** Must Change Password */
             must_change_password: boolean;
             /** Permissions */

@@ -259,3 +259,42 @@ async def test_the_shipped_default_leaves_unlisted_and_enrolled_principals_alone
 
     assert reached is principal
     assert touched == []
+
+
+@pytest.mark.parametrize(
+    ("role_code", "mfa_enabled", "required"),
+    [
+        ("SUPER_ADMIN", False, True),
+        ("ADMIN", False, True),
+        ("ACCOUNTS", False, True),
+        ("ADMIN", True, False),
+        ("STORE_KEEPER", False, False),
+    ],
+)
+async def test_profile_reports_the_enrolment_policy_used_by_the_request_guard(
+    role_code: str,
+    mfa_enabled: bool,
+    required: bool,
+    template_policy: str,
+    client: tuple[AsyncClient, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.modules.auth import service
+
+    principal = _principal(role_code, mfa_enabled=mfa_enabled)
+    token = _sign_in(monkeypatch, principal)
+
+    async def summary(_session: object, user_id: uuid.UUID, company_id: uuid.UUID):
+        assert (user_id, company_id) == (principal.user_id, principal.company_id)
+        return False, mfa_enabled, None, None, None, None, None, "Atcraft"
+
+    monkeypatch.setattr(service, "get_account_summary", summary)
+    http, touched = client
+    response = await http.get(
+        f"{settings.api_v1_prefix}/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text[:300]
+    assert response.json()["data"]["mfa_enrolment_required"] is required
+    assert touched == []

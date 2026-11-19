@@ -197,6 +197,7 @@ class MeResponse(BaseModel):
     is_superuser: bool
     must_change_password: bool
     mfa_enabled: bool
+    mfa_enrolment_required: bool
     last_login_at: datetime | None = None
     session_id: str | None = None
     roles: list[str] = Field(default_factory=list)

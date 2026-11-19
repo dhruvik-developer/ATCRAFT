@@ -49,6 +49,7 @@ interface MeResponse {
   is_superuser: boolean
   must_change_password: boolean
   mfa_enabled: boolean
+  mfa_enrolment_required: boolean
   session_id?: string | null
   last_login_at?: string | null
   branch_id?: string | null
@@ -86,6 +87,7 @@ export interface CurrentUser {
   company_name?: string
   is_superuser: boolean
   mfa_enabled: boolean
+  mfa_enrolment_required: boolean
   /** Always an array here, even though the API omits an empty one. */
   permissions: string[]
   roles: string[]
@@ -114,6 +116,7 @@ function toCurrentUser(me: MeResponse): CurrentUser {
     company_name: me.company_name,
     is_superuser: me.is_superuser,
     mfa_enabled: me.mfa_enabled,
+    mfa_enrolment_required: me.mfa_enrolment_required ?? false,
     permissions: me.permissions ?? [],
     roles: me.roles ?? [],
     vendor_id: me.vendor_id ?? null,
@@ -398,6 +401,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           company_id: result.user.company_id,
           is_superuser: result.user.is_superuser,
           mfa_enabled: false,
+          mfa_enrolment_required: false,
           permissions: [],
           roles: result.user.roles ?? [],
           vendor_id: result.user.vendor_id ?? null,

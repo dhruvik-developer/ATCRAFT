@@ -123,6 +123,7 @@ export function meResponse(
     is_superuser: false,
     must_change_password: false,
     mfa_enabled: false,
+    mfa_enrolment_required: false,
     permissions,
     roles: [],
     ...overrides,

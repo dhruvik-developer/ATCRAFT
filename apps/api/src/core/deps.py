@@ -164,6 +164,13 @@ class Principal:
 
     # --- authority checks ---------------------------------------------------
 
+    @property
+    def mfa_enrolment_required(self) -> bool:
+        """The same deployment policy is exposed to the UI and enforced here."""
+        return not self.mfa_enabled and not settings.mfa_required_role_set.isdisjoint(
+            role.casefold() for role in self.role_codes
+        )
+
     def has(self, permission: Permission | str) -> bool:
         return self.is_superuser or str(permission) in self.permissions
 
@@ -324,14 +331,7 @@ async def get_current_principal(
     # surface and nothing else until it has enrolled. Read from configuration
     # rather than hard-coded roles so the client chooses the population without
     # a code change; an empty list leaves MFA optional for everybody.
-    if (
-        not principal.mfa_enabled
-        and principal.role_codes
-        and not settings.mfa_required_role_set.isdisjoint(
-            role_code.casefold() for role_code in principal.role_codes
-        )
-        and not mfa_enrolment_route_allowed(request.url.path)
-    ):
+    if principal.mfa_enrolment_required and not mfa_enrolment_route_allowed(request.url.path):
         raise MfaRequiredError()
 
     if principal.is_vendor_user and not vendor_route_allowed(request.url.path):
