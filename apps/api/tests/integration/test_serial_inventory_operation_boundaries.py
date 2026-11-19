@@ -8,7 +8,6 @@ that stock and its FIFO history rather than leaving a partially posted document.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, replace
@@ -20,18 +19,13 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
     AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
 )
-from sqlalchemy.pool import NullPool
 
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError, SelfApprovalError
-from src.core.models import Base
 from src.core.pagination import PageParams
 from src.modules.audit.models import AuditLog
 from src.modules.inventory import service as inventory
@@ -70,7 +64,8 @@ from src.modules.organization.models import Department
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from tests import seed_support
 from tests.conftest import TEST_DB_NAME, TEST_DSN
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
+from tests.schema_support import prepare_metadata
 
 pytestmark = pytest.mark.integration
 prepare_metadata()
@@ -98,14 +93,6 @@ class Kit:
     department_id: uuid.UUID
     serial_ids: tuple[uuid.UUID, ...]
     foreign_serial_id: uuid.UUID
-
-
-def _engine(schema: str) -> AsyncEngine:
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
 
 
 def test_bin_move_schema_bounds_and_uniquely_names_serials() -> None:
@@ -232,73 +219,26 @@ def _scope() -> Iterator[Scope]:
     # application's source database or a second PostgreSQL installed nearby.
     assert settings.database_url == TEST_DSN
     assert make_url(settings.database_url).database == TEST_DB_NAME
-    schema = f"it_serial_boundaries_{uuid.uuid4().hex[:10]}"
     tenant = TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
     other = TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as connection:
-                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
-        engine = _engine(schema)
-        try:
-            async with engine.begin() as connection:
-                await connection.run_sync(
-                    lambda sync: Base.metadata.create_all(sync, checkfirst=False)
-                )
-            factory = async_sessionmaker(engine, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                await seed_support.seed_company(session, company_id=tenant.company_id, prefix="SB")
-                await seed_support.seed_user(
-                    session, company_id=tenant.company_id, user_id=tenant.user_id
-                )
-                await seed_support.seed_company(session, company_id=other.company_id, prefix="SF")
-                await seed_support.seed_user(
-                    session, company_id=other.company_id, user_id=other.user_id
-                )
-        finally:
-            await engine.dispose()
+    async def seed(session: AsyncSession) -> None:
+        await seed_support.seed_company(session, company_id=tenant.company_id, prefix="SB")
+        await seed_support.seed_user(session, company_id=tenant.company_id, user_id=tenant.user_id)
+        await seed_support.seed_company(session, company_id=other.company_id, prefix="SF")
+        await seed_support.seed_user(session, company_id=other.company_id, user_id=other.user_id)
 
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as connection:
-                await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment setup
-        report_database_setup_failure(exc)
-    yield Scope(schema, tenant, other)
-    asyncio.run(teardown())
+    with private_schema("it_serial_boundaries", seed) as schema:
+        yield Scope(schema, tenant, other)
 
 
 @pytest.fixture
 async def kit(_scope: Scope) -> AsyncIterator[Kit]:
-    engine = _engine(_scope.schema)
-    try:
-        async with engine.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                expire_on_commit=False,
-                autoflush=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                assert await session.scalar(text("SELECT current_schema()")) == _scope.schema
-                async with transaction(session):
-                    yield_kit = await _seed_kit(session, _scope)
-                yield yield_kit
-            await outer.rollback()
-    finally:
-        await engine.dispose()
+    async with rolled_back_session(_scope.schema, autoflush=False) as session:
+        assert await session.scalar(text("SELECT current_schema()")) == _scope.schema
+        async with transaction(session):
+            yield_kit = await _seed_kit(session, _scope)
+        yield yield_kit
 
 
 async def _seed_kit(session: AsyncSession, scope: Scope) -> Kit:

@@ -13,7 +13,6 @@ rolled back at the end.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -22,10 +21,8 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
@@ -35,7 +32,6 @@ from src.core.errors import (
     InvalidStateTransitionError,
     SelfApprovalError,
 )
-from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory import service as inv
@@ -73,7 +69,8 @@ from src.modules.inventory.schemas import (
     StockTransferLineCreate,
 )
 from tests import seed_support
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
+from tests.schema_support import prepare_metadata
 
 pytestmark = pytest.mark.integration
 
@@ -137,63 +134,20 @@ async def test_batch_picker_search_pages_and_selected_lookup_keep_item_and_tenan
 prepare_metadata()
 
 
-def _schema_engine(schema: str):
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     """Private schema with a company, two users and a second tenant."""
-    schema = f"it_inventory_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     user_id = uuid.uuid4()
     approver_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(session: AsyncSession) -> None:
+        await _insert_company(session, company_id, "ATC")
+        await _insert_user(session, user_id, company_id, "storekeeper@atcraft.test")
+        await _insert_user(session, approver_id, company_id, "manager@atcraft.test")
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                # checkfirst=False: the shared conftest already built these
-                # tables in `public`, which stays on the search path for the
-                # pg_trgm operator classes.
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                await _insert_company(session, company_id, "ATC")
-                await _insert_user(session, user_id, company_id, "storekeeper@atcraft.test")
-                await _insert_user(session, approver_id, company_id, "manager@atcraft.test")
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, user_id, approver_id
-    asyncio.run(teardown())
+    with private_schema("it_inventory", seed) as schema:
+        yield schema, company_id, user_id, approver_id
 
 
 async def _insert_company(session: AsyncSession, company_id: uuid.UUID, prefix: str) -> None:
@@ -258,23 +212,10 @@ async def ctx(
 ) -> AsyncIterator[tuple[AsyncSession, TenantContext, TenantContext]]:
     """Session rolled back after each test, plus the raiser's and approver's scopes."""
     schema, company_id, user_id, approver_id = _schema
-    engine = _schema_engine(schema)
     tenant = TenantContext(company_id=company_id, user_id=user_id)
     approver = TenantContext(company_id=company_id, user_id=approver_id)
-    try:
-        async with engine.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield session, tenant, approver
-            await outer.rollback()
-    finally:
-        await engine.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        yield session, tenant, approver
 
 
 def _code(prefix: str) -> str:

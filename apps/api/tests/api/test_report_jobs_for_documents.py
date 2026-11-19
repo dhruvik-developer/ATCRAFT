@@ -34,14 +34,12 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import settings
 from src.core.database import get_db, transaction
 from src.core.deps import Principal, TenantContext, get_current_principal
-from src.core.models import Base
 from src.core.permissions import Permission
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.documents.models import Document, DocumentCategory
@@ -70,7 +68,8 @@ from src.modules.warehouses.models import WarehouseType
 from src.workers import celery_app as celery_module
 from src.workers.tasks import reports as report_tasks
 from tests import seed_support
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, schema_engine
+from tests.schema_support import prepare_metadata
 from tests.statement_support import counted
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
@@ -80,15 +79,6 @@ pytestmark = [pytest.mark.api, pytest.mark.integration]
 prepare_metadata()
 
 
-def _schema_engine(schema: str):
-    """Engine pinned to one schema, one connection per session (NullPool)."""
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 def _factory(engine: Any) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
 
@@ -96,57 +86,26 @@ def _factory(engine: Any) -> async_sessionmaker[AsyncSession]:
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     """A private schema with one company and one user, dropped afterwards."""
-    schema = f"it_report_jobs_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     user_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(session: AsyncSession) -> None:
+        await seed_support.seed_company(session, company_id=company_id, prefix="RPT")
+        await seed_support.seed_user(
+            session,
+            company_id=company_id,
+            user_id=user_id,
+            email=f"reports-{uuid.uuid4().hex[:8]}@atcraft.test",
+        )
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            async with _factory(engine)() as session, session.begin():
-                await seed_support.seed_company(session, company_id=company_id, prefix="RPT")
-                await seed_support.seed_user(
-                    session,
-                    company_id=company_id,
-                    user_id=user_id,
-                    email=f"reports-{uuid.uuid4().hex[:8]}@atcraft.test",
-                )
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, user_id
-    asyncio.run(teardown())
+    with private_schema("it_report_jobs", seed) as schema:
+        yield schema, company_id, user_id
 
 
 @pytest_asyncio.fixture
 async def engine(_schema: tuple[str, uuid.UUID, uuid.UUID]) -> AsyncIterator[Any]:
     schema, _, _ = _schema
-    eng = _schema_engine(schema)
+    eng = schema_engine(schema)
     try:
         yield eng
     finally:

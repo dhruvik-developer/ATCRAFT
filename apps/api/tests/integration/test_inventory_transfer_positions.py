@@ -36,7 +36,6 @@ with two tenants, created once and dropped afterwards.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from decimal import Decimal
@@ -45,16 +44,13 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import utcnow
-from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError
 from src.core.messages import inactive_record
-from src.core.models import Base
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import (
     StockTransfer,
@@ -66,7 +62,8 @@ from src.modules.inventory.repository import BalanceGrain
 from src.modules.inventory.schemas import StockTransferCreate, StockTransferLineCreate
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from tests import seed_support
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
+from tests.schema_support import prepare_metadata
 from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
@@ -76,75 +73,32 @@ pytestmark = pytest.mark.integration
 prepare_metadata()
 
 
-def _schema_engine(schema: str):
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]]:
     """Private schema with two tenants, so a foreign bin is a real foreign bin."""
-    schema = f"it_inv_xfer_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     user_id = uuid.uuid4()
     other_company_id = uuid.uuid4()
     other_user_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(session: AsyncSession) -> None:
+        await seed_support.seed_company(session, company_id=company_id, prefix="XFR")
+        await seed_support.seed_user(
+            session,
+            company_id=company_id,
+            user_id=user_id,
+            email=f"xfer-{uuid.uuid4().hex[:8]}@atcraft.test",
+        )
+        await seed_support.seed_company(session, company_id=other_company_id, prefix="OTH")
+        await seed_support.seed_user(
+            session,
+            company_id=other_company_id,
+            user_id=other_user_id,
+            email=f"other-{uuid.uuid4().hex[:8]}@atcraft.test",
+        )
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                # checkfirst=False: the shared conftest already built these
-                # tables in `public`, which stays on the search path for the
-                # pg_trgm operator classes.
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                await seed_support.seed_company(session, company_id=company_id, prefix="XFR")
-                await seed_support.seed_user(
-                    session,
-                    company_id=company_id,
-                    user_id=user_id,
-                    email=f"xfer-{uuid.uuid4().hex[:8]}@atcraft.test",
-                )
-                await seed_support.seed_company(session, company_id=other_company_id, prefix="OTH")
-                await seed_support.seed_user(
-                    session,
-                    company_id=other_company_id,
-                    user_id=other_user_id,
-                    email=f"other-{uuid.uuid4().hex[:8]}@atcraft.test",
-                )
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, user_id, other_company_id, other_user_id
-    asyncio.run(teardown())
+    with private_schema("it_inv_xfer", seed) as schema:
+        yield schema, company_id, user_id, other_company_id, other_user_id
 
 
 @pytest_asyncio.fixture
@@ -153,23 +107,11 @@ async def ctx(
 ) -> AsyncIterator[tuple[AsyncSession, TenantContext, TenantContext, Any]]:
     """Session rolled back after each test, plus both tenants' scopes."""
     schema, company_id, user_id, other_company_id, other_user_id = _schema
-    engine = _schema_engine(schema)
     tenant = TenantContext(company_id=company_id, user_id=user_id)
     other = TenantContext(company_id=other_company_id, user_id=other_user_id)
-    try:
-        async with engine.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield session, tenant, other, engine
-            await outer.rollback()
-    finally:
-        await engine.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        # The engine behind the session's connection, which counted() listens on.
+        yield session, tenant, other, session.bind.engine
 
 
 def seeded(session: AsyncSession):

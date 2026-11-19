@@ -35,10 +35,8 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
@@ -48,7 +46,6 @@ from src.core.errors import (
     InvalidStateTransitionError,
     NotFoundError,
 )
-from src.core.models import Base
 from src.core.pagination import PageParams
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory import service as inv
@@ -56,7 +53,8 @@ from src.modules.inventory.models import SerialStatus, StockSerial, TransactionT
 from src.modules.inventory.schemas import StockSerialCreate
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from tests import seed_support
-from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session, schema_engine
+from tests.schema_support import prepare_metadata
 from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
@@ -75,81 +73,32 @@ REFUSAL_CODES = {
 }
 
 
-def _schema_engine(schema: str):
-    """Engine pinned to the test schema, one connection per session (NullPool).
-
-    NullPool matters for the concurrency case: the point is that two sessions
-    hold two *different* PostgreSQL backends, so one can genuinely block on the
-    other's row lock.
-    """
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
-
-
 @pytest.fixture(scope="module")
 def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]]:
     """Private schema with two tenants, so cross-tenant leakage can be asserted."""
-    schema = f"it_inv_serial_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     user_id = uuid.uuid4()
     other_company_id = uuid.uuid4()
     other_user_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(session: AsyncSession) -> None:
+        await seed_support.seed_company(session, company_id=company_id, prefix="SER")
+        await seed_support.seed_user(
+            session,
+            company_id=company_id,
+            user_id=user_id,
+            email=f"serials-{uuid.uuid4().hex[:8]}@atcraft.test",
+        )
+        await seed_support.seed_company(session, company_id=other_company_id, prefix="OTH")
+        await seed_support.seed_user(
+            session,
+            company_id=other_company_id,
+            user_id=other_user_id,
+            email=f"other-{uuid.uuid4().hex[:8]}@atcraft.test",
+        )
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                # checkfirst=False: the shared conftest already built these
-                # tables in `public`, which stays on the search path for the
-                # pg_trgm operator classes.
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                await seed_support.seed_company(session, company_id=company_id, prefix="SER")
-                await seed_support.seed_user(
-                    session,
-                    company_id=company_id,
-                    user_id=user_id,
-                    email=f"serials-{uuid.uuid4().hex[:8]}@atcraft.test",
-                )
-                await seed_support.seed_company(session, company_id=other_company_id, prefix="OTH")
-                await seed_support.seed_user(
-                    session,
-                    company_id=other_company_id,
-                    user_id=other_user_id,
-                    email=f"other-{uuid.uuid4().hex[:8]}@atcraft.test",
-                )
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, user_id, other_company_id, other_user_id
-    asyncio.run(teardown())
+    with private_schema("it_inv_serial", seed) as schema:
+        yield schema, company_id, user_id, other_company_id, other_user_id
 
 
 @pytest_asyncio.fixture
@@ -158,23 +107,11 @@ async def ctx(
 ) -> AsyncIterator[tuple[AsyncSession, TenantContext, TenantContext, Any]]:
     """Session rolled back after each test, plus both tenants' scopes."""
     schema, company_id, user_id, other_company_id, other_user_id = _schema
-    engine = _schema_engine(schema)
     tenant = TenantContext(company_id=company_id, user_id=user_id)
     other = TenantContext(company_id=other_company_id, user_id=other_user_id)
-    try:
-        async with engine.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield session, tenant, other, engine
-            await outer.rollback()
-    finally:
-        await engine.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        # The engine behind the session's connection, which counted() listens on.
+        yield session, tenant, other, session.bind.engine
 
 
 def seeded(session: AsyncSession):
@@ -1751,7 +1688,7 @@ class TestConcurrentIssueOfOneUnit:
         self, _schema: tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     ) -> AsyncIterator[Any]:
         schema, _, _, _, _ = _schema
-        engine = _schema_engine(schema)
+        engine = schema_engine(schema)
         try:
             yield engine
         finally:
