@@ -2066,15 +2066,29 @@ async def test_a_second_dismissal_skips_an_ignored_suggestion_and_audits_nothing
     ]
 
 
+class _PredicateSaysYes(StateMachine[MrpSuggestionStatus]):
+    """A suggestion lifecycle whose ``can_transition`` approves every move.
+
+    ``assert_transition`` still reads the graph, so only a caller that asserts
+    the edge - CLAUDE.md's rule for every status write - sees the refusal.
+    """
+
+    def can_transition(self, current: MrpSuggestionStatus, target: MrpSuggestionStatus) -> bool:
+        return True
+
+
 @pytest.mark.asyncio
-async def test_the_bulk_dismissal_moves_only_what_the_lifecycle_allows(
+async def test_the_bulk_dismissal_asserts_each_move_on_the_lifecycle(
     ctx: Ctx, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The suggestion lifecycle, not a check of the bulk path's own, decides each row.
+    """Each row's move is asserted on the suggestion lifecycle, not merely asked about.
 
-    With the OPEN -> IGNORED edge taken out of the graph an open suggestion is
-    skipped like a converted one: no status write and no audit row. Whatever the
-    machine refuses, the bulk call refuses too - row by row, as documented.
+    The graph here has no OPEN -> IGNORED edge while its ``can_transition`` says
+    yes to everything, so the two ways of consulting it disagree. Asking the
+    predicate - how the bulk path read the lifecycle before d2753511 - would
+    dismiss the open suggestion; asserting the edge skips it like a converted
+    one: no status write and no audit row. Whatever the machine refuses, the bulk
+    call refuses too - row by row, as documented.
     """
     await add_sales_order(ctx, code="SO/0001", lines=[(ctx.screw, "100")])
     run = await run_plan(ctx)
@@ -2082,20 +2096,18 @@ async def test_the_bulk_dismissal_moves_only_what_the_lifecycle_allows(
     assert suggestion is not None
     suggestion_id = suggestion.id
     lifecycle = service.SUGGESTION_LIFECYCLE
-    monkeypatch.setattr(
-        service,
-        "SUGGESTION_LIFECYCLE",
-        StateMachine(
-            entity=lifecycle.entity,
-            initial=lifecycle.initial,
-            transitions=tuple(
-                edge
-                for edge in lifecycle.transitions
-                if edge.target is not MrpSuggestionStatus.IGNORED
-            ),
-            terminal=lifecycle.terminal,
+    patched = _PredicateSaysYes(
+        entity=lifecycle.entity,
+        initial=lifecycle.initial,
+        transitions=tuple(
+            edge for edge in lifecycle.transitions if edge.target is not MrpSuggestionStatus.IGNORED
         ),
+        terminal=lifecycle.terminal,
     )
+    assert patched.can_transition(MrpSuggestionStatus.OPEN, MrpSuggestionStatus.IGNORED)
+    with pytest.raises(InvalidStateTransitionError):
+        patched.assert_transition(MrpSuggestionStatus.OPEN, MrpSuggestionStatus.IGNORED)
+    monkeypatch.setattr(service, "SUGGESTION_LIFECYCLE", patched)
 
     result = await service.bulk_ignore_suggestions(
         ctx.session,

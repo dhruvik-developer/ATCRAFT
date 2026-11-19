@@ -16,6 +16,7 @@ from src.core.permissions import Permission
 from src.main import app
 from src.modules.reports import service
 from src.modules.reports.models import InventorySummary
+from src.modules.reports.schemas import DashboardRead
 from tests import seed_support
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
@@ -81,31 +82,13 @@ async def test_dashboard_access_alone_does_not_grant_any_business_tile(
     response = await api_client.get("/reports/dashboard")
     assert response.status_code == 200, response.text
     data = response.json()["data"]
-    protected = (
-        "open_sales_orders",
-        "overdue_sales_orders",
-        "stock_value",
-        "stock_refreshed_at",
-        "pending_purchase_orders",
-        "pending_purchase_value",
-        "production_in_progress",
-        "qc_pending",
-        "dispatches_in_transit",
-        "overdue_deliveries",
-        "purchase_orders_awaiting_approval",
-        "inbound_purchase_orders_late",
-        "payables_due_amount",
-        "payables_overdue_amount",
-        "receivables_amount",
-        "receivables_outstanding",
-        "receivables_overdue",
-        "follow_ups_due",
-        "invoiced_sales_mtd",
-        "collections_mtd",
-        "mrp_shortage_count",
-        "job_work_overdue",
-    )
-    assert all(data[field] is None for field in protected), data
+    # Every figure the schema declares, not a list written here: a tile added to
+    # the select and to DashboardRead without a permission entry reaches this
+    # reader, and must fail this test as the original nine would have.
+    protected = set(DashboardRead.model_fields) - {"generated_at"}
+    shown = {field: data[field] for field in protected if data[field] is not None}
+    assert protected
+    assert shown == {}, shown
     assert data["generated_at"]
 
 
