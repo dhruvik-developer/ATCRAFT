@@ -517,14 +517,22 @@ stop being optional on the structure.
 `PREFIX/2026-27/00042`. Internal documents (stock transfer, adjustment,
 physical count) do not reset.
 
-**Why.** Indian statutory convention, and the company master already carries
-`financial_year_start_month` so the assumption is configurable rather than
-baked in.
+**Why.** Indian statutory convention, and it is fixed rather than configurable:
+numbering derives the label with an April start whatever the company master's
+`financial_year_start_month` says. `next_document_number` takes the start month
+as `fy_start_month`, April by default, and no caller passes the company's, so a
+company whose year is set to open in another month still numbers under
+April-start labels (`2026-27`) and restarts each yearly series on 1 April. The
+setting decides only where the trial balance's period starts when no financial
+year covers the date, and the year the demonstration data opens.
 
-**Where.** `src/common/codes.py` — `DocTypes` and `financial_year_key`.
+**Where.** `src/common/codes.py` — `DocTypes`, `financial_year_key` and
+`next_document_number`.
 
 **Impact if wrong.** Document numbering would have to be migrated, which is
-disruptive once documents exist. Confirm before go-live.
+disruptive once documents exist. Confirm before go-live. Numbering that follows
+the company's month means passing its `financial_year_start_month` to every
+yearly `next_document_number` call.
 
 ---
 
@@ -6569,10 +6577,23 @@ one.
 **Assumed.** `notifications.delivered_at` means "reached the recipient through
 at least one channel". A row with the in-app channel is stamped when it is
 written, since the bell shows it at once. A row without it, an e-mail-only one
-for instance, stays NULL until a worker sends it through another channel, and a
-worker that stamped it gives the stamp back when its send fails (§MAIL-1). Each
+for instance, stays NULL until a worker sends it through another channel. Each
 external channel keeps its own marker as well: `email_delivered_at`,
 `push_delivered_at`, `whatsapp_delivered_at` and `sms_delivered_at`.
+
+The workers hold to that definition unevenly. The e-mail and push workers stamp
+a NULL `delivered_at` when they claim the send, before anything leaves; the
+WhatsApp and SMS worker sets it only once the provider reports the message
+delivered. Only the e-mail worker gives its stamp back whenever its send fails,
+a permanent refusal included (§MAIL-1). The push worker gives it back only when
+every device it tried asked for a retry; otherwise the stamp stays even when no
+device took the message - a device reported gone, or a message refused - and
+the row reads delivered although nothing reached the recipient.
+
+A collapsed repeat writes the repeat's own value, so a repeat without the
+in-app channel resets `delivered_at` to NULL while every channel's marker is
+kept (§C1-14): a channel already sent is not sent again, nothing stamps the row
+back, and a row that was delivered reads as never sent.
 
 **Why.** In-app delivery is instantaneous, so the row is delivered the moment it
 exists, and a NULL on an e-mail-only row is what makes "queued but never sent"
@@ -6580,13 +6601,20 @@ visible. Reading delivered as "the relay accepted the e-mail" would leave every
 in-app notification permanently undelivered.
 
 **Where.** `src/modules/notifications/service.py` - `notify`;
+`src/modules/notifications/repository.py` - `upsert_many`;
 `src/modules/notifications/models.py` - `Notification.delivered_at`;
 `src/workers/tasks/notifications.py` - `_deliver_notification_email`,
 `_deliver_notification_push`, `_deliver_notification_messaging`.
 
-**Impact if wrong.** A report that needs an external channel's acceptance reads
-that channel's own marker; `delivered_at` cannot be redefined as one without
-leaving the in-app rows undelivered.
+**Impact if wrong.** A channel's own marker is its claim, not its acceptance:
+it stays after a permanent e-mail refusal (§MAIL-1), after a push no device
+took, and after a WhatsApp or SMS attempt that failed, whose outcome
+`notification_deliveries` records. A report that needs a channel's acceptance
+needs it recorded first; `delivered_at` cannot be redefined as one without
+leaving the in-app rows undelivered. Making the stamp hold for push and for
+collapses means the push worker giving it back when no device took the
+message, as the e-mail worker does, and `upsert_many` keeping an existing stamp
+rather than overwriting it.
 
 ## §ROUTING-1. Routing approval needs routing.manage, and waiting time is not charged
 
@@ -6807,17 +6835,21 @@ a below-cost approval.
 **Why.** The stock's own cost, `inventory_balances.average_cost` (the FIFO
 layers' average, section 31), lives per stock position, so the same price would
 pass from one store and need approval from another, which is not a commercial
-rule anybody would recognise. A zero floor would demand an approval for every
-line of a freshly loaded item master, and an approval everyone clicks through
-protects nothing.
+rule anybody would recognise. No rule of its own spares an uncosted item: a
+zero standard cost is a zero floor, and no net price can sit below zero - a
+unit price cannot be negative and a discount cannot exceed the line's value
+(`compute_line_amounts`) - so the `standard_cost > ZERO` half of
+`is_below_cost` changes no answer.
 
 **Where.** `src/modules/sales/service.py` - `is_below_cost`, read by
 `price_line` and `_assert_confirmed_prices_hold`.
 
 **Impact if wrong.** Pricing against stock cost means passing the order's
 warehouse to `is_below_cost` and reading a cost per position. Flagging an
-uncosted item means dropping the `standard_cost > ZERO` half, and every line of
-such an item then waits for approval until it is costed.
+uncosted item needs an explicit rule in `is_below_cost`, such as treating a
+standard cost of zero as below cost; dropping the `standard_cost > ZERO` half
+changes nothing. Even then only an overridden or discounted line is checked
+(§E10-3), so a line at its list price still passes.
 
 ## §SALES-3. A taxed order needs the seller's state code, and a zero-rated one does not
 
@@ -6828,10 +6860,11 @@ intra-state and inter-state supply cannot be told apart." The seller's state is
 the branch's when the order names a branch that has one, and the company's
 otherwise. An order whose every line is zero-rated is not refused.
 
-**Why.** Place of supply (section 9) is decided from the seller's state, so a
-taxed order without it cannot be taxed correctly. A wholly zero-rated order
-never reads the treatment, and refusing it would block a legitimate document
-over a master-data field it does not use.
+**Why.** The intra- or inter-state treatment (section 9) compares the seller's
+state with the place of supply - the shipping address's state - so a taxed
+order without the seller's state cannot be taxed correctly. A wholly
+zero-rated order never reads the treatment, and refusing it would block a
+legitimate document over a master-data field it does not use.
 
 **Where.** `src/modules/sales/service.py` - `_assert_seller_state_known`, called
 from `create_order` and `_update_draft`; `src/modules/sales/repository.py` -
@@ -6950,9 +6983,15 @@ the exchange-rate work of open question 3, not a second default.
 names no purchase-order line as a variance - "Line N is not billed against any
 purchase order line." - and an invoice linked to no purchase order as one too,
 so either blocks approval until a holder of `vendor_invoice.approve` overrides
-it with a recorded reason. A job-work invoice is held the same way: a line with
-no job-work receipt line behind it, or an invoice naming no job-work order, is a
-variance.
+it with a recorded reason. A job-work invoice never reaches the match with
+either gap, because both are refused at entry (§B3-1). It must name its
+job-work order: `VendorInvoiceCreate` refuses one that does not, and the
+`job_work_invoice_names_its_order` CHECK forbids the state. While
+`JOB_WORK_ALLOW_FREE_LINES` is off, as it ships, every line must name a receipt
+line of that order, refused on create by `VendorInvoiceCreate` and on an edit by
+`_resolve_invoice_lines`. The match's variance for a job-work line with no
+receipt line, in `_evaluate_job_work_line`, applies only if that constant is
+turned on.
 
 **Why.** Freight, packing and handling charges a vendor adds after the fact are
 exactly the overbilling the match exists to catch (master rules section 24), so
@@ -6961,7 +7000,10 @@ action with a reason against it. Spend with no order behind it is approved
 deliberately, never by default.
 
 **Where.** `src/modules/finance/service.py` - `evaluate_match`,
-`_evaluate_job_work_line`, `approve_invoice`, `assert_may_override_variance`.
+`_evaluate_job_work_line`, `_resolve_invoice_lines`, `approve_invoice`,
+`assert_may_override_variance`; `src/modules/finance/schemas.py` -
+`VendorInvoiceCreate`; `src/modules/finance/models.py` -
+`JOB_WORK_ALLOW_FREE_LINES` and the `job_work_invoice_names_its_order` CHECK.
 
 **Impact if wrong.** If charges with no order line should pass, they need a line
 type of their own with a tolerance of its own - exempting every unlinked line

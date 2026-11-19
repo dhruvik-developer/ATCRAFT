@@ -205,9 +205,11 @@ def is_below_cost(unit_price: Decimal, standard_cost: Decimal) -> bool:
     recognise.
 
     ASSUMPTION (docs/assumptions.md §SALES-2): an item whose standard cost is
-    zero - never costed - is not treated as "everything is below cost". A zero
-    floor would demand an approval for every single line on a freshly loaded
-    item master, and an approval everyone clicks through protects nothing.
+    zero - never costed - is never flagged. Its floor is zero, and neither
+    caller passes a price below zero: ``compute_line_amounts`` refuses a
+    negative unit price and a discount larger than the line's value. So the
+    ``standard_cost > ZERO`` clause changes no answer, and flagging an uncosted
+    item would need an explicit rule here.
     """
     return standard_cost > ZERO and unit_price < standard_cost
 
