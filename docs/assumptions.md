@@ -6364,19 +6364,27 @@ production type's requirement is its one entry in the mapping.
 
 **Assumed.** An item's purchase and sale units, where they differ from its base
 (stock) unit, must convert to it through the unit-of-measure graph. An item
-naming a trading unit with no defined conversion is refused when it is saved -
-on create, and on an update that changes a unit - with an error naming both
-units.
+naming a trading unit with no defined conversion is refused when it is saved,
+with an error naming both units by code. On create every unit is checked. On an
+update a unit is checked when the save moves it, and a trading unit also when
+the stock unit moves - the rule section 39 sets for the brand and the
+manufacturer. The item form posts every unit on every save; a unit it leaves
+alone was checked when it was set.
 
 **Why.** The alternative is discovering it at the goods receipt that cannot
-post, with the vendor's lorry at the gate.
+post, with the vendor's lorry at the gate. Re-checking the units a save leaves
+alone refused an ordinary rename over a conversion removed after the item was
+saved: a refusal about a unit the person saving had not touched.
 
 **Where.** `src/modules/products/service.py` - `_validate_item_units`, called
 from `create_item` and `update_item`.
 
 **Impact if wrong.** If an item may be saved before its conversion exists, the
 refusal moves to the first document that converts the unit, where the goods are
-already waiting.
+already waiting. Removing a conversion is not refused while an item's trading
+unit relies on it (`delete_conversion`), so such an item keeps its unit until a
+document needs the conversion; if that must be caught sooner, the refusal
+belongs on the removal, as section 39 puts it on retiring a brand in use.
 
 ## §ITEM-3. An unpriced sale or dealer price falls back to the item master; a distributor price does not
 

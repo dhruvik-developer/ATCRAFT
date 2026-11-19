@@ -241,12 +241,89 @@ async def test_purchase_unit_without_a_conversion_is_refused(
     session, tenant, _ = ctx
     units = await seed_units(session, tenant)
 
-    with pytest.raises(BusinessRuleError):
+    with pytest.raises(BusinessRuleError) as excinfo:
         await service.create_item(
             session,
             tenant,
             item_payload("BAD-UOM", units["NOS"], purchase_uom_id=units["KG"]),
         )
+    assert excinfo.value.message.startswith(
+        "The purchase unit KG does not convert to the stock unit NOS. "
+    )
+
+
+async def _item_bought_in_packets(
+    session: AsyncSession, tenant: TenantContext, units: dict[str, uuid.UUID]
+) -> tuple[Item, uuid.UUID, uuid.UUID]:
+    """An item stocked in NOS and bought in PKT, and the PKT -> NOS conversion."""
+    packet = await service.create_uom(
+        session, tenant, UomCreate(code="PKT", name="Packet", uom_category=UomCategory.COUNT)
+    )
+    conversion = await service.create_conversion(
+        session,
+        tenant,
+        UomConversionCreate(from_uom_id=packet.id, to_uom_id=units["NOS"], factor=Decimal("10")),
+    )
+    item = await service.create_item(
+        session, tenant, item_payload("SCREW-PKT", units["NOS"], purchase_uom_id=packet.id)
+    )
+    return item, packet.id, conversion.id
+
+
+async def test_an_item_form_save_does_not_re_check_units_it_leaves_alone(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """§ITEM-2: units are checked when they change, like the brand beside them.
+
+    The conversion the purchase unit relied on is removed after the item was
+    saved. The item form posts every unit on every save, so re-checking the
+    unchanged ones refused a storekeeper's rename for a unit nobody touched.
+    """
+    session, tenant, principal = ctx
+    units = await seed_units(session, tenant)
+    item, packet_id, conversion_id = await _item_bought_in_packets(session, tenant, units)
+    await service.delete_conversion(session, tenant, conversion_id)
+
+    renamed = await service.update_item(
+        session,
+        tenant,
+        principal,
+        item.id,
+        ItemUpdate(
+            name="Screw, renamed",
+            base_uom_id=units["NOS"],
+            purchase_uom_id=packet_id,
+            sale_uom_id=None,
+        ),
+    )
+
+    assert renamed.name == "Screw, renamed"
+    assert renamed.purchase_uom_id == packet_id
+
+
+async def test_a_changed_unit_is_checked_and_the_refusal_names_both_units(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """A unit the save moves is checked, and against the stock unit it lands on."""
+    session, tenant, principal = ctx
+    units = await seed_units(session, tenant)
+    item, packet_id, conversion_id = await _item_bought_in_packets(session, tenant, units)
+    await service.delete_conversion(session, tenant, conversion_id)
+    item_id = item.id
+
+    with pytest.raises(BusinessRuleError) as excinfo:
+        await service.update_item(
+            session,
+            tenant,
+            principal,
+            item_id,
+            ItemUpdate(base_uom_id=units["NOS"], purchase_uom_id=packet_id, sale_uom_id=packet_id),
+        )
+
+    assert excinfo.value.message.startswith(
+        "The sale unit PKT does not convert to the stock unit NOS. "
+    )
+    assert excinfo.value.details["from_uom_id"] == str(packet_id)
 
 
 async def test_status_change_is_state_machine_governed_and_audited(

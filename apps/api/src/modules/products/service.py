@@ -1168,21 +1168,39 @@ async def _validate_item_units(
     cannot be converted to the base unit is rejected at save time. The
     alternative is discovering it at the goods receipt that cannot post, with
     the vendor's lorry at the gate.
+
+    A trading unit passed as ``None`` is not checked: the caller passes only
+    the units its save assigns (:func:`update_item`).
     """
     uom_repo = UnitOfMeasureRepository(session, tenant)
-    if await uom_repo.get(base_uom_id) is None:
+    base = await uom_repo.get(base_uom_id)
+    if base is None:
         raise NotFoundError("Unit of measure", base_uom_id)
 
-    others = [u for u in (purchase_uom_id, sale_uom_id) if u is not None and u != base_uom_id]
-    if not others:
+    trading = [
+        (role, uom_id)
+        for role, uom_id in (("purchase", purchase_uom_id), ("sale", sale_uom_id))
+        if uom_id is not None and uom_id != base_uom_id
+    ]
+    if not trading:
         return
 
     graph = await load_uom_graph(session, tenant)
-    for uom_id in others:
+    for role, uom_id in trading:
         if uom_id not in graph.category_by_uom:
             raise NotFoundError("Unit of measure", uom_id)
-        # Raises a business error naming both units when the pair is undefined.
-        graph.factor(uom_id, base_uom_id)
+        try:
+            graph.factor(uom_id, base_uom_id)
+        except BusinessRuleError as refusal:
+            # The graph says why the pair fails, by id; the person saving the
+            # item reads units by code, so the refusal names the pair in those.
+            unit = await uom_repo.get(uom_id)
+            raise BusinessRuleError(
+                f"The {role} unit {unit.code if unit is not None else uom_id} does not "
+                f"convert to the stock unit {base.code}. {refusal.message}",
+                code=refusal.code,
+                details=refusal.details,
+            ) from refusal
 
 
 async def _assert_default_warehouse_exists(
@@ -1598,16 +1616,37 @@ async def update_item(
         ):
             await _require_manufacturer(session, tenant, scalar_updates["manufacturer_id"])
 
+        # The units, on the same terms. ASSUMPTION (docs/assumptions.md
+        # §ITEM-2): a unit is checked when the save moves it, and a trading unit
+        # also when the stock unit it converts to moves. The item form posts
+        # every unit on every save, so re-checking the ones it leaves alone
+        # refused an ordinary rename over a conversion removed after the item
+        # was saved - a refusal about a unit nobody touched.
         base_uom_id = scalar_updates.get("base_uom_id", item.base_uom_id)
-        purchase_uom_id = scalar_updates.get("purchase_uom_id", item.purchase_uom_id)
-        sale_uom_id = scalar_updates.get("sale_uom_id", item.sale_uom_id)
-        if {"base_uom_id", "purchase_uom_id", "sale_uom_id"} & scalar_updates.keys():
+        base_moved = base_uom_id != item.base_uom_id
+        assigned = {
+            field: value
+            for field, value, stored in (
+                (
+                    "purchase_uom_id",
+                    scalar_updates.get("purchase_uom_id", item.purchase_uom_id),
+                    item.purchase_uom_id,
+                ),
+                (
+                    "sale_uom_id",
+                    scalar_updates.get("sale_uom_id", item.sale_uom_id),
+                    item.sale_uom_id,
+                ),
+            )
+            if base_moved or value != stored
+        }
+        if base_moved or assigned:
             await _validate_item_units(
                 session,
                 tenant,
                 base_uom_id=base_uom_id,
-                purchase_uom_id=purchase_uom_id,
-                sale_uom_id=sale_uom_id,
+                purchase_uom_id=assigned.get("purchase_uom_id"),
+                sale_uom_id=assigned.get("sale_uom_id"),
             )
         await _assert_default_warehouse_exists(repo, scalar_updates.get("default_warehouse_id"))
         # The default bin is re-checked whenever it, or the warehouse it has to
