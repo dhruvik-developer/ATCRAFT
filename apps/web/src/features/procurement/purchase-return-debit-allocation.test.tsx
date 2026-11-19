@@ -38,6 +38,10 @@ const invoice = {
   created_at: '2026-05-01T09:00:00Z',
 } as const
 
+/**
+ * The endpoint's own shapes: the totals go through `to_money`, while each
+ * row's `amount` is read straight off its `Money` column at four places.
+ */
 const existing: PurchaseReturnDebitAllocationResult = {
   purchase_return_id: RETURN_ID,
   total_amount: '100.00',
@@ -49,11 +53,14 @@ const existing: PurchaseReturnDebitAllocationResult = {
       vendor_invoice_id: INVOICE_ID,
       invoice_code: invoice.code,
       vendor_invoice_number: invoice.vendor_invoice_number,
-      amount: '40.00',
+      amount: '40.0000',
       notes: null,
     },
   ],
 }
+
+/** The refusal the panel shows under an amount its two-place rule will not take. */
+const AMOUNT_REFUSAL = /with up to 2 decimal places/
 
 const purchaseReturn = {
   id: RETURN_ID,
@@ -75,12 +82,13 @@ describe('purchase-return debit allocation', () => {
             const amount = (body as { allocations: { amount: string }[] }).allocations[0]!.amount
             current = {
               ...existing,
-              allocated_amount: amount,
+              allocated_amount: toDecimal(amount).toFixed(2),
               unallocated_amount: toDecimal('100').minus(toDecimal(amount)).toFixed(2),
               allocations: [
                 {
                   ...existing.allocations![0]!,
-                  amount,
+                  // Read back off the column, as the refetch after a save is.
+                  amount: toDecimal(amount).toFixed(4),
                 },
               ],
             }
@@ -92,6 +100,8 @@ describe('purchase-return debit allocation', () => {
 
     const amount = await screen.findByRole('textbox', { name: `Amount for ${invoice.code}` })
     expect(amount).toHaveValue('40.00')
+    expect(screen.queryByText(AMOUNT_REFUSAL)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save allocation' })).toBeEnabled()
     await user.clear(amount)
     await user.type(amount, '30.00')
     await user.click(screen.getByRole('button', { name: 'Save allocation' }))
@@ -102,6 +112,10 @@ describe('purchase-return debit allocation', () => {
       replace: true,
     })
     expect(await screen.findByText(/30\.00 applied of/)).toBeVisible()
+    // The save refetches and re-seeds the panel from "30.0000": it must not
+    // greet a successful save by refusing what it just saved.
+    expect(screen.getByRole('textbox', { name: `Amount for ${invoice.code}` })).toHaveValue('30.00')
+    expect(screen.queryByText(AMOUNT_REFUSAL)).toBeNull()
   })
 
   it('puts back an invoice the open list no longer offers, as the debit note carried it', async () => {

@@ -18,7 +18,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import { ROUNDED_MONEY_INPUT } from '@/lib/decimal-input'
+import { ROUNDED_MONEY, ROUNDED_MONEY_INPUT, toDecimalInput } from '@/lib/decimal-input'
 import { EMPTY_VALUE, formatDate, formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { fieldErrorSummary } from '@/lib/form-errors'
@@ -52,7 +52,8 @@ type SavedAllocation = NonNullable<PaymentDetail['allocations']>[number]
 function savedLine(row: SavedAllocation, invoiceId: string): ReceiptAllocationDraft {
   return {
     code: row.invoice_code ?? invoiceId,
-    amount: row.amount,
+    // Read back at the column's four places; the box keeps the two to_money does.
+    amount: toDecimalInput(row.amount, ROUNDED_MONEY),
     notes: row.notes ?? null,
     ceiling: null,
   }

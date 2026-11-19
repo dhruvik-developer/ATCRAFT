@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CONVERSION_FACTOR,
+  MEASURE,
   MONEY_INPUT,
+  OPTIONAL_MEASURE_INPUT,
   OPTIONAL_MONEY_INPUT,
   OPTIONAL_PERCENT_INPUT,
   OPTIONAL_QUANTITY_INPUT,
@@ -11,9 +13,11 @@ import {
   PERCENT_INPUT,
   QUANTITY,
   QUANTITY_INPUT,
+  ROUNDED_MONEY,
   ROUNDED_MONEY_INPUT,
   UNIT_PRICE_INPUT,
   decimalPattern,
+  toDecimalInput,
 } from './decimal-input'
 
 const accepts = (pattern: RegExp, values: string[]) =>
@@ -85,5 +89,38 @@ describe('the column presets', () => {
       expect(pattern.test('12.5')).toBe(true)
       expect(pattern.test('abc')).toBe(false)
     }
+  })
+})
+
+describe('toDecimalInput', () => {
+  it('starts a box on what the API read back, at the places the box keeps', () => {
+    // A Money column reads back at four places; a box that keeps two refused
+    // the untouched "500.0000", so a saved settlement could not be saved again.
+    expect(ROUNDED_MONEY_INPUT.test('500.0000')).toBe(false)
+    expect(toDecimalInput('500.0000', ROUNDED_MONEY)).toBe('500.00')
+    expect(toDecimalInput('6408.5200', ROUNDED_MONEY)).toBe('6408.52')
+    expect(toDecimalInput('0.0000', ROUNDED_MONEY)).toBe('0.00')
+    expect(toDecimalInput('125000.5', ROUNDED_MONEY)).toBe('125000.50')
+    expect(toDecimalInput('99999999999999.9900', ROUNDED_MONEY)).toBe('99999999999999.99')
+    expect(toDecimalInput('112.5000', MEASURE)).toBe('112.500')
+    for (const [value, bounds, pattern] of [
+      ['500.0000', ROUNDED_MONEY, ROUNDED_MONEY_INPUT],
+      ['112.5000', MEASURE, OPTIONAL_MEASURE_INPUT],
+    ] as const) {
+      expect(pattern.test(toDecimalInput(value, bounds))).toBe(true)
+    }
+  })
+
+  it('never rounds a figure nobody typed: a value with more places comes back as it was', () => {
+    // The box then says so, rather than saving a different number silently.
+    expect(toDecimalInput('500.1250', ROUNDED_MONEY)).toBe('500.1250')
+    expect(ROUNDED_MONEY_INPUT.test(toDecimalInput('500.1250', ROUNDED_MONEY))).toBe(false)
+    expect(toDecimalInput('12.3456', MEASURE)).toBe('12.3456')
+  })
+
+  it('hands back anything that is not a decimal untouched, for the box to judge', () => {
+    expect(toDecimalInput('', ROUNDED_MONEY)).toBe('')
+    expect(toDecimalInput('abc', ROUNDED_MONEY)).toBe('abc')
+    expect(toDecimalInput('NaN', ROUNDED_MONEY)).toBe('NaN')
   })
 })

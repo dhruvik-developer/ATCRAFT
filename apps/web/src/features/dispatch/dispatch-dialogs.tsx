@@ -73,7 +73,13 @@ import type {
 import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
-import { OPTIONAL_MEASURE_INPUT, QUANTITY_INPUT } from '@/lib/decimal-input'
+import {
+  MEASURE,
+  OPTIONAL_MEASURE_INPUT,
+  QUANTITY_INPUT,
+  ROUNDED_MONEY,
+  toDecimalInput,
+} from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asId, asText, zeroIfBlank } from '@/lib/form-values'
 import {
@@ -1406,8 +1412,9 @@ function editDispatchValues(dispatch: DispatchDetail): EditDispatchFormValues {
     driver_mobile: dispatch.driver_mobile ?? '',
     eway_bill_number: dispatch.eway_bill_number ?? '',
     total_boxes: String(dispatch.total_boxes),
-    total_weight_kg: String(dispatch.total_weight_kg),
-    freight_amount: String(dispatch.freight_amount),
+    // Both are read back at four places, and their boxes keep three and two.
+    total_weight_kg: toDecimalInput(dispatch.total_weight_kg, MEASURE),
+    freight_amount: toDecimalInput(dispatch.freight_amount, ROUNDED_MONEY),
     freight_paid_by: dispatch.freight_paid_by ?? SELECT_NONE,
     notes: dispatch.notes ?? '',
   }

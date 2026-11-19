@@ -69,6 +69,12 @@ const CUSTOMER = {
   is_blocked: false,
 }
 
+/**
+ * One row of `GET /finance/payments`, in the API's own shapes: `amount` and
+ * `allocated_amount` are read straight off `Money` columns, so they carry four
+ * places, and only `unallocated_amount` goes through `to_money`. A fixture
+ * written at two places hid that every editor seeded from these refused them.
+ */
 function payment(overrides: Partial<PaymentRow> = {}): PaymentRow {
   return {
     id: PAYMENT_ID,
@@ -77,8 +83,8 @@ function payment(overrides: Partial<PaymentRow> = {}): PaymentRow {
     party_type: 'VENDOR',
     party_id: VENDOR.id,
     payment_date: '2026-09-01',
-    amount: '125000.50',
-    allocated_amount: '0.00',
+    amount: '125000.5000',
+    allocated_amount: '0.0000',
     unallocated_amount: '125000.50',
     currency: 'INR',
     payment_method: 'BANK_TRANSFER',
@@ -251,27 +257,57 @@ describe('a receipt settles customer invoices', () => {
     expect(within(rowFor(RECEIPT_CODE)).queryByText('n/a')).not.toBeInTheDocument()
   })
 
-  it('puts back an invoice the open list no longer offers, as the receipt carried it', async () => {
-    const allocated = detail({
+  /** A receipt that settles one invoice in full, as `GET /finance/payments/{id}` reads it. */
+  const allocatedReceipt = () =>
+    detail({
       ...receipt,
       party_type: 'CUSTOMER',
       party_id: CUSTOMER.id,
       status: 'ALLOCATED',
-      amount: '500.00',
-      allocated_amount: '500.00',
+      amount: '500.0000',
+      allocated_amount: '500.0000',
       unallocated_amount: '0.00',
       allocations: [
         {
           id: 'ra1',
           sales_invoice_id: 'si1',
           vendor_invoice_id: null,
-          amount: '500.00',
+          amount: '500.0000',
           notes: 'paid at the counter',
           invoice_code: 'SINV-0001',
           vendor_invoice_number: null,
         },
       ],
     })
+
+  it('saves an allocation nobody touched, though the API reads it back at four places', async () => {
+    const allocated = allocatedReceipt()
+    const { user, fetch } = renderScreen(
+      <SalesReceiptAllocationDialog payment={allocated} onClose={() => {}} />,
+      {
+        permissions: [P.PAYMENT_RECORD, P.SALES_INVOICE_VIEW],
+        routes: {
+          'GET /finance/sales-invoices': page([]),
+          [`POST ${DETAIL_PATH}/allocate`]: ok(allocated),
+        },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('textbox', { name: 'SINV-0001' })).toHaveValue('500.00')
+    const save = within(dialog).getByRole('button', { name: 'Save allocation' })
+    expect(save).toBeEnabled()
+    await user.click(save)
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    expect(fetch.requestFor('POST', `${DETAIL_PATH}/allocate`)).toEqual({
+      replace: true,
+      allocations: [{ sales_invoice_id: 'si1', amount: '500.00', notes: 'paid at the counter' }],
+    })
+  })
+
+  it('puts back an invoice the open list no longer offers, as the receipt carried it', async () => {
+    const allocated = allocatedReceipt()
     const { user, fetch } = renderScreen(
       <SalesReceiptAllocationDialog payment={allocated} onClose={() => {}} />,
       {
@@ -635,13 +671,16 @@ describe('recording a payment', () => {
 // ------------------------------------------------------------ settlement -----
 
 describe('settling an approved payment', () => {
-  /** Three real bills that add up to the payment exactly - and not as doubles. */
+  /**
+   * Three real bills that add up to the payment exactly - and not as doubles.
+   * At four places, as `PaymentAllocationRead.amount` comes off its column.
+   */
   const ALLOCATIONS = [
     {
       id: 'al1',
       sales_invoice_id: null,
       vendor_invoice_id: 'vi1',
-      amount: '6408.52',
+      amount: '6408.5200',
       notes: null,
       invoice_code: 'VINV-1',
       vendor_invoice_number: 'SBW/4411',
@@ -650,7 +689,7 @@ describe('settling an approved payment', () => {
       id: 'al2',
       sales_invoice_id: null,
       vendor_invoice_id: 'vi2',
-      amount: '6534.59',
+      amount: '6534.5900',
       notes: null,
       invoice_code: 'VINV-2',
       vendor_invoice_number: 'SBW/4412',
@@ -659,7 +698,7 @@ describe('settling an approved payment', () => {
       id: 'al3',
       sales_invoice_id: null,
       vendor_invoice_id: 'vi3',
-      amount: '3594.81',
+      amount: '3594.8100',
       notes: 'part settlement',
       invoice_code: 'VINV-3',
       vendor_invoice_number: 'SBW/4413',
@@ -669,8 +708,8 @@ describe('settling an approved payment', () => {
   const settled = (overrides: Partial<PaymentDetail> = {}) =>
     detail({
       status: 'ALLOCATED',
-      amount: '16537.92',
-      allocated_amount: '16537.92',
+      amount: '16537.9200',
+      allocated_amount: '16537.9200',
       unallocated_amount: '0.00',
       allocations: ALLOCATIONS,
       ...overrides,
@@ -678,8 +717,8 @@ describe('settling an approved payment', () => {
 
   const settledRow = payment({
     status: 'ALLOCATED',
-    amount: '16537.92',
-    allocated_amount: '16537.92',
+    amount: '16537.9200',
+    allocated_amount: '16537.9200',
     unallocated_amount: '0.00',
   })
 
@@ -720,6 +759,36 @@ describe('settling an approved payment', () => {
     expect(within(dialog).getByText('₹0.00')).toBeInTheDocument()
     expect(within(dialog).queryByText('Not ready to save')).not.toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Save settlement' })).toBeEnabled()
+  })
+
+  it('saves a settlement nobody touched, though the API reads it back at four places', async () => {
+    // Every line arrives as "6408.5200". Seeded raw, the two-place rule refused
+    // all three, so a clerk could save no amendment without retyping each one.
+    const { user, fetch } = renderScreen(<PaymentsPage />, {
+      permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD],
+      routes: {
+        'GET /finance/payments': page([settledRow]),
+        [`GET ${DETAIL_PATH}`]: ok(settled()),
+        [`POST ${DETAIL_PATH}/allocate`]: ok(settled()),
+      },
+    })
+
+    const dialog = await openSettlement(user)
+    expect(
+      await within(dialog).findByRole('textbox', { name: 'Amount settled against SBW/4411' }),
+    ).toHaveValue('6408.52')
+    expect(within(dialog).queryByText('Not ready to save')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Save settlement' }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    expect(fetch.requestFor('POST', `${DETAIL_PATH}/allocate`)).toEqual({
+      allocations: [
+        { vendor_invoice_id: 'vi1', amount: '6408.52', notes: null },
+        { vendor_invoice_id: 'vi2', amount: '6534.59', notes: null },
+        { vendor_invoice_id: 'vi3', amount: '3594.81', notes: 'part settlement' },
+      ],
+      replace: true,
+    })
   })
 
   it('sends the whole set with replace, as decimal strings, and drops a released line', async () => {
@@ -1087,6 +1156,28 @@ describe('amending a draft', () => {
     expect(fetch.requestFor('PATCH', DETAIL_PATH)).toMatchObject({
       payment_method: 'BANK_TRANSFER',
     })
+  })
+
+  it('saves a draft nobody touched, though the API reads its amount back at four places', async () => {
+    // `amount` arrives as "125000.5000". Seeded raw, the two-place rule refused
+    // it under the field, and no PATCH was ever sent.
+    const { user, fetch } = renderScreen(
+      <PaymentFormDialog open onOpenChange={() => {}} paymentId={PAYMENT_ID} />,
+      {
+        permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD],
+        routes: {
+          [`GET ${DETAIL_PATH}`]: ok(detail()),
+          [`PATCH ${DETAIL_PATH}`]: ok(detail()),
+        },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByDisplayValue('125000.50')
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'PATCH')).toBe(true)
+    expect(fetch.requestFor('PATCH', DETAIL_PATH)).toMatchObject({ amount: '125000.50' })
   })
 
   it('sends only the fields that are still free to change', async () => {

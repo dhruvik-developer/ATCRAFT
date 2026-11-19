@@ -17,6 +17,8 @@
  * screens check what was typed, and each of those is a lazy route.
  */
 
+import Decimal from 'decimal.js'
+
 /** A decimal column's shape: the digits it holds before and after the point. */
 export interface DecimalBounds {
   /** Digits before the point: the column's precision less its scale. */
@@ -99,3 +101,25 @@ export const PERCENT_INPUT = decimalPattern(PERCENT)
 export const OPTIONAL_PERCENT_INPUT = decimalPattern(PERCENT, { optional: true })
 /** A weight or a dimension whose blank means "not set" or zero. */
 export const OPTIONAL_MEASURE_INPUT = decimalPattern(MEASURE, { optional: true })
+
+/**
+ * A saved decimal as the box that edits it starts: written to the box's places.
+ *
+ * The API reads a decimal back at its column's scale, so an amount `to_money`
+ * kept to the paisa arrives as "500.0000" and a weight as "112.5000". A box
+ * whose rule keeps fewer places than its column - `ROUNDED_MONEY`, `MEASURE` -
+ * refuses that string untouched, so an editor seeded with it raw could not
+ * save the very value it was given. Only zeros are dropped: a value carrying
+ * more places than the box keeps comes back as it was, so the box says so
+ * rather than rounding a figure nobody typed. Like `toDateInput`, for seeding
+ * a form; what is sent back is still the typed string.
+ */
+export function toDecimalInput(value: string, { places }: DecimalBounds): string {
+  let parsed: Decimal
+  try {
+    parsed = new Decimal(value)
+  } catch {
+    return value
+  }
+  return parsed.decimalPlaces() <= places ? parsed.toFixed(places) : value
+}

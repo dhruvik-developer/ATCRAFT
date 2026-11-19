@@ -30,7 +30,7 @@ import { ReleasedAllocations } from '@/features/finance/released-allocations'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
-import { ROUNDED_MONEY_INPUT } from '@/lib/decimal-input'
+import { ROUNDED_MONEY, ROUNDED_MONEY_INPUT, toDecimalInput } from '@/lib/decimal-input'
 import { formatMoney, toDecimal } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, validation } from '@/lib/messages'
@@ -57,7 +57,8 @@ type SavedAllocation = NonNullable<PurchaseReturnDebitAllocationResult['allocati
 function savedLine(row: SavedAllocation): DraftLine {
   return {
     vendor_invoice_id: row.vendor_invoice_id,
-    amount: String(row.amount),
+    // Read back at the column's four places; the box keeps the two to_money does.
+    amount: toDecimalInput(row.amount, ROUNDED_MONEY),
     notes: row.notes,
     invoice_code: row.invoice_code,
     vendor_invoice_number: row.vendor_invoice_number,

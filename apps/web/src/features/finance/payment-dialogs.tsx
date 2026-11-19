@@ -73,7 +73,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import type { VendorRow } from '@/features/vendors/vendor-types'
 import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
-import { ROUNDED_MONEY_INPUT } from '@/lib/decimal-input'
+import { ROUNDED_MONEY, ROUNDED_MONEY_INPUT, toDecimalInput } from '@/lib/decimal-input'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { asText, asUpperText } from '@/lib/form-values'
 import {
@@ -250,7 +250,8 @@ function formDefaults(payment?: PaymentDetail): PaymentFormValues {
     party_type: payment.party_type === 'CUSTOMER' ? 'CUSTOMER' : 'VENDOR',
     party_id: payment.party_id,
     payment_date: toDateInput(payment.payment_date),
-    amount: payment.amount,
+    // "125000.5000" from the column; the box keeps the two places to_money does.
+    amount: toDecimalInput(payment.amount, ROUNDED_MONEY),
     currency: payment.currency,
     payment_method: payment.payment_method,
     reference_number: payment.reference_number ?? '',
@@ -917,7 +918,8 @@ type SavedAllocation = NonNullable<PaymentDetail['allocations']>[number]
 /** A line as the payment carried it when it was read. */
 function seededLine(allocation: SavedAllocation): DraftLine {
   return {
-    amount: allocation.amount,
+    // Read back at the column's four places; the box keeps the two to_money does.
+    amount: toDecimalInput(allocation.amount, ROUNDED_MONEY),
     // Carried back on save: an amended row's notes are rewritten from the
     // request, so dropping them here would erase them there.
     notes: allocation.notes ?? '',

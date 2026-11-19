@@ -73,7 +73,8 @@ function dispatch(overrides: Partial<DispatchRow> = {}): DispatchRow {
     courier_name: 'Blue Dart',
     tracking_id: 'BD-99881',
     total_boxes: 4,
-    total_weight_kg: '112.500',
+    // A `Quantity` column, read back at four places as the API sends it.
+    total_weight_kg: '112.5000',
     created_at: '2026-09-01T06:00:00Z',
     ...overrides,
   }
@@ -89,7 +90,8 @@ function dispatchDetail(overrides: Partial<DispatchDetail> = {}): DispatchDetail
     vehicle_number: 'GJ01AB1234',
     driver_name: 'A Driver',
     driver_mobile: '9876543210',
-    freight_amount: '125.00',
+    // A `Money` column, likewise at four places.
+    freight_amount: '125.0000',
     freight_paid_by: 'CONSIGNOR',
     eway_bill_number: 'EWB-100',
     invoice_document_id: null,
@@ -278,6 +280,8 @@ describe('pre-dispatch editing', () => {
         dispatch_date: '2026-09-02',
         expected_delivery_date: null,
         lr_number: 'LR-UPDATED',
+        // Untouched, and sent at the places their boxes keep rather than refused.
+        total_weight_kg: '112.500',
         freight_amount: '125.00',
       })
       expect(body).not.toHaveProperty('lines')
