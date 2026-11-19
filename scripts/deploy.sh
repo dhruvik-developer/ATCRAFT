@@ -327,9 +327,12 @@ assert_deployment_config() {
   sms_dlt_entity_id="$(env_value SMS_DLT_ENTITY_ID)"
   sms_verification_template="$(env_value SMS_VERIFICATION_TEMPLATE_ID)"
 
+  # The one hosted deployment is production, and there is no hosted staging
+  # (CLAUDE.md). `staging` was the removed dev deployment's value; accepted
+  # here, it ran production under another name.
   case "$app_env" in
-    production|staging) ;;
-    *) die "APP_ENV must be production or staging in $ENV_FILE (found '${app_env:-empty}')" ;;
+    production) ;;
+    *) die "APP_ENV is '${app_env:-empty}' in $ENV_FILE, and '$DEPLOYMENT' is the production deployment. Set the line to: APP_ENV=production" ;;
   esac
   [ -n "$cors" ] || die "CORS_ORIGINS is empty in $ENV_FILE"
   [ -n "$hosts" ] || die "ALLOWED_HOSTS is empty in $ENV_FILE"
@@ -682,13 +685,14 @@ case "$COMMAND" in
     ;;
 
   demo-data)
-    if [ "$(env_value APP_ENV)" = "production" ]; then
-      warn "Deployment '$DEPLOYMENT' has APP_ENV=production."
-      warn "Demo data invents customers, orders and stock. Mixed into real"
-      warn "records it is not separable afterwards - the codes are the only"
-      warn "marker, and only on the parents."
-      confirm "Load invented business data into a production deployment?" "yes load demo data into $DEPLOYMENT"
-    fi
+    # Asked every time, whatever the env file's APP_ENV says: the only
+    # deployment this script drives is production. Keyed on
+    # APP_ENV=production, the question was skipped for any other value.
+    warn "Deployment '$DEPLOYMENT' is production - the client's only database."
+    warn "Demo data invents customers, orders and stock. Mixed into real"
+    warn "records it is not separable afterwards - the codes are the only"
+    warn "marker, and only on the parents."
+    confirm "Load invented business data into a production deployment?" "yes load demo data into $DEPLOYMENT"
     dc run --rm --no-deps -T backend python -m src.core.demo_data "$@"
     ;;
 

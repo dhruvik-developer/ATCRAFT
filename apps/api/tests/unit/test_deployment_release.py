@@ -2,7 +2,16 @@
 
 The notification worker writes durable delivery state. It must be drained with
 the batch worker before migrations and be healthy before opening the edge.
-Only function definitions are loaded; every container command is a shell stub.
+
+The one hosted deployment is production. The configuration gate accepted
+``APP_ENV=staging`` - the removed dev deployment's value - for it, and
+``demo-data`` asked before loading invented records only when the env file said
+``production``, so an env file that said ``staging`` sent demo data into the
+client's only database without a question. The gate now names the line to set,
+and the question is asked whatever the file says.
+
+Only function definitions and single command branches are loaded; every
+container command is a shell stub, and the env file is a temporary one.
 """
 
 from __future__ import annotations
@@ -167,3 +176,122 @@ def test_release_quiesces_notifications_before_migration_and_starts_them_before_
         assert stop < events.index("backup") < migrate
     else:
         assert "backup" not in events
+
+
+# -----------------------------------------------------------------------------
+# Production is the only hosted deployment
+# -----------------------------------------------------------------------------
+
+#: Passes every other check in assert_deployment_config, so APP_ENV alone decides.
+_DEPLOYMENT_ENV = """\
+APP_ENV={app_env}
+CORS_ORIGINS=https://erp.acme.test
+ALLOWED_HOSTS=erp.acme.test
+EMAIL_PROVIDER=smtp
+PUBLIC_WEB_URL=https://erp.acme.test
+EMAIL_FROM_ADDRESS=no-reply@acme.test
+SMTP_HOST=smtp.acme.test
+SMTP_SECURITY=starttls
+SMTP_USERNAME=
+SMTP_PASSWORD=
+WHATSAPP_ENABLED=false
+SMS_ENABLED=false
+"""
+
+_NOT_PRODUCTION = ["staging", "development", ""]
+
+
+def _command(name: str) -> str:
+    """One ``case "$COMMAND"`` branch of deploy.sh, as the function ``run_command``."""
+    source = (REPO_ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    match = re.search(rf"^  {re.escape(name)}\)\n(.*?)^    ;;$", source, re.M | re.S)
+    assert match, f"missing deployment command: {name}"
+    return f"run_command() {{\n{match.group(1)}}}"
+
+
+def _shell(bash: str, script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [bash, "--noprofile", "--norc", "-s"],
+        input=script,
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+
+
+def _check_config(bash: str, tmp_path: Path, app_env: str) -> subprocess.CompletedProcess[str]:
+    env_file = tmp_path / "main.env"
+    env_file.write_text(_DEPLOYMENT_ENV.format(app_env=app_env), encoding="utf-8", newline="\n")
+    stubs = r"""
+set -euo pipefail
+DEPLOYMENT=main
+die() { printf '%s\n' "$*" >&2; exit 1; }
+stat() { printf '600\n'; }
+"""
+    definitions = _functions("env_value", "assert_deployment_config")
+    return _shell(
+        bash,
+        f"{stubs}ENV_FILE='{env_file.as_posix()}'\n{definitions}\nassert_deployment_config\n",
+    )
+
+
+def _demo_data(
+    bash: str, tmp_path: Path, app_env: str, answer: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    events = tmp_path / "commands.log"
+    answer_file = tmp_path / "answer.txt"
+    answer_file.write_text(answer, encoding="utf-8", newline="\n")
+    stubs = r"""
+set -euo pipefail
+DEPLOYMENT=main
+C_YELLOW=
+C_RESET=
+warn() { printf '%s\n' "$*" >&2; }
+die() { printf '%s\n' "$*" >&2; exit 1; }
+dc() { printf '%s\n' "$*" >> "$DEPLOY_TEST_EVENTS"; }
+env_value() { if [ "$1" = APP_ENV ]; then printf '%s' "$DEPLOY_TEST_APP_ENV"; fi; }
+"""
+    result = _shell(
+        bash,
+        f"{stubs}DEPLOY_TEST_EVENTS='{events.as_posix()}'\n"
+        f"DEPLOY_TEST_APP_ENV='{app_env}'\n"
+        f"{_functions('confirm')}\n{_command('demo-data')}\n"
+        f"run_command --companies 1 < '{answer_file.as_posix()}'\n",
+    )
+    ran = events.read_text(encoding="utf-8").splitlines() if events.exists() else []
+    return result, ran
+
+
+@pytest.mark.parametrize("app_env", _NOT_PRODUCTION, ids=lambda value: value or "empty")
+def test_an_env_file_that_is_not_production_is_refused_with_the_line_to_set(
+    bash: str, tmp_path: Path, app_env: str
+) -> None:
+    result = _check_config(bash, tmp_path, app_env)
+    assert result.returncode != 0
+    assert f"APP_ENV is '{app_env or 'empty'}'" in result.stderr
+    assert "Set the line to: APP_ENV=production" in result.stderr
+
+
+def test_a_production_env_file_passes_the_configuration_gate(bash: str, tmp_path: Path) -> None:
+    result = _check_config(bash, tmp_path, "production")
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "app_env", ["production", *_NOT_PRODUCTION], ids=lambda value: value or "empty"
+)
+def test_demo_data_asks_before_loading_whatever_app_env_says(
+    bash: str, tmp_path: Path, app_env: str
+) -> None:
+    result, ran = _demo_data(bash, tmp_path, app_env, answer="")
+    assert result.returncode != 0
+    assert "Load invented business data" in result.stderr
+    assert "cancelled" in result.stderr
+    assert ran == []
+
+
+def test_demo_data_loads_once_the_question_is_answered(bash: str, tmp_path: Path) -> None:
+    result, ran = _demo_data(bash, tmp_path, "staging", answer="yes load demo data into main\n")
+    assert result.returncode == 0, result.stderr
+    assert ran == ["run --rm --no-deps -T backend python -m src.core.demo_data --companies 1"]

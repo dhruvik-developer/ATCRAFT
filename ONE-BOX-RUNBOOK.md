@@ -425,8 +425,9 @@ starts the new application and waits for dependency-aware readiness.
 cd /srv/atcraft-main && ./scripts/deploy.sh main seed
 ```
 
-Do **not** load demo data into the deployment. `deploy.sh` will demand a typed
-confirmation if you try, because `APP_ENV=production` there.
+Do **not** load demo data into the deployment. `deploy.sh` demands a typed
+confirmation every time you try: the one deployment it drives is production,
+whatever its env file says.
 
 ### 8. Certificates
 
@@ -514,7 +515,7 @@ another system or an example.
 | `COMPOSE_PROJECT_NAME`                          | `atcraft-main`                      | **(UNIQUE)** The project boundary. Required.                                                                                                                     |
 | `DEPLOY_BRANCH`                                 | `main`                              | Branch this deployment tracks; `deploy.sh` enforces it.                                                                                                          |
 | `HTTP_PORT`                                     | `8081`                              | **(UNIQUE)** Loopback port. Must match the host nginx `proxy_pass`. Required.                                                                                    |
-| `APP_ENV`                                       | `production`                        | `production`; `deploy.sh` also accepts `staging`.                                                                                                                |
+| `APP_ENV`                                       | `production`                        | `production`; `deploy.sh` refuses any other value.                                                                                                               |
 | `LOG_LEVEL`                                     | `INFO`                              |                                                                                                                                                                  |
 | `CORS_ORIGINS`                                  | `https://erp.example.com`           | Comma-separated. Never `*` with credentials.                                                                                                                     |
 | `ALLOWED_HOSTS`                                 | `erp.example.com`                   | Hostnames only. Required; never `*`.                                                                                                                             |
@@ -1017,6 +1018,14 @@ The project has one hosted deployment, production, released from `main`. Run
 `./scripts/deploy.sh main <command>`. Development runs locally on `develop`
 (see [Local development](#local-development)); there is no hosted development
 deployment to name.
+
+### `APP_ENV is '...' in deploy/main.env`
+
+The deployment is production: `doctor`, `build`, `up`, `restart`, `restore` and
+the recovery-only `migrate` and `downgrade` refuse any other `APP_ENV`. Earlier
+releases also accepted `staging`, the removed dev deployment's value. Edit the
+line in `deploy/main.env` to read `APP_ENV=production`, then run
+`./scripts/deploy.sh main doctor` before the release.
 
 ### `HEAD is not the tested upstream revision`
 

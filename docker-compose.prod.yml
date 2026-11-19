@@ -54,8 +54,8 @@ services:
       target: production
     command: ["gunicorn", "src.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "${GUNICORN_WORKERS:-4}", "--bind", "0.0.0.0:8000", "--timeout", "60", "--graceful-timeout", "30", "--max-requests", "2000", "--max-requests-jitter", "200", "--access-logfile", "-"]
     environment:
-      # Explicitly not APP_ENV: the deployment's env file sets that (the
-      # deploy script accepts production or staging there, with debug off).
+      # Explicitly not APP_ENV: the deployment's env file sets that, and the
+      # deploy script refuses any value there but production.
       APP_DEBUG: "false"
       LOG_JSON: "true"
       CACHE_ENABLED: "true"
