@@ -18,13 +18,13 @@ that feeds it the violation it exists to catch.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
 
+from tests.source_scan_support import SRC, python_sources
+
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: ``"<file under src>::<enclosing function>"`` -> why its bare quantize is not money.
 BARE_QUANTIZE_ALLOWED: dict[str, str] = {
@@ -77,13 +77,9 @@ def bare_quantize_calls(source: str) -> list[tuple[str, int]]:
     return sorted(finder.found, key=lambda found: found[1])
 
 
-def _python_files() -> list[Path]:
-    return sorted(p for p in SRC.rglob("*.py") if "__pycache__" not in p.parts)
-
-
 def _bare_calls_by_key() -> dict[str, list[int]]:
     found: dict[str, list[int]] = {}
-    for path in _python_files():
+    for path in python_sources():
         relative = path.relative_to(SRC).as_posix()
         for function, line in bare_quantize_calls(path.read_text(encoding="utf-8")):
             found.setdefault(f"{relative}::{function}", []).append(line)
@@ -91,7 +87,7 @@ def _bare_calls_by_key() -> dict[str, list[int]]:
 
 
 def test_the_scan_finds_the_code_it_polices() -> None:
-    assert len(_python_files()) >= 200, "source discovery found too few files"
+    assert len(python_sources()) >= 200, "source discovery found too few files"
 
 
 def test_every_quantize_names_its_rounding_mode() -> None:

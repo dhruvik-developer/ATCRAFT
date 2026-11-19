@@ -25,16 +25,15 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
 import pytest
 
 from src.core.constants import REASON_MIN_LENGTH
 from tests.message_scan_support import _error_classes, _template
+from tests.source_scan_support import SRC, python_sources
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: Raises whose reader is a developer, not a user - each with its reason.
 COLLECTION_RAISES_ALLOWED: dict[str, str] = {
@@ -45,10 +44,6 @@ COLLECTION_RAISES_ALLOWED: dict[str, str] = {
 }
 
 _COLLECTION_BUILDERS = frozenset({"sorted", "list", "set", "tuple", "frozenset"})
-
-
-def _python_files() -> list[Path]:
-    return sorted(p for p in SRC.rglob("*.py") if "__pycache__" not in p.parts)
 
 
 def _builds_collection(node: ast.AST) -> bool:
@@ -186,7 +181,7 @@ def spelled_plurals(source: str) -> list[str]:
 def test_no_message_writes_a_noun_as_one_or_many() -> None:
     failures = [
         f"  {path.relative_to(SRC).as_posix()}: {hit}"
-        for path in _python_files()
+        for path in python_sources()
         for hit in spelled_plurals(path.read_text(encoding="utf-8"))
     ]
 
@@ -218,7 +213,7 @@ def test_the_plural_rule_flags_the_shapes_that_shipped() -> None:
 def test_no_message_spells_out_the_reason_minimum() -> None:
     failures = [
         f"  {path.relative_to(SRC).as_posix()}: {hit}"
-        for path in _python_files()
+        for path in python_sources()
         for hit in spelled_reason_minimums(path.read_text(encoding="utf-8"), REASON_MIN_LENGTH)
     ]
 
@@ -301,7 +296,7 @@ def misformatted_messages(source: str, *, message_classes: set[str], schemas: bo
 
 
 def test_every_user_facing_refusal_reads_as_a_sentence() -> None:
-    files = _python_files()
+    files = python_sources()
     trees = [ast.parse(path.read_text(encoding="utf-8")) for path in files]
     message_classes, _ = _error_classes(trees)
     failures = [
@@ -404,7 +399,7 @@ def sentence_entity_labels(source: str) -> list[str]:
 def test_every_not_found_names_an_entity_not_a_sentence() -> None:
     failures = [
         f"  {path.relative_to(SRC).as_posix()}: {hit}"
-        for path in _python_files()
+        for path in python_sources()
         for hit in sentence_entity_labels(path.read_text(encoding="utf-8"))
     ]
 
@@ -434,7 +429,7 @@ def test_the_label_rule_flags_a_sentence_and_passes_a_label() -> None:
 def test_no_refusal_formats_a_collection_whole() -> None:
     failures = [
         f"  {path.relative_to(SRC).as_posix()}: {hit}"
-        for path in _python_files()
+        for path in python_sources()
         if path.relative_to(SRC).as_posix() not in COLLECTION_RAISES_ALLOWED
         for hit in interpolated_collections(path.read_text(encoding="utf-8"))
     ]
@@ -450,7 +445,7 @@ def test_no_refusal_formats_a_collection_whole() -> None:
 def test_no_message_names_an_exception_class() -> None:
     failures = [
         f"  {path.relative_to(SRC).as_posix()}: {hit}"
-        for path in _python_files()
+        for path in python_sources()
         for hit in formatted_class_names(path.read_text(encoding="utf-8"))
     ]
 

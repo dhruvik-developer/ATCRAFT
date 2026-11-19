@@ -23,11 +23,10 @@ import ast
 
 import pytest
 
-from src.core.config import API_ROOT
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
 
-SRC = API_ROOT / "src"
 
 #: A function longer than this many lines ...
 LONG_FUNCTION_LINES = 80

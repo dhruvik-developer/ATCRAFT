@@ -19,15 +19,14 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
 import pytest
 
 from tests.message_scan_support import _error_classes, _template
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: rule -> (what a hand-written copy looks like, the builder to raise instead).
 RULES: dict[str, tuple[re.Pattern[str], str]] = {

@@ -15,7 +15,6 @@ import importlib
 import pkgutil
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -25,6 +24,7 @@ from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, 
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine
 from tests.route_support import module_routes
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
 
@@ -33,7 +33,6 @@ ACTIVE, INACTIVE, ARCHIVED = (
     MasterLifecycleState.INACTIVE,
     MasterLifecycleState.ARCHIVED,
 )
-SRC = Path(__file__).resolve().parents[2] / "src"
 SHARED = "common/master_lifecycle.py"
 
 #: Enums with exactly the three lifecycle members that are not the shared one,

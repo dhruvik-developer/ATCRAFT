@@ -12,16 +12,14 @@ from __future__ import annotations
 
 import ast
 from enum import StrEnum
-from pathlib import Path
 
 import pytest
 
 from src.core.errors import ErrorCode, InvalidStateTransitionError
 from src.core.state_machine import StateMachine, Transition
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
-
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 
 class _State(StrEnum):

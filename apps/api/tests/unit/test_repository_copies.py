@@ -32,11 +32,10 @@ from collections.abc import Mapping
 
 import pytest
 
-from src.core.config import API_ROOT
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
 
-SRC = API_ROOT / "src"
 
 _DOCUMENTED = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 

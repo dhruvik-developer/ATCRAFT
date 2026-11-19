@@ -27,10 +27,10 @@ from pathlib import Path
 import pytest
 
 from src.core.config import API_ROOT, REPO_ROOT
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
 
-SRC = API_ROOT / "src"
 
 #: Every Python file whose words count as a reference.
 CORPUS_ROOTS = (

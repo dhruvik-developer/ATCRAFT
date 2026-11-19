@@ -25,7 +25,6 @@ import ast
 import re
 import uuid
 from collections.abc import Iterator
-from pathlib import Path
 from typing import cast
 
 import pytest
@@ -40,10 +39,9 @@ from src.modules.audit.query_service import ApprovalService
 from src.modules.audit.schemas import ApprovalDecisionRequest
 from src.modules.dealer_portal.promotion_schemas import PromotionRetire
 from src.modules.inventory.schemas import RejectionRequest
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
-
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 
 def test_the_sentence_states_the_floor_from_the_constant() -> None:

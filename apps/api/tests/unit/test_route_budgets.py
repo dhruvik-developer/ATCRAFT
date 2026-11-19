@@ -25,7 +25,6 @@ import ast
 import re
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -50,10 +49,10 @@ from tests.route_support import (
     module_routes,
     mounted_application,
 )
+from tests.source_scan_support import python_sources
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 Policy = tuple[str, int, int]
 
@@ -135,10 +134,6 @@ def declared_policy_names() -> set[str]:
     }
 
 
-def _source_files() -> list[Path]:
-    return sorted(p for p in SRC.rglob("*.py") if "__pycache__" not in p.parts)
-
-
 @pytest.fixture(scope="module")
 def routes() -> tuple[MountedRoute, ...]:
     return module_routes()
@@ -171,7 +166,7 @@ def test_every_upload_and_every_queued_job_spends_its_budget(
 
 def test_every_named_policy_is_spent_somewhere() -> None:
     spent: set[str] = set()
-    for path in _source_files():
+    for path in python_sources():
         spent |= spent_policy_names(path.read_text(encoding="utf-8"))
 
     unused = declared_policy_names() - spent

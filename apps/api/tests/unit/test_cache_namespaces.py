@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
 import pytest
 
+from tests.source_scan_support import source_texts
+
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 _CACHE_MODULE = "core/cache.py"
 
 
@@ -55,16 +55,8 @@ def unread_namespaces(names: list[str], sources: dict[str, str]) -> list[str]:
     ]
 
 
-def _sources() -> dict[str, str]:
-    return {
-        path.relative_to(SRC).as_posix(): path.read_text(encoding="utf-8")
-        for path in sorted(SRC.rglob("*.py"))
-        if "__pycache__" not in path.parts
-    }
-
-
 def test_every_cache_namespace_has_a_reader() -> None:
-    sources = _sources()
+    sources = source_texts()
     names = declared_namespaces(sources[_CACHE_MODULE])
     assert len(names) >= 3, f"namespace discovery found too few: {names}"
     unread = unread_namespaces(names, sources)

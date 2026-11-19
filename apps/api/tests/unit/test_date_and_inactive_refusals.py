@@ -18,15 +18,14 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
 import pytest
 
 from tests.message_scan_support import _template
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: The owner of both helpers, whose own templates are the sentences.
 _OWNER = "core/messages.py"

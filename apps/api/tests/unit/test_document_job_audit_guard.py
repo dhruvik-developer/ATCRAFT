@@ -16,13 +16,13 @@ text, with a self-test that feeds it the violation it exists to catch.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
 
+from tests.source_scan_support import SRC
+
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: Calls that create a job row: the shared factory, or the model itself.
 _JOB_ROW_FACTORIES = frozenset({"new_job_snapshot", "ReportSnapshot"})

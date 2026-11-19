@@ -12,7 +12,6 @@ import ast
 import hashlib
 import re
 import uuid
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -31,10 +30,10 @@ from src.modules.auth import service as auth_service
 from src.modules.auth.schemas import MfaVerifyRequest, PasswordResetRequestPayload
 from src.modules.auth.service import AuthService
 from tests.redis_support import FakeRedis
+from tests.source_scan_support import SRC, python_sources
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: Each unauthenticated auth step, as (per-address policy, per-account twin).
 ADDRESS_AND_ACCOUNT_BUDGETS = [
@@ -346,14 +345,10 @@ def address_budget_violations(source: str) -> list[str]:
     return found
 
 
-def _source_files() -> list[Path]:
-    return sorted(p for p in SRC.rglob("*.py") if "__pycache__" not in p.parts)
-
-
 def test_the_scan_finds_the_budgets_it_polices() -> None:
     calls = [
         call
-        for path in _source_files()
+        for path in python_sources()
         for call in enforce_policy_calls(path.read_text(encoding="utf-8"))
     ]
     assert len(calls) >= 10, f"enforce_policy discovery found too few calls: {len(calls)}"
@@ -362,7 +357,7 @@ def test_the_scan_finds_the_budgets_it_polices() -> None:
 def test_only_a_per_address_policy_is_keyed_on_an_address() -> None:
     offenders = {
         path.relative_to(SRC).as_posix(): found
-        for path in _source_files()
+        for path in python_sources()
         if (found := address_budget_violations(path.read_text(encoding="utf-8")))
     }
     assert not offenders, (

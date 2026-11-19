@@ -19,22 +19,17 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
-from pathlib import Path
 
 import pytest
 
 from src.core import messages
 from tests.message_scan_support import _error_classes, _template
+from tests.source_scan_support import SRC, python_sources
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 _MIN_WORDS = 3
-
-
-def _python_files() -> list[Path]:
-    return sorted(p for p in SRC.rglob("*.py") if "__pycache__" not in p.parts)
 
 
 def _module(relative: str) -> str:
@@ -68,7 +63,7 @@ def shared_sentences(sources: dict[str, str], *, label_classes: set[str]) -> dic
 
 
 def test_no_sentence_is_raised_from_two_modules() -> None:
-    files = _python_files()
+    files = python_sources()
     sources = {path.relative_to(SRC).as_posix(): path.read_text(encoding="utf-8") for path in files}
     _, label_classes = _error_classes([ast.parse(source) for source in sources.values()])
 

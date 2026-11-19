@@ -24,10 +24,10 @@ from pathlib import Path
 import pytest
 
 from src.core.messages import plural, success_message
+from tests.source_scan_support import SRC
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 _MUTATING = frozenset({"post", "put", "patch", "delete"})
 

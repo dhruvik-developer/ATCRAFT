@@ -17,7 +17,6 @@ from __future__ import annotations
 import ast
 import re
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -30,10 +29,10 @@ from src.modules.procurement import service as procurement
 from src.modules.production import service as production
 from src.modules.routing import service as routing
 from src.modules.sales import service as sales
+from tests.source_scan_support import SRC, python_sources
 
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 AUTHOR = uuid.uuid4()
 
 
@@ -99,10 +98,6 @@ _REFUSAL = re.compile(
 )
 
 
-def _python_files() -> list[Path]:
-    return sorted(p for p in SRC.rglob("*.py") if "__pycache__" not in p.parts)
-
-
 def can_approve_definitions(source: str) -> int:
     return sum(
         isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "can_approve"
@@ -133,7 +128,7 @@ def hand_written_self_approval_refusals(source: str) -> list[str]:
 def test_can_approve_is_defined_once() -> None:
     owners = [
         path.relative_to(SRC).as_posix()
-        for path in _python_files()
+        for path in python_sources()
         if can_approve_definitions(path.read_text(encoding="utf-8"))
     ]
 
@@ -145,7 +140,7 @@ def test_can_approve_is_defined_once() -> None:
 def test_every_self_approval_refusal_is_a_self_approval_error() -> None:
     failures = [
         f"  {path.relative_to(SRC).as_posix()}: {hit}"
-        for path in _python_files()
+        for path in python_sources()
         for hit in hand_written_self_approval_refusals(path.read_text(encoding="utf-8"))
     ]
 

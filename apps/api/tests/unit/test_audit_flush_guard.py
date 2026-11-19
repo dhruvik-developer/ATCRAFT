@@ -19,13 +19,13 @@ checked per statement (CLAUDE.md).
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
 
+from tests.source_scan_support import SRC
+
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 _AUDIT_WRITERS = frozenset({"record_audit", "record_status_change", "audit_reservation"})
 

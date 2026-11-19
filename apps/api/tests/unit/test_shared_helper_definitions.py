@@ -18,13 +18,13 @@ not a copy, and passes. A re-implementation does not.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
 
+from tests.source_scan_support import source_texts
+
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: helper -> the one module that defines it.
 OWNERS: dict[str, str] = {
@@ -98,14 +98,6 @@ def hand_built_in_use_errors(source: str) -> list[str]:
     ]
 
 
-def _sources() -> dict[str, str]:
-    return {
-        path.relative_to(SRC).as_posix(): path.read_text(encoding="utf-8")
-        for path in sorted(SRC.rglob("*.py"))
-        if "__pycache__" not in path.parts
-    }
-
-
 def test_the_guard_finds_a_copied_helper() -> None:
     source = (
         "from pydantic import BaseModel, field_validator\n"
@@ -135,7 +127,7 @@ def test_the_guard_lets_a_delegating_wrapper_through() -> None:
 
 
 def test_every_owner_defines_its_helper() -> None:
-    sources = _sources()
+    sources = source_texts()
     for helper, owner in OWNERS.items():
         defined = {
             node.name
@@ -148,7 +140,7 @@ def test_every_owner_defines_its_helper() -> None:
 def test_no_module_redefines_a_shared_helper() -> None:
     offenders = {
         relative: found
-        for relative, source in _sources().items()
+        for relative, source in source_texts().items()
         if (found := copies(source, relative))
     }
 
@@ -160,7 +152,7 @@ def test_no_module_redefines_a_shared_helper() -> None:
 def test_only_referenced_in_use_attaches_the_in_use_code() -> None:
     offenders = {
         relative: found
-        for relative, source in _sources().items()
+        for relative, source in source_texts().items()
         if relative not in _IN_USE_OWNERS and (found := hand_built_in_use_errors(source))
     }
 

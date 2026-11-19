@@ -25,9 +25,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.source_scan_support import SRC
+
 pytestmark = pytest.mark.unit
 
-SRC = Path(__file__).resolve().parents[2] / "src"
 
 #: Synchronous functions that must not be called on the event loop.
 _BLOCKING_NAMES = frozenset({"hash_password", "verify_password"})
