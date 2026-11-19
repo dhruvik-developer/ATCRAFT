@@ -42,6 +42,13 @@ export const STORAGE_KEYS = {
   chunkReloadedAt: 'atcraft.chunk-reloaded-at',
 } as const
 
+/**
+ * A failed download this soon after a stale-chunk reload is a chunk that really
+ * is not being served, and is left to the error boundary rather than reloaded
+ * for again (lib/stale-bundle.ts).
+ */
+export const CHUNK_RELOAD_LOOP_WINDOW_MS = 10_000
+
 // --------------------------------------------------------------- lists -----
 
 /** Maximum `limit` accepted and returned by the API's pagination contract. */

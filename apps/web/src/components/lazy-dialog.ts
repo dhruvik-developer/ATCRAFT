@@ -11,7 +11,7 @@ import {
 
 import { ErrorBoundary } from '@/components/error-boundary'
 import { EAGER_PRELOAD } from '@/lib/constants'
-import { browserSavesData, whenIdle } from '@/lib/preload'
+import { browserSavesData, noteBackgroundFailure, whenIdle } from '@/lib/preload'
 import { LazyDialogFallback, type LazyDialogProps } from './lazy-dialog-fallback'
 
 type DialogModule = { default: (props: never) => ReactNode }
@@ -54,11 +54,15 @@ export function lazyDialog(loader: () => Promise<DialogModule>) {
 
   // Eager loading starts when the screen's module runs, not when the form
   // mounts: a screen that mounts a form only once it is opened would otherwise
-  // fetch it on the click (lib/preload.ts). A failed download is left for the
-  // form to retry when it is opened.
+  // fetch it on the click (lib/preload.ts). Nobody is waiting on this download,
+  // so its failure is recorded as a background one, which never reloads the
+  // page (lib/stale-bundle.ts); `load` forgets the failed attempt, and the form
+  // downloads again when it is opened - a failure then may reload. A form opened
+  // while this download is still running shares it and its failure, and offers
+  // a retry, which is a fresh download of its own.
   if (EAGER_PRELOAD && !browserSavesData()) {
     whenIdle(() => {
-      load().catch(() => undefined)
+      load().catch(noteBackgroundFailure)
     })
   }
 

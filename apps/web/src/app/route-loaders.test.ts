@@ -4,9 +4,11 @@
  * silently lose its hover warm-up and, worse, could not be routed at all.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 
+import { installStaleBundleRecovery } from '@/lib/stale-bundle'
+import { asBuiltImport, recoveryHost } from '@/test/preload-failure'
 import { navigation } from './navigation'
 import {
   __resetPrefetch,
@@ -128,5 +130,48 @@ describe('preloadRoutes (eager loading)', () => {
     expect(spies[0]).not.toHaveBeenCalled()
     Reflect.deleteProperty(navigator, 'connection')
     for (const spy of spies) spy.mockRestore()
+  })
+})
+
+describe('a failed warm-up in the production build', () => {
+  let stopRecovery: () => void = () => undefined
+  afterEach(() => {
+    stopRecovery()
+    vi.restoreAllMocks()
+  })
+
+  /** The stale-bundle recovery main.tsx installs, and a screen whose first download fails. */
+  function failOnce(path: keyof typeof routeLoaders) {
+    const recovery = recoveryHost()
+    stopRecovery = installStaleBundleRecovery(window, recovery.host)
+    const loader = vi
+      .spyOn(routeLoaders, path)
+      .mockImplementationOnce(
+        asBuiltImport(() =>
+          Promise.reject(new TypeError('Failed to fetch dynamically imported module')),
+        ),
+      )
+      .mockResolvedValue({ default: () => createElement('div') })
+    return { recovery, loader }
+  }
+
+  it('never reloads the page from the eager preload, and the screen downloads again', async () => {
+    const { recovery, loader } = failOnce('/audit')
+
+    preloadRoutes(['/audit'], { enabled: true })
+    await recovery.decided(1)
+
+    expect(recovery.reload).not.toHaveBeenCalled()
+    prefetchRoute('/audit')
+    expect(loader).toHaveBeenCalledTimes(2)
+  })
+
+  it('never reloads the page from a hover warm-up', async () => {
+    const { recovery } = failOnce('/reports')
+
+    prefetchRoute('/reports')
+    await recovery.decided(1)
+
+    expect(recovery.reload).not.toHaveBeenCalled()
   })
 })

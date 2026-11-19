@@ -18,7 +18,7 @@
 import type { ComponentType } from 'react'
 
 import { EAGER_PRELOAD, ROUTE_PRELOAD_CONCURRENCY } from '@/lib/constants'
-import { browserSavesData, whenIdle } from '@/lib/preload'
+import { browserSavesData, noteBackgroundFailure, whenIdle } from '@/lib/preload'
 
 type PageModule = { default: ComponentType }
 type PageLoader = () => Promise<PageModule>
@@ -161,19 +161,23 @@ export type RoutePath = keyof typeof routeLoaders
 const warmed = new Map<string, Promise<unknown>>()
 
 /**
- * Start downloading a route's chunk ahead of navigation.
+ * Start downloading a route's chunk ahead of navigation - the eager preload, and
+ * the hover, focus and sign-in warm-ups.
  *
- * Idempotent and silent: a second call returns the first promise, a path with
- * no loader (a detail route, an external link) does nothing, and a failed
- * download is swallowed - the click that follows will retry through `lazy`
- * and surface the error where the user can act on it.
+ * Idempotent and silent: a second call returns the first promise, and a path
+ * with no loader (a detail route, an external link) does nothing. Nobody is
+ * waiting on this download, so a failure is recorded as a background one and
+ * never reloads the page (lib/stale-bundle.ts), and the path is forgotten: the
+ * screen's own `lazy` downloads it again when it is opened, where a failure
+ * reloads once to pick up a new deploy, or reaches the error boundary.
  */
 export function prefetchRoute(path: string): void {
   if (!Object.hasOwn(routeLoaders, path) || warmed.has(path)) return
   const load = routeLoaders[path as RoutePath]
   warmed.set(
     path,
-    load().catch(() => {
+    load().catch((error: unknown) => {
+      noteBackgroundFailure(error)
       warmed.delete(path)
     }),
   )

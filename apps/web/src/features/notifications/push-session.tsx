@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { useAuth } from '@/features/auth/auth-context'
 import { P } from '@/lib/permissions'
+import { noteBackgroundFailure } from '@/lib/preload'
 import { queryKeys } from '@/lib/query-client'
 
 /** Mounted once in the active shell, shared by staff and both external portals. */
@@ -14,6 +15,8 @@ export function PushSessionBridge() {
     if (!user?.id || !allowed || !('serviceWorker' in navigator)) return
     let active = true
     let cancelSetup: (() => void) | undefined
+    // Nobody is waiting on this download: a failure is recorded as a background
+    // one, so it never reloads the page under someone working (lib/stale-bundle.ts).
     void import('./push')
       .then(async (module) => {
         if (!active) return
@@ -21,7 +24,7 @@ export function PushSessionBridge() {
         const result = await module.syncPushSubscription()
         if (active) client.setQueryData(queryKeys.notifications.pushState, result.state)
       })
-      .catch(() => undefined)
+      .catch(noteBackgroundFailure)
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type !== 'notification') return
       // The shared prefix includes both the inbox and its unread-count query.

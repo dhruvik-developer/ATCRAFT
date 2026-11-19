@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { installStaleBundleRecovery } from '@/lib/stale-bundle'
+import { asBuiltImport, recoveryHost } from '@/test/preload-failure'
 import { lazyDialog } from './lazy-dialog'
 
 // Eager loading is off under Vitest by default (lib/constants.ts); this file
@@ -29,9 +31,23 @@ function heldLoader() {
   return { loader, finish: () => finish() }
 }
 
+let stopRecovery: () => void = () => undefined
+
 afterEach(() => {
+  stopRecovery()
+  vi.restoreAllMocks()
   Reflect.deleteProperty(navigator, 'connection')
 })
+
+/** The stale-bundle recovery main.tsx installs, watching this test's downloads. */
+function watchForReloads() {
+  const recovery = recoveryHost()
+  stopRecovery = installStaleBundleRecovery(window, recovery.host)
+  return recovery
+}
+
+/** How the browser reports a chunk it could not fetch. */
+const chunkFailure = () => new TypeError('Failed to fetch dynamically imported module')
 
 describe('forms with eager loading on', () => {
   it('downloads a closed form as soon as its screen code runs, and only once', async () => {
@@ -83,19 +99,68 @@ describe('forms with eager loading on', () => {
     expect(loader).toHaveBeenCalledTimes(1)
   })
 
-  it('leaves a failed download for the form to retry when it is opened', async () => {
+  it('never reloads the page for a failed download, and retries it when the form is opened', async () => {
+    const recovery = watchForReloads()
     const loader = vi
       .fn<() => Promise<{ default: typeof Form }>>()
-      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(chunkFailure())
       .mockResolvedValue({ default: Form })
-    const Deferred = lazyDialog(loader)
+    const Deferred = lazyDialog(asBuiltImport(loader))
 
     const view = render(<Deferred open={false} onOpenChange={vi.fn()} />)
-    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1))
+    await recovery.decided(1)
+    expect(recovery.reload).not.toHaveBeenCalled()
 
     view.rerender(<Deferred open onOpenChange={vi.fn()} />)
     expect(await screen.findByText('Form body')).toBeVisible()
     expect(loader).toHaveBeenCalledTimes(2)
+    expect(recovery.reload).not.toHaveBeenCalled()
+  })
+
+  /** A form opened while its eager download is still running, which then fails. */
+  async function openWhileFailing(retry: () => Promise<{ default: typeof Form }>) {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const recovery = watchForReloads()
+    let fail!: () => void
+    const loader = vi
+      .fn<() => Promise<{ default: typeof Form }>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = () => reject(chunkFailure())
+          }),
+      )
+      .mockImplementation(retry)
+    const Deferred = lazyDialog(asBuiltImport(loader))
+
+    const view = render(<Deferred open={false} onOpenChange={vi.fn()} />)
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1))
+    view.rerender(<Deferred open onOpenChange={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Loading form' })).toBeVisible()
+    fail()
+
+    // It shares the background download's failure, so it is not reloaded for.
+    expect(await screen.findByRole('heading', { name: 'Could not open this form' })).toBeVisible()
+    await recovery.decided(1)
+    expect(recovery.reload).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    return { recovery, loader }
+  }
+
+  it('offers a form opened while its download fails a retry that downloads it afresh', async () => {
+    const { recovery, loader } = await openWhileFailing(() => Promise.resolve({ default: Form }))
+
+    expect(await screen.findByText('Form body')).toBeVisible()
+    expect(loader).toHaveBeenCalledTimes(2)
+    expect(recovery.reload).not.toHaveBeenCalled()
+  })
+
+  it('reloads when that retry fails too, since the person is waiting on it', async () => {
+    const { recovery, loader } = await openWhileFailing(() => Promise.reject(chunkFailure()))
+
+    await recovery.decided(2)
+    expect(loader).toHaveBeenCalledTimes(2)
+    expect(recovery.reload).toHaveBeenCalledTimes(1)
   })
 
   it('waits for the first opening when the browser asks to save data', async () => {
