@@ -149,7 +149,7 @@ Security:
       localhost CORS origin, wildcard host, or weak secret.
 - [ ] `./scripts/check-host-nginx.sh --installed` passes on the box.
 - [ ] `JWT_SECRET` and `CREDENTIAL_ENCRYPTION_KEY` are independently generated,
-      differ between deployments, and the credential key is backed up securely.
+      used by no other system, and the credential key is backed up securely.
 - [ ] TLS, HTTP redirect, HSTS, certificate renewal, firewall, and the default
       unknown-host rejection have been verified.
 - [ ] PostgreSQL and Redis publish no host port; deployment Nginx binds only to

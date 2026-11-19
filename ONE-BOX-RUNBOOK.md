@@ -572,7 +572,7 @@ another system or an example.
 | `CELERY_CONCURRENCY`                            | `4`                                 |                                                                                                                                                                  |
 | `WORKER_MEM_LIMIT`                              | `2G`                                |                                                                                                                                                                  |
 | `CLAMAV_MEM_LIMIT`                              | `2G`                                | ClamAV sidecar; allow up to 4G.                                                                                                                                  |
-| `CLAMAV_CPU_LIMIT`                              | `1`                                 | Per deployment signature update and scan ceiling.                                                                                                                |
+| `CLAMAV_CPU_LIMIT`                              | `1`                                 | ClamAV signature update and scan ceiling.                                                                                                                        |
 | `NOTIFY_CONCURRENCY`                            | `2`                                 | Dedicated notification worker.                                                                                                                                   |
 | `NOTIFY_DB_POOL_SIZE`, `NOTIFY_DB_MAX_OVERFLOW` | `2`, `2`                            | Per notification child.                                                                                                                                          |
 | `NOTIFY_MEM_LIMIT`                              | `512M`                              | Notification worker memory limit.                                                                                                                                |
@@ -656,8 +656,8 @@ It scans the built output — after minification and after every substitution
 Vite performs — for JWTs, private keys, database and Redis URLs carrying
 passwords, cloud access keys, service tokens, and this project's own demo
 passwords. Grepping the source is not the same check; the artefact is what
-ships. The gate runs inside the frontend image build, so it applies to both
-deployments.
+ships. The gate runs inside the frontend image build, so no image a release
+builds can ship without passing it.
 
 ---
 

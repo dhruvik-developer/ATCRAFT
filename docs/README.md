@@ -17,7 +17,7 @@ binding engineering rules are in [CLAUDE.md](../CLAUDE.md).
 | [UI readiness](ui-readiness.md) | Browser checks, responsive coverage and dated verification evidence |
 | [Client handbook](handbook/README.md) | User workflows and rebuilding the illustrated guide |
 | [Deployment](deployment.md) | Release configuration and operational checks |
-| [Host runbook](../ONE-BOX-RUNBOOK.md) | Two isolated deployments, TLS, backups and recovery |
+| [Host runbook](../ONE-BOX-RUNBOOK.md) | The production deployment, TLS, backups and recovery |
 | [Business assumptions](assumptions.md) | Explicit business policies and unresolved confirmations |
 
 ## Generated files and configuration

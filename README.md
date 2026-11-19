@@ -161,7 +161,7 @@ docker compose -p atcraft-erp -f docker-compose.yml -f docker-compose.dev.yml up
 
 Never run production with a bare `docker compose up`. Work through
 [`ONE-BOX-RUNBOOK.md`](./ONE-BOX-RUNBOOK.md) first — TLS, secrets, backups,
-the two isolated deployments, and the go-live checklist.
+the production deployment, and the go-live checklist.
 
 ---
 
@@ -340,9 +340,9 @@ changes and push the same verified revision to both branches. Do not create
 feature, temporary or backup branches, worktrees, clones or copied folders;
 [`AGENTS.md`](AGENTS.md) records this policy. Automatic dependency-update PRs
 are paused; CI continues auditing dependencies and container images.
-Deployment names remain `main` and `dev`, tracking the `main` and `develop`
-branches respectively. The deployment script checks the configured branch and
-its matching remote HEAD before releasing.
+The one hosted deployment is `main`, released from the `main` branch;
+`scripts/deploy.sh` refuses any other deployment name, and checks the configured
+branch and its matching remote HEAD before releasing.
 
 `make install` installs the git hooks from `.pre-commit-config.yaml`
 (`make hooks` on its own does the same). The pre-commit hook formats and lints

@@ -10,14 +10,14 @@
 # Rules enforced here (section 48):
 #   - no source bind-mounts (images contain the built application)
 #   - production build targets, non-root users
-#   - bounded resources - CPU as well as memory, so neither deployment can
-#     starve the other - restart policies, controlled log rotation
+#   - bounded resources - CPU as well as memory, so no one service can
+#     starve the rest of the box - restart policies, controlled log rotation
 #   - exactly ONE published port, bound to loopback, from nginx alone
 #
 # TLS, the public hostname and HSTS are NOT here. They belong to the host
-# nginx (infrastructure/nginx/host/), for two reasons: two containers cannot
-# both bind :443 on one box, and a certificate renewed in one place is a
-# certificate that cannot go stale in the other.
+# nginx (infrastructure/nginx/host/), which owns :443 for the box, so the
+# certificate is renewed in exactly one place; this deployment publishes
+# nothing but a loopback port.
 # =============================================================================
 
 services:

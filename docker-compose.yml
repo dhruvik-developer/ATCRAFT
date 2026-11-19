@@ -1,7 +1,7 @@
 # =============================================================================
 # ATCRAFT MANUFACTURING ERP - base Docker Compose topology
 #
-# Service boundaries are IDENTICAL across every deployment (master rules
+# Service boundaries are IDENTICAL in every environment (master rules
 # section 49A). Only runtime configuration changes between overlays:
 #
 #   development:
@@ -99,9 +99,10 @@ x-api-env: &api-env
   # A line discount above this percentage needs sales_order.discount_override
   # and an approval before the order can be confirmed (docs/assumptions.md §E10-3).
   SALES_DISCOUNT_APPROVAL_PERCENT: ${SALES_DISCOUNT_APPROVAL_PERCENT:-10}
-  # Per deployment, and never shared: a token minted by one deployment must not
-  # authenticate against the other. The issuer and audience make that a
-  # deliberate rejection rather than an accident of key rotation.
+  # Generated for the deployment and never shared: a token minted anywhere
+  # else - a local stack, a CI run - must not authenticate in production. The
+  # issuer and audience make that a deliberate rejection rather than an
+  # accident of key rotation.
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
   # Independent from JWT signing so rotating login keys does not make every
   # encrypted TOTP seed unreadable.
@@ -238,8 +239,8 @@ services:
   redis:
     image: redis:7.4.11-alpine3.21@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     # The shared policy lives in the mounted file; the memory ceiling is the
-    # one thing that differs per deployment, and a command-line argument
-    # overrides the config file.
+    # one thing that differs between stacks (REDIS_MAXMEMORY: production's env
+    # file sets 1gb), and a command-line argument overrides the config file.
     command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}"]
     volumes:
       - redis-data:/data
@@ -419,7 +420,8 @@ services:
       args:
         # Relative, so one bundle works behind any hostname - the deployment's
         # own nginx routes /api/v1 to its own backend. An absolute URL here
-        # would bake one deployment's domain into the other's bundle.
+        # would bake one hostname into a build that CI's browser suite serves
+        # on 127.0.0.1 and production serves on its own domain.
         VITE_API_BASE_URL: /api/v1
         VITE_APP_RELEASE: ${IMAGE_TAG:-local}
         VITE_ERROR_REPORT_URL: ${VITE_ERROR_REPORT_URL:-}
@@ -479,8 +481,9 @@ networks:
   internal:
     driver: bridge
 
-# Project-scoped, so these become <project>_postgres-data and so on. Two
-# deployments therefore hold two distinct volumes from the same declaration.
+# Project-scoped, so these become <project>_postgres-data and so on:
+# production, the local stack and a CI run each hold their own volumes from
+# the same declaration.
 volumes:
   postgres-data:
   redis-data:
