@@ -17,6 +17,7 @@ import { Boxes, PackageOpen, PackagePlus, ScanBarcode, X } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import {
   DateRangeFilter,
@@ -56,8 +57,6 @@ import { describeError, empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import { PackingOrderDialog } from './packing-order-dialog'
-import { PackingOrderCreateDialog } from './packing-order-create-dialog'
 import {
   PACKING_STATUSES,
   packingKeys,
@@ -66,6 +65,15 @@ import {
   type PackingOrderRow,
 } from './packing-types'
 import { ReadyFromAssemblyPanel } from './ready-from-assembly'
+
+const PackingOrderDialog = lazyDialog(() =>
+  import('./packing-order-dialog').then((module) => ({ default: module.PackingOrderDialog })),
+)
+const PackingOrderCreateDialog = lazyDialog(() =>
+  import('./packing-order-create-dialog').then((module) => ({
+    default: module.PackingOrderCreateDialog,
+  })),
+)
 
 /** The URL keys this screen filters on, in the order the toolbar shows them. */
 const FILTER_KEYS = [

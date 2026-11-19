@@ -32,9 +32,12 @@ import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
+import { lazyDialog } from '@/components/lazy-dialog'
 import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
+// From the specific module, not the `overlays` barrel, which drags all six
+// Radix families into this screen's download (see app/app-layout.tsx).
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CostCentreName } from '@/features/admin/cost-centre-select'
@@ -58,13 +61,6 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 import {
-  ConfirmPhysicalCountDialog,
-  CreateAdjustmentDialog,
-  CreatePhysicalCountDialog,
-  CreateTransferDialog,
-  EnterCountsDialog,
-} from './movement-dialogs'
-import {
   acceptsCountCancellation,
   acceptsCountConfirmation,
   type PhysicalCountRow,
@@ -73,6 +69,24 @@ import {
   type TransferStatus,
 } from './types'
 
+// The five forms share one module, kept out of the screen's first download and
+// fetched as soon as it paints (components/lazy-dialog.ts); the two count forms
+// open from a row, so they load through lazy() and render from that same module.
+const CreateTransferDialog = lazyDialog(() =>
+  import('./movement-dialogs').then((module) => ({ default: module.CreateTransferDialog })),
+)
+const CreateAdjustmentDialog = lazyDialog(() =>
+  import('./movement-dialogs').then((module) => ({ default: module.CreateAdjustmentDialog })),
+)
+const CreatePhysicalCountDialog = lazyDialog(() =>
+  import('./movement-dialogs').then((module) => ({ default: module.CreatePhysicalCountDialog })),
+)
+const ConfirmPhysicalCountDialog = lazy(() =>
+  import('./movement-dialogs').then((module) => ({ default: module.ConfirmPhysicalCountDialog })),
+)
+const EnterCountsDialog = lazy(() =>
+  import('./movement-dialogs').then((module) => ({ default: module.EnterCountsDialog })),
+)
 const OperationTab = lazy(() => import('./operation-tabs'))
 const EditTransferDialog = lazy(() => import('./edit-transfer-dialog'))
 const EditAdjustmentDialog = lazy(() => import('./edit-adjustment-dialog'))
@@ -1001,11 +1015,18 @@ function PhysicalCountsTab() {
           because the variance has to be on screen before an irreversible
           posting is agreed to. */}
       {confirmTarget && (
-        <ConfirmPhysicalCountDialog count={confirmTarget} onClose={() => setConfirmTarget(null)} />
+        <Suspense fallback={null}>
+          <ConfirmPhysicalCountDialog
+            count={confirmTarget}
+            onClose={() => setConfirmTarget(null)}
+          />
+        </Suspense>
       )}
 
       {canCount && entryTarget && (
-        <EnterCountsDialog count={entryTarget} onClose={() => setEntryTarget(null)} />
+        <Suspense fallback={null}>
+          <EnterCountsDialog count={entryTarget} onClose={() => setEntryTarget(null)} />
+        </Suspense>
       )}
     </>
   )

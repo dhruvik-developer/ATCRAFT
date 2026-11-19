@@ -167,7 +167,7 @@ describe('the assembly board', () => {
     await rendered.user.click(await screen.findByText('ASM-0101'))
 
     // The panel reads the full header, which the board row does not carry.
-    expect(await screen.findByRole('dialog')).toBeVisible()
+    expect(await screen.findByRole('dialog', { busy: false })).toBeVisible()
   })
 
   it('pages line loads and late orders independently without inheriting register filters', async () => {

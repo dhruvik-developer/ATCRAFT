@@ -185,7 +185,7 @@ const STOREKEEPER = [...READER, P.GRN_CREATE, P.GRN_POST]
 async function openReceipt(user: User, fetch: FetchRecorder) {
   await settled(fetch)
   await user.click(screen.getByRole('button', { name: /receive against po/i }))
-  await stable(() => screen.getByRole('dialog'))
+  await stable(() => screen.getByRole('dialog', { busy: false }))
   await user.click(screen.getByRole('combobox', { name: 'Purchase order' }))
   await user.click(await stable(() => screen.getByRole('option', { name: /PO-0001/ })))
   await stable(() => screen.getByText('Brass rod 12mm'))
@@ -304,7 +304,7 @@ describe('what one submit achieves', () => {
 
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /receive against po/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     const field = screen.getByRole('combobox', { name: 'Purchase order' })
     expect(field).toHaveAttribute('aria-required', 'true')
     await user.click(field)
@@ -418,7 +418,7 @@ describe('what one submit achieves', () => {
     expect(received[1]).toHaveAttribute('aria-invalid', 'true')
     // The untouched first line is not blamed for a line it never sent.
     expect(received[0]).toHaveAttribute('aria-invalid', 'false')
-    expect(screen.getByRole('dialog')).toBeVisible()
+    expect(screen.getByRole('dialog', { busy: false })).toBeVisible()
   })
 })
 
@@ -442,7 +442,7 @@ describe('naming the lines received', () => {
     })
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /receive against po/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     await user.click(screen.getByRole('combobox', { name: 'Purchase order' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /PO-0001/ })))
 

@@ -27,6 +27,7 @@ import {
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { ConfirmDialog, FieldError, LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -66,8 +67,19 @@ import {
   type UserRow,
 } from './admin-types'
 import { PermissionMatrix } from './permission-matrix'
-import { RoleFormDialog } from './role-dialogs'
-import { ResetPasswordDialog, RoleAssignmentDialog, UserFormDialog } from './user-dialogs'
+
+const RoleFormDialog = lazyDialog(() =>
+  import('./role-dialogs').then((module) => ({ default: module.RoleFormDialog })),
+)
+const ResetPasswordDialog = lazyDialog(() =>
+  import('./user-dialogs').then((module) => ({ default: module.ResetPasswordDialog })),
+)
+const RoleAssignmentDialog = lazyDialog(() =>
+  import('./user-dialogs').then((module) => ({ default: module.RoleAssignmentDialog })),
+)
+const UserFormDialog = lazyDialog(() =>
+  import('./user-dialogs').then((module) => ({ default: module.UserFormDialog })),
+)
 
 type TabKey = 'users' | 'roles' | 'permissions'
 

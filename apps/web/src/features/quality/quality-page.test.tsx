@@ -421,8 +421,8 @@ describe('what an inspection is against', () => {
     })
     await user.click(await screen.findByRole('button', { name: 'QC-0001' }))
 
-    const dialog = await screen.findByRole('dialog', { name: 'Inspection QC-0001' })
-    expect(within(dialog).getByText('HNG-SS-100 - Stainless hinge 100 mm')).toBeVisible()
+    const dialog = await screen.findByRole('dialog', { name: 'Inspection QC-0001', busy: false })
+    expect(await within(dialog).findByText('HNG-SS-100 - Stainless hinge 100 mm')).toBeVisible()
     expect(within(dialog).getByText('WH-MAIN')).toBeVisible()
     expect(within(dialog).getByText('LOT-2611')).toBeVisible()
     expect(within(dialog).queryByText(/01a00000/)).toBeNull()
@@ -437,7 +437,7 @@ describe('what an inspection is against', () => {
       [P.QC_VIEW, P.QC_INSPECT],
     )
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(
       await within(dialog).findByRole('link', { name: 'HNG-SS-100 - Stainless hinge 100 mm' }),
     ).toBeVisible()

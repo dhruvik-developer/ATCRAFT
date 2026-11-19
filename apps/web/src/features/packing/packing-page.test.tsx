@@ -138,7 +138,7 @@ describe('the packing list', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'New packing order' }))
-    expect(await screen.findByRole('dialog')).toBeVisible()
+    expect(await screen.findByRole('dialog', { busy: false })).toBeVisible()
   })
 
   it('says whether the button will pack or only show', async () => {
@@ -289,7 +289,7 @@ describe('carton labels', () => {
     await screen.findByText('PK-0001')
     await user.click(screen.getByRole('button', { name: /^pack$|^view$/i }))
     await screen.findByText('Packing PK-0001')
-    await user.click(screen.getByRole('button', { name: 'Print label' }))
+    await user.click(await screen.findByRole('button', { name: 'Print label' }))
 
     expect(await screen.findByText('Carton label preview')).toBeVisible()
     expect(screen.getByText('Customer One')).toBeVisible()

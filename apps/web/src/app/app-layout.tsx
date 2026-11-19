@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { navigation, type NavItem, type NavSection } from '@/app/navigation'
-import { prefetchRoute } from '@/app/route-loaders'
+import { prefetchRoute, preloadRoutes, reachableScreens } from '@/app/route-loaders'
 import { Button } from '@/components/ui/button'
 // Imported from the specific modules, not the `overlays` barrel: the barrel
 // re-exports six Radix families, and every component in them is a top-level
@@ -122,6 +122,16 @@ export function AppLayout() {
       ),
     }))
     .filter((section) => section.items.length > 0)
+
+  // Eager loading: once the shell has painted, download every screen this
+  // person can open (and the detail pages under them), so no click waits.
+  const preloadKey = visibleSections
+    .flatMap((section) => section.items.map((item) => item.to))
+    .join(' ')
+  useEffect(
+    () => preloadRoutes([...reachableScreens(preloadKey.split(' ')), '/profile', '/notifications']),
+    [preloadKey],
+  )
 
   return (
     <TooltipProvider delayDuration={300}>

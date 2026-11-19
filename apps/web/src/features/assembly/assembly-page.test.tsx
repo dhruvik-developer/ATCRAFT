@@ -113,7 +113,7 @@ async function openPanel(
 ): Promise<void> {
   await screen.findByText(code)
   await user.click(screen.getByRole('button', { name: 'Open' }))
-  await screen.findByRole('dialog')
+  await screen.findByRole('dialog', { busy: false })
 }
 
 /** Render the register with one order in the given state and open its panel. */
@@ -234,7 +234,7 @@ describe('what the order panel names', () => {
       ]),
     })
     await openPanel(user)
-    const dialog = screen.getByRole('dialog')
+    const dialog = screen.getByRole('dialog', { busy: false })
 
     expect(await within(dialog).findByText('LOCK-SET-01 - Mortise lock set')).toBeVisible()
     const component = within(dialog).getAllByRole('row')[1]!

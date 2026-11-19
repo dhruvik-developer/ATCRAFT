@@ -34,9 +34,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { Layers, MoreHorizontal, Plus, X } from 'lucide-react'
-import { Suspense, lazy, useMemo, useState } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import {
   ConfirmDialog,
@@ -72,7 +73,6 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
-import { RequisitionFormDialog } from './requisition-form-dialog'
 import {
   ACTIONABLE_REQUISITION_STATUSES,
   CONVERTIBLE_REQUISITION_STATUSES,
@@ -92,13 +92,17 @@ import {
 } from './procurement-types'
 import { serverFieldMessage } from './server-field-errors'
 
+const RequisitionFormDialog = lazyDialog(() =>
+  import('./requisition-form-dialog').then((module) => ({ default: module.RequisitionFormDialog })),
+)
+
 /**
  * The conversion dialogs are the heaviest thing a buyer can open here, and most
  * visits to the queue never open them, so they arrive in their own chunk - one
  * module, both dialogs - on first use.
  */
-const RequisitionConversionDialog = lazy(() => import('./requisition-conversion-dialog'))
-const RequisitionBatchPicker = lazy(() =>
+const RequisitionConversionDialog = lazyDialog(() => import('./requisition-conversion-dialog'))
+const RequisitionBatchPicker = lazyDialog(() =>
   import('./requisition-conversion-dialog').then((m) => ({ default: m.RequisitionBatchPicker })),
 )
 

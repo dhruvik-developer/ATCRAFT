@@ -334,7 +334,7 @@ describe('what the dialogs do when the record behind them cannot be loaded', () 
     await openActions(user, 'Priya Shah')
     await user.click(screen.getByRole('menuitem', { name: /edit details/i }))
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(await within(dialog).findByText('Could not load this user')).toBeVisible()
     const toasts = screen.getByRole('region', { name: 'Notifications' })
     expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
@@ -360,7 +360,7 @@ describe('what the dialogs do when the record behind them cannot be loaded', () 
     await openActions(user, 'Priya Shah')
     await user.click(screen.getByRole('menuitem', { name: /assign roles/i }))
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(await within(dialog).findByText("Could not load this account's roles")).toBeVisible()
     await user.click(within(dialog).getByRole('button', { name: 'Try again' }))
 
@@ -579,7 +579,7 @@ describe('the warehouses an account may use', () => {
   async function fillNewUser(user: ReturnType<typeof renderAssignment>['user']) {
     await settled()
     await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(within(dialog).getByLabelText(/full name/i), 'Ravi Kumar')
     await user.type(within(dialog).getByLabelText(/^email/i), 'ravi@atcraft.example')
     await user.type(within(dialog).getByLabelText(/first password/i), 'Str0ng-Passw0rd!')
@@ -593,7 +593,7 @@ describe('the warehouses an account may use', () => {
   ): Promise<{ dialog: HTMLElement; group: HTMLElement }> {
     await openActions(user, 'Ravi Kumar')
     await user.click(screen.getByRole('menuitem', { name: /edit details/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await waitFor(() =>
       expect(within(dialog).getByLabelText(/full name/i)).toHaveValue('Ravi Kumar'),
     )
@@ -642,7 +642,7 @@ describe('the warehouses an account may use', () => {
     })
     await settled()
     await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
-    const group = within(await screen.findByRole('dialog')).getByRole('group', {
+    const group = within(await screen.findByRole('dialog', { busy: false })).getByRole('group', {
       name: 'Warehouses',
     })
 
@@ -657,7 +657,7 @@ describe('the warehouses an account may use', () => {
     async function openNewUser(user: ReturnType<typeof renderAssignment>['user']) {
       await settled()
       await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
-      const dialog = await screen.findByRole('dialog')
+      const dialog = await screen.findByRole('dialog', { busy: false })
       return { dialog, group: within(dialog).getByRole('group', { name: 'Warehouses' }) }
     }
 
@@ -1127,7 +1127,7 @@ describe('a failed role list is said once on each screen', () => {
     await user.click(await screen.findByRole('button', { name: 'Actions for Priya Shah' }))
     await user.click(await screen.findByRole('menuitem', { name: /assign roles/i }))
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(await within(dialog).findByText('Could not load the role list')).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Try again' })).toBeVisible()
     expect(toastAlerts()).toHaveLength(0)
@@ -1142,7 +1142,7 @@ describe('a failed role list is said once on each screen', () => {
 
     await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(await within(dialog).findByText(/the role list could not be loaded/i)).toBeVisible()
     expect(toastAlerts()).toHaveLength(0)
   })

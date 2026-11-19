@@ -206,7 +206,7 @@ describe('raising an inspection by hand', () => {
       routes,
     })
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).getByText('Stage')).toBeVisible()
     expect(within(dialog).getByRole('combobox', { name: 'Item' })).toBeVisible()
     expect(within(dialog).getByLabelText('Quantity')).toBeVisible()
@@ -222,7 +222,7 @@ describe('raising an inspection by hand', () => {
       routes,
     })
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).getByRole('button', { name: /raise inspection/i })).toBeDisabled()
   })
 
@@ -232,7 +232,7 @@ describe('raising an inspection by hand', () => {
       routes: { ...routes, 'POST /quality/inspections': ok(row()) },
     })
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('combobox', { name: 'Item' }))
     await user.click(await screen.findByRole('option', { name: /FG-100/ }))
     await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))

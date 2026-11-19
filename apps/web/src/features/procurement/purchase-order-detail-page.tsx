@@ -41,6 +41,7 @@ import {
 import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import {
   ConfirmDialog,
@@ -109,7 +110,7 @@ import {
   type PurchaseOrderRow,
   type PurchaseOrderTracking,
 } from './procurement-types'
-import { PurchaseOrderSendDialog } from './purchase-order-send-dialog'
+
 import { PurchaseOrderInboundPanel } from './purchase-order-inbound-panel'
 import { serverFieldMessage } from './server-field-errors'
 import {
@@ -117,6 +118,12 @@ import {
   invalidatePurchaseOrderChanges,
   isPoAmendable,
 } from './purchase-order-change-model'
+
+const PurchaseOrderSendDialog = lazyDialog(() =>
+  import('./purchase-order-send-dialog').then((module) => ({
+    default: module.PurchaseOrderSendDialog,
+  })),
+)
 
 const PurchaseOrderAmendDialog = lazy(() => import('./purchase-order-amend-dialog'))
 const PurchaseOrderAmendmentsPanel = lazy(() => import('./purchase-order-amendments-panel'))

@@ -80,7 +80,7 @@ describe('ready from assembly', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Pack' }))
-    await screen.findByRole('dialog')
+    await screen.findByRole('dialog', { busy: false })
 
     // A manual assembly names no sales order, so the customer must be named
     // here rather than resolved from a source.
@@ -109,7 +109,7 @@ describe('ready from assembly', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Pack' }))
-    await screen.findByRole('dialog')
+    await screen.findByRole('dialog', { busy: false })
     // No customer named: the order's customer comes from the source order.
     await user.click(screen.getByRole('button', { name: 'Raise packing order' }))
 

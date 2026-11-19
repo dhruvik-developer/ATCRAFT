@@ -24,6 +24,7 @@ import {
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { DefaultBadge } from '@/components/default-badge'
 import { PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
@@ -52,8 +53,14 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
-import { LocationFormDialog, WarehouseFormDialog } from './warehouse-dialogs'
 import { WAREHOUSE_TYPES, type StorageLocation, type Warehouse } from './warehouse-model'
+
+const LocationFormDialog = lazyDialog(() =>
+  import('./warehouse-dialogs').then((module) => ({ default: module.LocationFormDialog })),
+)
+const WarehouseFormDialog = lazyDialog(() =>
+  import('./warehouse-dialogs').then((module) => ({ default: module.WarehouseFormDialog })),
+)
 
 // ------------------------------------------------------ locations panel -----
 

@@ -244,7 +244,7 @@ describe('raising an order', () => {
       },
     )
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await fillTheMinimum(user, dialog)
     await user.click(within(dialog).getByRole('combobox', { name: 'Cost centre' }))
     await user.click(await screen.findByRole('option', { name: 'CC-MACH - Machining' }))
@@ -264,7 +264,7 @@ describe('raising an order', () => {
       },
     )
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).queryByRole('combobox', { name: 'Cost centre' })).not.toBeInTheDocument()
     await fillTheMinimum(user, dialog)
     await user.click(within(dialog).getByRole('button', { name: /raise order/i }))

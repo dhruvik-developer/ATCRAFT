@@ -425,7 +425,7 @@ describe('the create dialog', () => {
     await screen.findByRole('link', { name: 'RM-001' })
     await user.click(screen.getByRole('button', { name: /new item/i }))
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     // The code is writable here and nowhere else - the edit dialog disables it,
     // because the code is printed on documents that have already left.
     expect(within(dialog).getByRole('textbox', { name: 'Code' })).toBeEnabled()
@@ -442,7 +442,7 @@ describe('the create dialog', () => {
 
     await screen.findByRole('link', { name: 'RM-001' })
     await user.click(screen.getByRole('button', { name: /new item/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-002')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brass rod 14mm')
@@ -479,7 +479,7 @@ describe('the create dialog', () => {
 
     await screen.findByRole('link', { name: 'RM-001' })
     await user.click(screen.getByRole('button', { name: /new item/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-003')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brass rod 16mm')
@@ -518,7 +518,7 @@ describe('the create dialog', () => {
 
     await screen.findByRole('link', { name: 'RM-001' })
     await user.click(screen.getAllByRole('button', { name: /new item/i })[0]!)
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'FG-010')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Lever handle')
@@ -556,7 +556,7 @@ describe('the create dialog', () => {
 
     await screen.findByRole('link', { name: 'RM-001' })
     await user.click(screen.getAllByRole('button', { name: /new item/i })[0]!)
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-011')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brass rod 18mm')
     await user.click(within(dialog).getByRole('combobox', { name: /base unit/i }))
@@ -588,7 +588,7 @@ describe('the create dialog', () => {
 
     await screen.findByRole('link', { name: 'RM-001' })
     await user.click(screen.getByRole('button', { name: /new item/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-LONG-LIFE')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Long-life brass stock')
     await user.click(within(dialog).getByRole('combobox', { name: /base unit/i }))

@@ -21,6 +21,7 @@ import { ExternalLink, PackageCheck, Upload, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { ConfirmDialog, DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -46,12 +47,15 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
-import { GrnReceiveDialog } from './grn-receive-dialog'
 import {
   GRN_STATUSES,
   type GoodsReceiptPostResult,
   type GoodsReceiptRow,
 } from './procurement-types'
+
+const GrnReceiveDialog = lazyDialog(() =>
+  import('./grn-receive-dialog').then((module) => ({ default: module.GrnReceiveDialog })),
+)
 
 /** Every filter this screen owns, cleared as one write rather than five. */
 const FILTER_KEYS = [

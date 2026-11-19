@@ -97,7 +97,7 @@ function renderRegister(betaRead: () => RouteBody) {
 /** Edit Alpha, then cancel it: the dialog closes but stays mounted with Alpha's form. */
 async function editAlphaThenCancel(user: ReturnType<typeof renderRegister>['user']) {
   await user.click(await screen.findByRole('button', { name: 'Edit VEN-A' }))
-  const dialog = await screen.findByRole('dialog')
+  const dialog = await screen.findByRole('dialog', { busy: false })
   await waitFor(() =>
     expect(within(dialog).getByLabelText(/trading name/i)).toHaveValue('Alpha Metals'),
   )
@@ -111,7 +111,7 @@ describe('editing the next vendor after the previous one', () => {
     await editAlphaThenCancel(user)
 
     await user.click(screen.getByRole('button', { name: 'Edit VEN-B' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     expect(await within(dialog).findByText('Could not load this vendor')).toBeVisible()
     expect(within(dialog).getByText(/The vendor master is unavailable/)).toBeVisible()
@@ -131,7 +131,7 @@ describe('editing the next vendor after the previous one', () => {
     await editAlphaThenCancel(user)
 
     await user.click(screen.getByRole('button', { name: 'Edit VEN-B' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(await within(dialog).findByRole('button', { name: 'Try again' }))
 
     await waitFor(() =>

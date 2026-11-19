@@ -31,6 +31,7 @@ import {
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import {
   ConfirmDialog,
@@ -82,13 +83,6 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 import {
-  CloseProductionDialog,
-  CompleteProductionDialog,
-  IssueMaterialDialog,
-  RecordProductionDialog,
-  ReturnMaterialDialog,
-} from './production-dialogs'
-import {
   PRODUCTION_STEPS,
   acceptsMaterialIssue,
   acceptsMaterialReturn,
@@ -117,6 +111,22 @@ import {
   type WorkOrderRow,
 } from './production-model'
 import { plannedMinutes } from './work-order-model'
+
+const CloseProductionDialog = lazyDialog(() =>
+  import('./production-dialogs').then((module) => ({ default: module.CloseProductionDialog })),
+)
+const CompleteProductionDialog = lazyDialog(() =>
+  import('./production-dialogs').then((module) => ({ default: module.CompleteProductionDialog })),
+)
+const IssueMaterialDialog = lazyDialog(() =>
+  import('./production-dialogs').then((module) => ({ default: module.IssueMaterialDialog })),
+)
+const RecordProductionDialog = lazyDialog(() =>
+  import('./production-dialogs').then((module) => ({ default: module.RecordProductionDialog })),
+)
+const ReturnMaterialDialog = lazyDialog(() =>
+  import('./production-dialogs').then((module) => ({ default: module.ReturnMaterialDialog })),
+)
 
 // ------------------------------------------------------------- stepper ------
 

@@ -147,7 +147,7 @@ describe('who may do what to an order', () => {
       expect(offeredActions()).toEqual(['Amend draft', 'Cancel order', 'Delete draft'])
 
       await user.click(screen.getByRole('menuitem', { name: 'Delete draft' }))
-      await screen.findByRole('dialog')
+      await screen.findByRole('dialog', { busy: false })
 
       // The API requires the audit reason and refuses without it, so the floor
       // is held here rather than coming back as a 422 on a confirmation the user
@@ -187,7 +187,7 @@ describe('who may do what to an order', () => {
       expect(offeredActions()).toEqual(['Approve'])
 
       await user.click(screen.getByRole('menuitem', { name: 'Approve' }))
-      await screen.findByRole('dialog')
+      await screen.findByRole('dialog', { busy: false })
       await user.type(screen.getByRole('textbox', { name: 'Reason' }), '  Rate agreed  ')
       await user.click(screen.getByRole('button', { name: 'Approve order' }))
 

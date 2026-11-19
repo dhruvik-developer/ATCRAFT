@@ -16,6 +16,7 @@ import { Boxes, Layers, Pencil, Plus, Shapes, Star, Tags, Trash2, Truck } from '
 import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { DefaultBadge } from '@/components/default-badge'
 import {
@@ -66,9 +67,6 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
-import { ItemFormDialog } from './item-form-dialog'
-import { VendorLinkDialog } from './vendor-link-dialog'
-import { VariantFormDialog } from './variant-form-dialog'
 import {
   ALL_CAPABILITIES,
   CAPABILITY_META,
@@ -83,7 +81,22 @@ import {
   type ItemVendorLink,
   type ItemWarehouseStockRow,
 } from './item-model'
-import { RetireItemDialog, RetireVariantDialog } from './item-retire-dialogs'
+
+const ItemFormDialog = lazyDialog(() =>
+  import('./item-form-dialog').then((module) => ({ default: module.ItemFormDialog })),
+)
+const VendorLinkDialog = lazyDialog(() =>
+  import('./vendor-link-dialog').then((module) => ({ default: module.VendorLinkDialog })),
+)
+const VariantFormDialog = lazyDialog(() =>
+  import('./variant-form-dialog').then((module) => ({ default: module.VariantFormDialog })),
+)
+const RetireItemDialog = lazyDialog(() =>
+  import('./item-retire-dialogs').then((module) => ({ default: module.RetireItemDialog })),
+)
+const RetireVariantDialog = lazyDialog(() =>
+  import('./item-retire-dialogs').then((module) => ({ default: module.RetireVariantDialog })),
+)
 
 const ItemSpecificationsPanel = lazy(() =>
   import('./item-specifications-panel').then((module) => ({

@@ -26,6 +26,7 @@ import {
 import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { CellButton, DataTable } from '@/components/data-table'
 import { PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -49,12 +50,10 @@ import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import { InspectionDialog } from './inspection-dialog'
-
-const RaiseInspectionDialog = lazy(() =>
+const RaiseInspectionDialog = lazyDialog(() =>
   import('./raise-inspection-dialog').then((m) => ({ default: m.RaiseInspectionDialog })),
 )
-const InspectionDetailDialog = lazy(() =>
+const InspectionDetailDialog = lazyDialog(() =>
   import('./inspection-detail-dialog').then((m) => ({ default: m.InspectionDetailDialog })),
 )
 const QualityReports = lazy(() =>
@@ -70,6 +69,10 @@ import {
   referenceLink,
   type QcInspectionRow,
 } from './quality-types'
+
+const InspectionDialog = lazyDialog(() =>
+  import('./inspection-dialog').then((module) => ({ default: module.InspectionDialog })),
+)
 
 /** Days in QC hold before the wait itself becomes the problem. */
 const AGEING_WARNING_DAYS = 3

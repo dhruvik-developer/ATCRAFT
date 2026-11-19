@@ -17,6 +17,7 @@ import { BadgeCheck, MoreHorizontal, Pencil, Plus, Star, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { CellButton, DataTable } from '@/components/data-table'
 import { ConfirmDialog, DescriptionList, FieldError, PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -67,7 +68,6 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-import { VendorFormDialog } from './vendor-form-dialog'
 import {
   acceptsRating,
   acceptsRetirement,
@@ -81,6 +81,10 @@ import {
   type VendorRatingRequest,
   type VendorRow,
 } from './vendor-types'
+
+const VendorFormDialog = lazyDialog(() =>
+  import('./vendor-form-dialog').then((module) => ({ default: module.VendorFormDialog })),
+)
 
 /** Which lifecycle command a reason dialog is currently collecting a reason for. */
 type PendingCommand = {

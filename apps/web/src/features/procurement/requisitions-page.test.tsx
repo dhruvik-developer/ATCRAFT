@@ -604,7 +604,7 @@ describe('the requisition form', () => {
   async function openForm(user: User, fetch: FetchRecorder) {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /raise requisition/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     const requiredDate = new Date()
     requiredDate.setDate(requiredDate.getDate() + 1)
     const requiredDateInput = toDateInput(requiredDate)
@@ -727,7 +727,7 @@ describe('the requisition form', () => {
 
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /raise requisition/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     // `RequisitionCreate` declares `lines` as required and refuses an empty set,
     // so a form that could be emptied would offer a save that cannot succeed.
     expect(screen.getByRole('button', { name: 'Remove line 1' })).toBeDisabled()
@@ -754,7 +754,7 @@ describe('the requisition form', () => {
     // a line-level refusal belongs on that line rather than in a toast the
     // requester has to map back onto the sheet themselves.
     await stable(() => screen.getByText('Exceeds the maximum order quantity for this item'))
-    expect(screen.getByRole('dialog')).toBeVisible()
+    expect(screen.getByRole('dialog', { busy: false })).toBeVisible()
   })
 
   it('does not offer a blank form to save over a draft that failed to load', async () => {
@@ -783,7 +783,7 @@ describe('the requisition form', () => {
 
     const menu = await openActions(user, fetch, 'PR-0001')
     await user.click(within(menu).getByRole('menuitem', { name: 'Edit draft' }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
 
     await stable(() => within(dialog).getByText('Could not load this requisition'))
     expect(
@@ -824,7 +824,7 @@ describe('the requisition form', () => {
       },
     )
 
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     await waitFor(() =>
       expect(within(dialog).getByRole('combobox', { name: 'Line 2 item' })).toHaveTextContent(
         'SS-SHEET-2 - Stainless sheet 2mm',
@@ -847,7 +847,7 @@ describe('the requisition form', () => {
 
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /raise requisition/i }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     expect(within(dialog).getByText(/cannot save a requisition from here/i)).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Raise draft requisition' })).toBeDisabled()
   })

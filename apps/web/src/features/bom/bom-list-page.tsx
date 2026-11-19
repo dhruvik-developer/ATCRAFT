@@ -13,6 +13,7 @@ import { Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { DefaultBadge } from '@/components/default-badge'
 import { PageHeader, StatusBadge } from '@/components/shared'
@@ -33,8 +34,11 @@ import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import { BomFormDialog } from './bom-dialogs'
 import { BOM_STATUSES, BOM_TYPES, type BomRow } from './bom-model'
+
+const BomFormDialog = lazyDialog(() =>
+  import('./bom-dialogs').then((module) => ({ default: module.BomFormDialog })),
+)
 
 export default function BomListPage() {
   const { can } = useAuth()

@@ -157,7 +157,7 @@ describe('creating a cost centre', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new cost centre/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'CC-BUFF')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Buffing and polishing')
@@ -200,7 +200,7 @@ describe('creating a cost centre', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new cost centre/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'CC-BUFF')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Buffing and polishing')
     await user.click(within(dialog).getByRole('button', { name: /create cost centre/i }))
@@ -223,7 +223,7 @@ describe('creating a cost centre', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new cost centre/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'CC-PROD')
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Production again')
     await user.click(within(dialog).getByRole('combobox', { name: 'Type' }))
@@ -249,7 +249,7 @@ describe('editing and retiring a cost centre', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Actions for CC-MACH' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     expect(within(dialog).getByRole('textbox', { name: 'Code' })).toBeDisabled()
 
@@ -297,7 +297,7 @@ describe('editing and retiring a cost centre', () => {
     await user.click(await screen.findByRole('button', { name: 'Actions for CC-SALES' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Retire' }))
 
-    const confirm = await screen.findByRole('dialog')
+    const confirm = await screen.findByRole('dialog', { busy: false })
     expect(within(confirm).getByText(/deactivate it instead/i)).toBeVisible()
 
     await user.type(
@@ -351,7 +351,7 @@ describe("a department's default cost centre", () => {
 
     await user.click(await screen.findByRole('button', { name: 'Actions for BUFF' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('combobox', { name: 'Parent department' }))
 
     expect(await screen.findByRole('option', { name: 'PROD - Production' })).toBeVisible()
@@ -373,7 +373,7 @@ describe("a department's default cost centre", () => {
 
     await user.click(screen.getByRole('button', { name: 'Actions for BUFF' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Default cost centre' }))
     await user.click(await screen.findByRole('option', { name: 'No default' }))
@@ -400,7 +400,7 @@ describe("a department's default cost centre", () => {
 
     await user.click(await screen.findByRole('button', { name: 'Actions for BUFF' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     expect(
       within(dialog).queryByRole('combobox', { name: 'Default cost centre' }),

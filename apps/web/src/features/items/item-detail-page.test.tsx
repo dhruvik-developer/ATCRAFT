@@ -490,7 +490,7 @@ describe('the variants panel', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Retire variant RM-001-BR' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('button', { name: 'Retire variant' }))
 
     const call = fetch.calls.find((entry) => entry.method === 'DELETE')
@@ -516,7 +516,7 @@ describe('the variants panel', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'New variant' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).queryByRole('textbox', { name: 'Cost delta' })).not.toBeInTheDocument()
     await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-001-BR2')
     await user.type(
@@ -555,7 +555,7 @@ describe('the variants panel', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Edit variant RM-001-BR' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).getByRole('textbox', { name: 'Code' })).toBeDisabled()
     await user.clear(within(dialog).getByRole('textbox', { name: 'Name' }))
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brushed brass rod')
@@ -591,7 +591,7 @@ describe('what the edit dialog sends', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     // The code is quoted on documents that have already been issued, so the
     // API refuses to change it and the field is locked rather than sent.
@@ -639,7 +639,7 @@ describe('what the edit dialog sends', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).queryByRole('textbox', { name: 'Standard cost' })).not.toBeInTheDocument()
 
     await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
@@ -658,7 +658,7 @@ describe('what the edit dialog sends', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.clear(within(dialog).getByRole('textbox', { name: 'HSN code' }))
     await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
 
@@ -681,7 +681,7 @@ describe('what the edit dialog sends', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('GST rate cannot exceed 100')
@@ -700,7 +700,7 @@ describe('what the edit dialog sends', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     const gst = within(dialog).getByRole('textbox', { name: 'GST rate (%)' })
     await user.clear(gst)
     await user.type(gst, '120')
@@ -722,7 +722,7 @@ describe('retiring the item', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^retire$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('button', { name: 'Retire item' }))
 
     const call = fetch.calls.find((entry) => entry.method === 'DELETE')
@@ -748,7 +748,7 @@ describe('retiring the item', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^retire$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('button', { name: 'Retire item' }))
 
     expect(await within(dialog).findByText('Could not retire the item')).toBeVisible()
@@ -789,7 +789,7 @@ describe('retiring the item', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^retire$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     expect(await within(dialog).findByText('This item is still in use')).toBeVisible()
     // Owned, not on-hand: in transit and at a job worker count too, and it is
@@ -810,7 +810,7 @@ describe('retiring the item', () => {
 
     await screen.findByRole('heading', { name: /^RM-001/ })
     await user.click(screen.getByRole('button', { name: /^retire$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     expect(within(dialog).getByText(/could not be checked from this account/)).toBeInTheDocument()
     expect(within(dialog).queryByText('This item is still in use')).not.toBeInTheDocument()
@@ -947,7 +947,7 @@ describe('the brand and the maker', () => {
 
     await screen.findByRole('heading', { name: /^RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
 
     const body = await waitForPatch(fetch)
@@ -970,7 +970,7 @@ describe('what the edit dialog sends for prices and planning', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     // Seeded from the item, like every other field: the form restates what is
     // recorded rather than blanking what it cannot see.
@@ -1015,7 +1015,7 @@ describe('what the edit dialog sends for prices and planning', () => {
 
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('button', { name: /^edit$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).getByRole('textbox', { name: 'Sale price' })).toBeDisabled()
     expect(within(dialog).getByRole('textbox', { name: 'Dealer price' })).toBeDisabled()
 
@@ -1083,7 +1083,7 @@ describe('variant create and edit affordances', () => {
     await screen.findByText('RM-001-BR')
     await user.click(screen.getByRole('button', { name: /new variant/i }))
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).getByRole('heading', { name: /new variant of RM-001/i })).toBeVisible()
   })
 })
@@ -1254,7 +1254,7 @@ describe('vendor link management', () => {
       })
 
       await user.click(await screen.findByRole('button', { name: /add specification/i }))
-      const dialog = await screen.findByRole('dialog')
+      const dialog = await screen.findByRole('dialog', { busy: false })
       await user.click(within(dialog).getByRole('button', { name: 'Save specification' }))
 
       expect(
@@ -1274,7 +1274,7 @@ describe('vendor link management', () => {
 
     await screen.findByText('ALT-44')
     await user.click(screen.getByRole('button', { name: 'Remove link to Alternate source' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('button', { name: /remove link/i }))
 
     await waitFor(() => fetch.requestFor('DELETE', '/products/item-vendors/link-b'))

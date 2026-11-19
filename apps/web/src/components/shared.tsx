@@ -32,7 +32,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/overlays'
+} from '@/components/ui/dialog'
 import {
   Alert,
   AlertDescription,

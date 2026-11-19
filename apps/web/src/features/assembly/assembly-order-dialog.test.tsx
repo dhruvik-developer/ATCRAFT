@@ -113,7 +113,7 @@ async function openCreate(user: ReturnType<typeof renderScreen>['user']) {
   // The action is gated on the signed-in account's rights, so it appears once
   // the session resolves - clicking before that races the auth read.
   await user.click(await screen.findByRole('button', { name: /new assembly order/i }))
-  return screen.findByRole('dialog')
+  return screen.findByRole('dialog', { busy: false })
 }
 
 describe('raising an assembly order', () => {
@@ -133,7 +133,7 @@ describe('raising an assembly order', () => {
     })
     await openCreate(user)
 
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('combobox', { name: 'Item to assemble' }))
     await screen.findByRole('option', { name: /LOCK-SET-01/ })
 
@@ -176,7 +176,7 @@ describe('raising an assembly order', () => {
       requires_qc: false,
     })
     // Saving lands on the created order's panel rather than back on the list.
-    expect(await screen.findByRole('dialog')).toBeVisible()
+    expect(await screen.findByRole('dialog', { busy: false })).toBeVisible()
     expect(await screen.findByText('ASM-0001')).toBeVisible()
   })
 
@@ -262,7 +262,7 @@ describe('amending a draft', () => {
     )
     await screen.findByText('ASM-0001')
     await user.click(screen.getByRole('button', { name: 'Open' }))
-    await screen.findByRole('dialog')
+    await screen.findByRole('dialog', { busy: false })
     await user.click(screen.getByRole('button', { name: 'Edit draft' }))
 
     const quantity = await screen.findByRole('textbox', { name: /planned quantity/i })

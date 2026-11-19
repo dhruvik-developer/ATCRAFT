@@ -31,6 +31,7 @@ import {
 import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import {
   ConfirmDialog,
@@ -87,7 +88,6 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
-import { JobWorkIssueDialog, JobWorkQcResultDialog, JobWorkReceiveDialog } from './job-work-dialogs'
 import {
   AT_VENDOR_STATUSES,
   JOB_WORK_STATUSES,
@@ -107,7 +107,21 @@ import {
   type JobWorkStatus,
   type PendingAtVendorRow,
 } from './job-work-model'
-import { JobWorkOrderFormDialog } from './job-work-order-form-dialog'
+
+const JobWorkIssueDialog = lazyDialog(() =>
+  import('./job-work-dialogs').then((module) => ({ default: module.JobWorkIssueDialog })),
+)
+const JobWorkQcResultDialog = lazyDialog(() =>
+  import('./job-work-dialogs').then((module) => ({ default: module.JobWorkQcResultDialog })),
+)
+const JobWorkReceiveDialog = lazyDialog(() =>
+  import('./job-work-dialogs').then((module) => ({ default: module.JobWorkReceiveDialog })),
+)
+const JobWorkOrderFormDialog = lazyDialog(() =>
+  import('./job-work-order-form-dialog').then((module) => ({
+    default: module.JobWorkOrderFormDialog,
+  })),
+)
 
 /**
  * Bills raised against job-work orders live in their own chunk: the tab pulls

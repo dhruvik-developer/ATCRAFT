@@ -560,7 +560,7 @@ describe('what the account form sends', () => {
    */
   async function openCreate(user: ReturnType<typeof renderCustomers>['user']) {
     await user.click(await screen.findByRole('button', { name: /new customer/i }))
-    return stable(() => screen.getByRole('dialog'))
+    return stable(() => screen.getByRole('dialog', { busy: false }))
   }
 
   it('keeps the credit limit a string and the credit days a number', async () => {
@@ -677,7 +677,7 @@ describe('what the account form sends', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Edit C-0001' }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     expect(await within(dialog).findByLabelText(/code/i)).toBeDisabled()
     expect(fetch.calls.some((call) => call.path === `/customers/${ACME_ID}`)).toBe(true)
   })
@@ -696,7 +696,7 @@ describe('the dealer channel in the account form', () => {
    */
   async function openEdit(user: ReturnType<typeof renderCustomers>['user'], code: string) {
     await user.click(await screen.findByRole('button', { name: `Edit ${code}` }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     // The rule needs the loaded record; the locked code field is the sign it is in.
     expect(await within(dialog).findByLabelText(/code/i)).toBeDisabled()
     return dialog
@@ -790,7 +790,7 @@ describe('the dealer channel in the account form', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new customer/i }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     await user.click(within(dialog).getByRole('combobox', { name: /customer type/i }))
 
     expect(await screen.findByRole('option', { name: 'Customer' })).toBeVisible()
@@ -806,7 +806,7 @@ describe('the dealer channel in the account form', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new customer/i }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     await user.click(within(dialog).getByRole('combobox', { name: /customer type/i }))
 
     expect(await screen.findByRole('option', { name: 'Dealer' })).toBeVisible()

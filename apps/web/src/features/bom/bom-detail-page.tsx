@@ -39,6 +39,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { DefaultBadge } from '@/components/default-badge'
 import {
@@ -97,7 +98,6 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-import { CopyBomDialog, BomEditDialog } from './bom-dialogs'
 import {
   isApprovable,
   isDeletable,
@@ -115,6 +115,13 @@ import {
   type WhereUsedRow,
 } from './bom-model'
 import { BomStructure } from './bom-tree'
+
+const CopyBomDialog = lazyDialog(() =>
+  import('./bom-dialogs').then((module) => ({ default: module.CopyBomDialog })),
+)
+const BomEditDialog = lazyDialog(() =>
+  import('./bom-dialogs').then((module) => ({ default: module.BomEditDialog })),
+)
 
 /** The four status moves, all of which take a recorded reason. */
 type StatusAction = 'submit' | 'approve' | 'reject' | 'obsolete'

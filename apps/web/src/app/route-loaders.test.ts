@@ -8,7 +8,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 
 import { navigation } from './navigation'
-import { __resetPrefetch, prefetchRoute, routeLoaders } from './route-loaders'
+import {
+  __resetPrefetch,
+  prefetchRoute,
+  preloadRoutes,
+  reachableScreens,
+  routeLoaders,
+} from './route-loaders'
 
 beforeEach(() => {
   __resetPrefetch()
@@ -61,5 +67,66 @@ describe('prefetchRoute', () => {
     prefetchRoute('/reports')
     expect(spy).toHaveBeenCalledTimes(2)
     spy.mockRestore()
+  })
+})
+
+describe('reachableScreens', () => {
+  it('adds the detail pages opened from a list the person can reach', () => {
+    const screens = reachableScreens(['/items', '/mrp'])
+
+    expect(screens).toEqual(
+      expect.arrayContaining(['/items', '/mrp', '/items/:itemId', '/mrp/runs/:runId']),
+    )
+    expect(screens).not.toContain('/bom/:bomId')
+    expect(screens).not.toContain('/vendor/orders/:orderId')
+  })
+})
+
+describe('preloadRoutes (eager loading)', () => {
+  function stubLoaders(paths: (keyof typeof routeLoaders)[]) {
+    return paths.map((path) =>
+      vi.spyOn(routeLoaders, path).mockResolvedValue({ default: () => createElement('div') }),
+    )
+  }
+
+  it('downloads every listed screen once, a few at a time', async () => {
+    const spies = stubLoaders(['/audit', '/reports', '/documents'])
+
+    preloadRoutes(['/audit', '/reports', '/documents', '/audit', '/nowhere'], {
+      enabled: true,
+      concurrency: 2,
+    })
+
+    await vi.waitFor(() => {
+      for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1)
+    })
+    for (const spy of spies) spy.mockRestore()
+  })
+
+  it('stops downloading once cancelled', async () => {
+    const spies = stubLoaders(['/audit', '/reports'])
+
+    const cancel = preloadRoutes(['/audit', '/reports'], { enabled: true, concurrency: 1 })
+    cancel()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled()
+    for (const spy of spies) spy.mockRestore()
+  })
+
+  it('downloads nothing when eager loading is off or the browser asks to save data', async () => {
+    const spies = stubLoaders(['/audit'])
+    preloadRoutes(['/audit'], { enabled: false })
+
+    Object.defineProperty(navigator, 'connection', {
+      value: { saveData: true },
+      configurable: true,
+    })
+    preloadRoutes(['/audit'], { enabled: true })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(spies[0]).not.toHaveBeenCalled()
+    Reflect.deleteProperty(navigator, 'connection')
+    for (const spy of spies) spy.mockRestore()
   })
 })

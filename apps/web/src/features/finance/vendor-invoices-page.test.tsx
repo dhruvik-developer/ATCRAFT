@@ -162,7 +162,7 @@ async function openMatchDialog(
   user: ReturnType<typeof renderScreen>['user'],
 ): Promise<HTMLElement> {
   await user.click(await screen.findByRole('button', { name: NUMBER }))
-  return screen.findByRole('dialog')
+  return screen.findByRole('dialog', { busy: false })
 }
 
 /**
@@ -494,7 +494,7 @@ describe('recording a multi-line bill', () => {
 
     await screen.findByText('VINV/2026-27/00031')
     await user.click(screen.getByRole('button', { name: /record invoice/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await fillTwoLines(user, dialog)
     await user.click(within(dialog).getByRole('button', { name: /record the invoice/i }))
 
@@ -565,7 +565,7 @@ describe('recording a multi-line bill', () => {
 
     await screen.findByText('VINV/2026-27/00031')
     await user.click(screen.getByRole('button', { name: /record invoice/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Vendor' }))
     await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
@@ -593,7 +593,7 @@ describe('recording a multi-line bill', () => {
 
     await screen.findByText('VINV/2026-27/00031')
     await user.click(screen.getByRole('button', { name: /record invoice/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Vendor' }))
     await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
@@ -629,7 +629,7 @@ describe('recording a multi-line bill', () => {
 
     await screen.findByText('VINV/2026-27/00031')
     await user.click(screen.getByRole('button', { name: /record invoice/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Vendor' }))
     await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
@@ -658,7 +658,7 @@ describe('recording a multi-line bill', () => {
 
     await screen.findByText('VINV/2026-27/00031')
     await user.click(screen.getByRole('button', { name: /record invoice/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     expect(within(dialog).getByText('You cannot record a bill from here')).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /record the invoice/i })).toBeDisabled()
@@ -716,7 +716,7 @@ describe('linking a bill to the order and receipt it covers', () => {
 
     await screen.findByText('VINV/2026-27/00031')
     await user.click(screen.getByRole('button', { name: /record invoice/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     const order = () => within(dialog).getByRole('combobox', { name: 'Purchase order' })
     const receipt = () => within(dialog).getByRole('combobox', { name: 'Goods receipt' })
     expect(order(), 'with no vendor there is nothing to search').toBeDisabled()
@@ -896,7 +896,7 @@ describe('where a bill is charged', () => {
 
     await screen.findByText('VINV/2026-27/00031')
     await user.click(screen.getByRole('button', { name: /record invoice/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Vendor' }))
     await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))

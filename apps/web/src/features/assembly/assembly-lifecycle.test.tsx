@@ -116,7 +116,7 @@ async function openPanel(
 ): Promise<void> {
   await screen.findByText(code)
   await user.click(screen.getByRole('button', { name: 'Open' }))
-  await screen.findByRole('dialog')
+  await screen.findByRole('dialog', { busy: false })
 }
 
 /** Open the panel with the order in the given state, and start one command. */
@@ -132,7 +132,7 @@ async function openCommand(
     routes: panelRoutes(order, routes),
   })
   await openPanel(rendered.user)
-  await rendered.user.click(screen.getByRole('button', { name: button }))
+  await rendered.user.click(await screen.findByRole('button', { name: button }))
   return rendered
 }
 
@@ -170,7 +170,7 @@ describe('assembly lifecycle commands', () => {
         },
       })
       await openPanel(user)
-      await user.click(screen.getByRole('button', { name: button }))
+      await user.click(await screen.findByRole('button', { name: button }))
       await confirmWithReason(user, confirm, 'Bench free, moving ahead')
 
       await waitFor(() => fetch.requestFor('POST', `/assembly/asm-1/${path}`))

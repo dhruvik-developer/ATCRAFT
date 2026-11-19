@@ -29,6 +29,7 @@ import { Plus, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { CellButton, DataTable } from '@/components/data-table'
 import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -57,8 +58,14 @@ import {
   type VendorInvoiceSummary,
   VENDOR_INVOICE_TYPES,
 } from './finance-types'
-import { VendorInvoiceFormDialog } from './vendor-invoice-form-dialog'
+
 import { VendorInvoiceMatchDialog } from './vendor-invoice-match-dialog'
+
+const VendorInvoiceFormDialog = lazyDialog(() =>
+  import('./vendor-invoice-form-dialog').then((module) => ({
+    default: module.VendorInvoiceFormDialog,
+  })),
+)
 
 const INVOICE_STATUSES: VendorInvoiceStatus[] = [
   'DRAFT',

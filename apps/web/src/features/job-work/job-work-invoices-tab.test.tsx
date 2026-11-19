@@ -193,6 +193,6 @@ describe('the invoices tab', () => {
 
     await screen.findByText('CHR/2026/0101')
     await user.click(screen.getByRole('button', { name: 'CHR/2026/0101' }))
-    expect(await screen.findByRole('dialog')).toBeVisible()
+    expect(await screen.findByRole('dialog', { busy: false })).toBeVisible()
   })
 })

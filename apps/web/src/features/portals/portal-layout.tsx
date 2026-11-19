@@ -10,7 +10,10 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
+import { useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+
+import { preloadRoutes, reachableScreens } from '@/app/route-loaders'
 
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
@@ -123,6 +126,17 @@ export default function PortalLayout() {
   // vendor owner - who also has Invoices - got six cells in a five-cell bar,
   // and the fixed bar wrapped onto a second row over the end of every page.
   const barItems = items.filter((item) => !more.some((extra) => extra.to === item.to))
+
+  // Eager loading: once the portal has painted, download every screen this
+  // account can open (and the detail pages under them), so no click waits.
+  const preloadKey = [...items, ...more]
+    .filter((item) => !item.permission || can(item.permission))
+    .map((item) => item.to)
+    .join(' ')
+  useEffect(
+    () => preloadRoutes([...reachableScreens(preloadKey.split(' ')), '/profile']),
+    [preloadKey],
+  )
 
   return (
     <div className="min-h-dvh bg-background text-foreground">

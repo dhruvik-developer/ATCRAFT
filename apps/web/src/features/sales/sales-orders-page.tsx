@@ -17,6 +17,7 @@ import { Plus, ShieldQuestion, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -37,8 +38,11 @@ import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import { SalesOrderFormDialog } from './sales-order-form-dialog'
 import { SALES_ORDER_STATUSES, type SalesOrderRow } from './sales-types'
+
+const SalesOrderFormDialog = lazyDialog(() =>
+  import('./sales-order-form-dialog').then((module) => ({ default: module.SalesOrderFormDialog })),
+)
 
 /** Statuses where a late required date still matters to somebody. */
 const OPEN_STATUSES = new Set(['DRAFT', 'CONFIRMED', 'ALLOCATED', 'PARTIALLY_DISPATCHED'])

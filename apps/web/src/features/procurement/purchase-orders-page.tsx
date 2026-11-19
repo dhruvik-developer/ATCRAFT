@@ -32,6 +32,7 @@ import { Plus, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { CellButton, DataTable } from '@/components/data-table'
 import { DateRangeFilter, FilterChip, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -55,13 +56,18 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
 
-import { PurchaseOrderFormDialog } from './purchase-order-form-dialog'
 import {
   OPEN_PO_STATUSES,
   PURCHASE_ORDER_STATUSES,
   isUrgentPriority,
   type PurchaseOrderRow,
 } from './procurement-types'
+
+const PurchaseOrderFormDialog = lazyDialog(() =>
+  import('./purchase-order-form-dialog').then((module) => ({
+    default: module.PurchaseOrderFormDialog,
+  })),
+)
 
 /** Every filter this screen owns, cleared as one write rather than seven. */
 const FILTER_KEYS = [

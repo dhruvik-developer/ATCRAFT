@@ -17,6 +17,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
+import { lazyDialog } from '@/components/lazy-dialog'
 import { StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle, Input, Label } from '@/components/ui/primitives'
@@ -36,7 +37,6 @@ import {
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import { RecordProductionDialog } from './production-dialogs'
 import {
   acceptsProductionEntry,
   progressPercent,
@@ -45,6 +45,12 @@ import {
 } from './production-model'
 
 /** One page of `GET /production/entries` is 200 rows; past that the tab says so. */
+// Kept out of the panel's first download, so opening the production screen does
+// not fetch every production form; it is fetched as soon as the panel paints.
+const RecordProductionDialog = lazyDialog(() =>
+  import('./production-dialogs').then((module) => ({ default: module.RecordProductionDialog })),
+)
+
 const DAY_BOOKING_LIMIT = 200
 
 interface DayTotal {

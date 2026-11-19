@@ -508,7 +508,7 @@ describe('what the new-order form sends', () => {
   async function openForm(user: User, fetch: FetchRecorder) {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new order/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
 
     await user.click(screen.getByRole('combobox', { name: 'Customer' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /C-0001/ })))
@@ -845,7 +845,7 @@ describe('what the new-order form sends', () => {
 
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new order/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
 
     expect(screen.getByText(/your role cannot read the warehouse list/i)).toBeVisible()
     expect(screen.queryByRole('combobox', { name: 'Dispatch from' })).not.toBeInTheDocument()
@@ -873,7 +873,7 @@ describe('the line editor', () => {
   async function openLineEditor(user: User, fetch: FetchRecorder) {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new order/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     await user.click(screen.getByRole('button', { name: /add line/i }))
     await stable(() => screen.getByRole('combobox', { name: 'Item' }))
   }

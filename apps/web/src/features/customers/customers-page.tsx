@@ -19,6 +19,7 @@ import { Infinity as InfinityIcon, Pencil, Plus, ShieldAlert, Trash2, X } from '
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -41,8 +42,6 @@ import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import { CustomerFormDialog } from './customer-form-dialog'
-import { RetireCustomerDialog } from './customer-retire-dialog'
 import {
   acceptsRetirement,
   CUSTOMER_TYPES,
@@ -50,6 +49,13 @@ import {
   hasOutstandingBalance,
   isDealerChannel,
 } from './customer-types'
+
+const CustomerFormDialog = lazyDialog(() =>
+  import('./customer-form-dialog').then((module) => ({ default: module.CustomerFormDialog })),
+)
+const RetireCustomerDialog = lazyDialog(() =>
+  import('./customer-retire-dialog').then((module) => ({ default: module.RetireCustomerDialog })),
+)
 
 /** Which customer the dialog is open for: null = closed, id = edit, '' = create. */
 type DialogTarget = string | null

@@ -30,9 +30,10 @@ import {
   Trash2,
   Truck,
 } from 'lucide-react'
-import { Suspense, lazy, useMemo, useState } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import {
   ConfirmDialog,
@@ -80,8 +81,7 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import { FulfilmentLinks } from './fulfilment-links'
-import { SalesOrderFormDialog } from './sales-order-form-dialog'
-import { SalesOrderLineDialog } from './sales-order-line-dialog'
+
 import {
   canTopUp,
   isCancellable,
@@ -101,11 +101,18 @@ import {
   type ShortfallPlan,
 } from './sales-types'
 
+const SalesOrderFormDialog = lazyDialog(() =>
+  import('./sales-order-form-dialog').then((module) => ({ default: module.SalesOrderFormDialog })),
+)
+const SalesOrderLineDialog = lazyDialog(() =>
+  import('./sales-order-line-dialog').then((module) => ({ default: module.SalesOrderLineDialog })),
+)
+
 /**
  * The dispatch dialog is the dispatch feature's, and a large one; loaded on the
  * first press of Dispatch so the order page's own chunk does not carry it.
  */
-const CreateDispatchDialog = lazy(() =>
+const CreateDispatchDialog = lazyDialog(() =>
   import('@/features/dispatch/dispatch-dialogs').then((m) => ({
     default: m.CreateDispatchDialog,
   })),
@@ -115,7 +122,7 @@ const CreateDispatchDialog = lazy(() =>
  * The transfer dialog is the inventory feature's, and carries the whole line
  * editor; loaded on the first press of Raise transfer.
  */
-const CreateTransferDialog = lazy(() =>
+const CreateTransferDialog = lazyDialog(() =>
   import('@/features/inventory/movement-dialogs').then((m) => ({
     default: m.CreateTransferDialog,
   })),

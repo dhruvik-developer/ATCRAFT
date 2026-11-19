@@ -188,7 +188,7 @@ describe('transfers', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /dispatch/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(
       within(dialog).getByText(/80 leaves MAIN now and counts as in transit/i),
     ).toBeInTheDocument()
@@ -225,7 +225,7 @@ describe('transfers', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new transfer/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.click(within(dialog).getByRole('combobox', { name: 'From warehouse' }))
     await user.click(await screen.findByRole('option', { name: /MAIN/ }))
@@ -277,7 +277,7 @@ describe('transfers', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new transfer/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('combobox', { name: 'From warehouse' }))
     await user.click(await screen.findByRole('option', { name: /MAIN/ }))
     await user.click(within(dialog).getByRole('combobox', { name: 'To warehouse' }))
@@ -310,7 +310,7 @@ describe('transfers', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new transfer/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('combobox', { name: 'From warehouse' }))
     await user.click(await screen.findByRole('option', { name: /MAIN/ }))
     await user.click(within(dialog).getByRole('combobox', { name: 'To warehouse' }))
@@ -450,7 +450,9 @@ describe('adjustments', () => {
     await screen.findByText('ADJ-WAITING')
     await user.click(within(rowFor('ADJ-WAITING')).getByRole('button', { name: /approve/i }))
     await user.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Approve adjustment' }),
+      within(await screen.findByRole('dialog', { busy: false })).getByRole('button', {
+        name: 'Approve adjustment',
+      }),
     )
 
     await expect.poll(() => fetch.calls.some((call) => call.path.endsWith('/approve'))).toBe(true)
@@ -472,7 +474,7 @@ describe('adjustments', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /post/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(
       within(dialog).getByText(/ledger entry cannot be deleted afterwards/i),
     ).toBeInTheDocument()
@@ -518,7 +520,7 @@ describe('adjustments', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new adjustment/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))
     await user.click(await screen.findByRole('option', { name: /MAIN/ }))
@@ -568,7 +570,7 @@ describe('adjustments', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new adjustment/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))
     await user.click(await screen.findByRole('option', { name: /MAIN/ }))
     await user.click(within(dialog).getByRole('combobox', { name: 'Reason code' }))
@@ -636,7 +638,7 @@ describe('adjustments', () => {
       })
 
       await user.click(await screen.findByRole('button', { name: /new adjustment/i }))
-      const dialog = await screen.findByRole('dialog')
+      const dialog = await screen.findByRole('dialog', { busy: false })
       await raise(user, dialog)
       await user.click(within(dialog).getByRole('combobox', { name: 'Cost centre' }))
       await user.click(await screen.findByRole('option', { name: 'CC-STORES - Stores' }))
@@ -660,7 +662,7 @@ describe('adjustments', () => {
       })
 
       await user.click(await screen.findByRole('button', { name: /new adjustment/i }))
-      const dialog = await screen.findByRole('dialog')
+      const dialog = await screen.findByRole('dialog', { busy: false })
       expect(
         within(dialog).queryByRole('combobox', { name: 'Cost centre' }),
       ).not.toBeInTheDocument()
@@ -830,7 +832,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /key counts/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(await within(dialog).findByText('HINGE-4')).toBeInTheDocument()
 
     const saveButton = within(dialog).getByRole('button', { name: /save counts/i })
@@ -886,7 +888,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /key counts/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(
       within(dialog).getByRole('textbox', { name: 'Serial numbers found for BRASS-ROD-12' }),
       'SN-001\nSN-002',
@@ -941,7 +943,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /key counts/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(
       within(dialog).getByRole('textbox', { name: 'Serial numbers found for BRASS-ROD-12' }),
       'sn-001\nSN-001 SN-002',
@@ -974,7 +976,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /^cancel$/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('button', { name: 'Cancel count' }))
 
     // Refused locally before the round trip: the API would 422 an empty reason.
@@ -1051,7 +1053,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /confirm/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     expect(await within(dialog).findByText('BRASS-ROD-12')).toBeInTheDocument()
     expect(within(dialog).getByText(/book 100, counted 90/i)).toBeInTheDocument()
@@ -1111,7 +1113,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /confirm/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
 
     // One line listed, of the forty the server says differ.
     expect(await within(dialog).findByText(/what the posting moves \(1 of 40/i)).toBeInTheDocument()
@@ -1135,7 +1137,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /confirm/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(within(dialog).getByRole('button', { name: /confirm and post/i })).toBeDisabled()
     expect(within(dialog).getByText(/reading the counted lines/i)).toBeInTheDocument()
 
@@ -1164,7 +1166,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /confirm/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     expect(
       await within(dialog).findByText(/could not read the line-by-line breakdown/i),
     ).toBeInTheDocument()
@@ -1186,7 +1188,7 @@ describe('physical counts', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /new count/i }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))
     await user.click(await screen.findByRole('option', { name: /MAIN/ }))
     await user.type(

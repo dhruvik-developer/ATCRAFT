@@ -509,7 +509,7 @@ describe('the lifecycle the row offers', () => {
       const { user } = await openActions('NOT_DISPATCHED', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
 
       await user.click(screen.getByRole('menuitem', { name: 'Mark ready' }))
-      const dialog = await screen.findByRole('dialog')
+      const dialog = await screen.findByRole('dialog', { busy: false })
       expect(within(dialog).getByRole('button', { name: 'Mark ready' })).toHaveClass('bg-primary')
     },
     POPPER,

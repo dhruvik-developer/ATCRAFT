@@ -89,7 +89,7 @@ describe('the daily bookings tab', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Record' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog', { busy: false })
     await user.type(within(dialog).getByLabelText(/produced/i), '5')
     await user.click(within(dialog).getByRole('button', { name: /record production/i }))
 

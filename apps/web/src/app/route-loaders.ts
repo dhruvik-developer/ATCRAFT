@@ -9,9 +9,16 @@
  * Kept in its own module, without JSX, so the login page can warm the
  * dashboard chunk while the user types their password without importing the
  * route table (which imports the login page - a cycle).
+ *
+ * Eager loading uses the same loaders: once the shell has painted,
+ * `preloadRoutes` downloads every screen the person can open, so no first
+ * click waits on the network.
  */
 
 import type { ComponentType } from 'react'
+
+import { EAGER_PRELOAD, ROUTE_PRELOAD_CONCURRENCY } from '@/lib/constants'
+import { browserSavesData, whenIdle } from '@/lib/preload'
 
 type PageModule = { default: ComponentType }
 type PageLoader = () => Promise<PageModule>
@@ -170,6 +177,61 @@ export function prefetchRoute(path: string): void {
       warmed.delete(path)
     }),
   )
+}
+
+/**
+ * The screens reachable from these entry paths: the paths themselves, plus every
+ * detail route under one of them (`/items/:itemId` under `/items`,
+ * `/mrp/runs/:runId` under `/mrp`), which is opened from its list.
+ */
+export function reachableScreens(entryPaths: readonly string[]): string[] {
+  const entries = new Set(entryPaths)
+  const details = Object.keys(routeLoaders).filter((path) => {
+    if (!path.includes('/:')) return false
+    let parent = path.replace(/\/:[^/]+$/, '')
+    while (parent && !entries.has(parent)) parent = parent.replace(/\/[^/]+$/, '')
+    return parent !== ''
+  })
+  return [...entries, ...details]
+}
+
+/**
+ * Eager loading: download every listed screen right after the shell paints, a
+ * few at a time and each when the main thread has a moment, so the first click
+ * on any of them renders from memory instead of the network. Already-warmed
+ * paths are skipped; returns a cancel function for unmount.
+ */
+export function preloadRoutes(
+  paths: readonly string[],
+  {
+    enabled = EAGER_PRELOAD,
+    concurrency = ROUTE_PRELOAD_CONCURRENCY,
+  }: { enabled?: boolean; concurrency?: number } = {},
+): () => void {
+  if (!enabled || browserSavesData()) return () => undefined
+  const queue = [...new Set(paths)].filter((path) => Object.hasOwn(routeLoaders, path))
+  const pendingIdle = new Set<() => void>()
+  let cancelled = false
+
+  const next = (): void => {
+    if (cancelled) return
+    const path = queue.shift()
+    if (path === undefined) return
+    const cancel = whenIdle(() => {
+      pendingIdle.delete(cancel)
+      if (cancelled) return
+      prefetchRoute(path)
+      void (warmed.get(path) ?? Promise.resolve()).finally(next)
+    })
+    pendingIdle.add(cancel)
+  }
+
+  for (let lane = 0; lane < concurrency; lane += 1) next()
+  return () => {
+    cancelled = true
+    for (const cancel of pendingIdle) cancel()
+    pendingIdle.clear()
+  }
 }
 
 /** Test seam. */

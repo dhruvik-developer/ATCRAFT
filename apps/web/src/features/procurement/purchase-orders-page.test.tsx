@@ -413,7 +413,7 @@ describe('what the order form sends', () => {
   async function openForm(user: User, fetch: FetchRecorder) {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new purchase order/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     await user.type(screen.getByLabelText(/expected delivery/i), '2026-11-20')
     await user.click(screen.getByRole('combobox', { name: 'Vendor' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /V-ACME/ })))
@@ -525,7 +525,7 @@ describe('what the order form sends', () => {
 
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new purchase order/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     // An order with no lines buys nothing, and `PurchaseOrderCreate` refuses it.
     expect(screen.getByRole('button', { name: 'Remove line 1' })).toBeDisabled()
   })
@@ -547,7 +547,7 @@ describe('what the order form sends', () => {
     await stable(() => screen.getByText('Below the vendor’s agreed minimum price'))
     // The dialog stays open with the entry intact - the buyer fixes the price
     // rather than keying the whole sheet again.
-    expect(screen.getByRole('dialog')).toBeVisible()
+    expect(screen.getByRole('dialog', { busy: false })).toBeVisible()
   })
 
   it('keeps the form open and re-armed when the API refuses the whole request', async () => {
@@ -568,7 +568,7 @@ describe('what the order form sends', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Create draft order' })).toBeEnabled(),
     )
-    expect(screen.getByRole('dialog')).toBeVisible()
+    expect(screen.getByRole('dialog', { busy: false })).toBeVisible()
     expect(screen.getAllByRole('textbox', { name: 'Quantity' })[0]).toHaveValue('7')
   })
 
@@ -585,7 +585,7 @@ describe('what the order form sends', () => {
 
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new purchase order/i }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     expect(within(dialog).getByText(/cannot raise an order from here/i)).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Create draft order' })).toBeDisabled()
   })
@@ -622,7 +622,7 @@ describe('the duplicate refusal', () => {
   async function raiseADuplicate(user: User, fetch: FetchRecorder) {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new purchase order/i }))
-    await stable(() => screen.getByRole('dialog'))
+    await stable(() => screen.getByRole('dialog', { busy: false }))
     await user.type(screen.getByLabelText(/expected delivery/i), '2026-11-20')
     await user.click(screen.getByRole('combobox', { name: 'Vendor' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /V-ACME/ })))
@@ -886,7 +886,7 @@ describe('sending an order names who owns it at the vendor', () => {
   async function openSend(user: User, fetch: FetchRecorder): Promise<HTMLElement> {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /send to vendor/i }))
-    const dialog = await stable(() => screen.getByRole('dialog'))
+    const dialog = await stable(() => screen.getByRole('dialog', { busy: false }))
     await stable(() => within(dialog).getByRole('combobox', { name: 'Vendor user responsible' }))
     return dialog
   }

@@ -11,6 +11,7 @@ import { Plus, SlidersHorizontal, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -38,7 +39,6 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn, indexById } from '@/lib/utils'
 
-import { ItemFormDialog } from './item-form-dialog'
 import {
   CAPABILITY_META,
   FILTERABLE_CAPABILITIES,
@@ -48,6 +48,10 @@ import {
   useUomOptions,
   type ItemRow,
 } from './item-model'
+
+const ItemFormDialog = lazyDialog(() =>
+  import('./item-form-dialog').then((module) => ({ default: module.ItemFormDialog })),
+)
 
 /** Compact, scannable read-out of the six capabilities the list row carries. */
 function CapabilityRow({ item }: { item: ItemRow }) {

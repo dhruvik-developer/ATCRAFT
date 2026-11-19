@@ -12,6 +12,7 @@ import { Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -38,7 +39,7 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import { DailyBookingsPanel } from './daily-bookings-panel'
-import { ProductionOrderFormDialog } from './production-dialogs'
+
 import {
   PRODUCTION_SOURCE_TYPES,
   PRODUCTION_STATUSES,
@@ -46,6 +47,10 @@ import {
   progressPercent,
   type ProductionOrderRow,
 } from './production-model'
+
+const ProductionOrderFormDialog = lazyDialog(() =>
+  import('./production-dialogs').then((module) => ({ default: module.ProductionOrderFormDialog })),
+)
 
 /** Every URL key the toolbar owns, so "Clear" can drop them in one write. */
 const FILTER_KEYS = [

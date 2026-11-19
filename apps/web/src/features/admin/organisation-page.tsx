@@ -41,6 +41,7 @@ import {
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { ConfirmDialog, EmptyState, FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -85,13 +86,22 @@ import {
 } from './admin-types'
 import { COST_CENTRE_TYPES, costCentreLabel, type CostCentreRow } from './cost-centre-model'
 import { CompanyTab } from './organisation-company'
-import {
-  BranchFormDialog,
-  CostCentreFormDialog,
-  DepartmentFormDialog,
-  FinancialYearFormDialog,
-  PlantFormDialog,
-} from './organisation-dialogs'
+
+const BranchFormDialog = lazyDialog(() =>
+  import('./organisation-dialogs').then((module) => ({ default: module.BranchFormDialog })),
+)
+const CostCentreFormDialog = lazyDialog(() =>
+  import('./organisation-dialogs').then((module) => ({ default: module.CostCentreFormDialog })),
+)
+const DepartmentFormDialog = lazyDialog(() =>
+  import('./organisation-dialogs').then((module) => ({ default: module.DepartmentFormDialog })),
+)
+const FinancialYearFormDialog = lazyDialog(() =>
+  import('./organisation-dialogs').then((module) => ({ default: module.FinancialYearFormDialog })),
+)
+const PlantFormDialog = lazyDialog(() =>
+  import('./organisation-dialogs').then((module) => ({ default: module.PlantFormDialog })),
+)
 
 type TabKey = 'company' | 'branches' | 'plants' | 'departments' | 'cost-centres' | 'financial-years'
 

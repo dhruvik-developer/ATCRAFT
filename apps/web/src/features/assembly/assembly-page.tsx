@@ -12,6 +12,7 @@ import { Plus, X } from 'lucide-react'
 import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { CellButton, DataTable } from '@/components/data-table'
 import { DateRangeFilter, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -36,9 +37,14 @@ import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
-import { AssemblyDetailDialog } from './assembly-detail-dialog'
 import { ASSEMBLY_STATUSES, assemblyKeys, type AssemblyOrderRow } from './assembly-model'
-import { AssemblyOrderFormDialog } from './assembly-order-dialog'
+
+const AssemblyDetailDialog = lazyDialog(() =>
+  import('./assembly-detail-dialog').then((module) => ({ default: module.AssemblyDetailDialog })),
+)
+const AssemblyOrderFormDialog = lazyDialog(() =>
+  import('./assembly-order-dialog').then((module) => ({ default: module.AssemblyOrderFormDialog })),
+)
 
 // The board rides in the route chunk only when opened: the register is the
 // daily screen and the budget for its first load is tight. (The order form

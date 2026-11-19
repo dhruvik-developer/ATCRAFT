@@ -412,7 +412,7 @@ describe('production transition validation', () => {
           `${label}: The supplied value is outside the allowed range`,
         ),
       )
-      expect(screen.getByRole('dialog')).toBeVisible()
+      expect(screen.getByRole('dialog', { busy: false })).toBeVisible()
     },
   )
 })

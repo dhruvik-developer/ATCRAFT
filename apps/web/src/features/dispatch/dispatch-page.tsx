@@ -33,6 +33,7 @@ import {
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { lazyDialog } from '@/components/lazy-dialog'
 import { DataTable } from '@/components/data-table'
 import { ConfirmDialog, FieldError, FilterChip, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -76,11 +77,6 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 import {
-  CreateDispatchDialog,
-  DispatchTimelineDialog,
-  EditDispatchDialog,
-} from './dispatch-dialogs'
-import {
   DISPATCH_STATUSES,
   DISPATCH_TYPES,
   NOTE_MAX_LENGTH,
@@ -95,6 +91,16 @@ import {
   type DispatchRow,
   type DispatchTrackingRow,
 } from './dispatch-types'
+
+const CreateDispatchDialog = lazyDialog(() =>
+  import('./dispatch-dialogs').then((module) => ({ default: module.CreateDispatchDialog })),
+)
+const DispatchTimelineDialog = lazyDialog(() =>
+  import('./dispatch-dialogs').then((module) => ({ default: module.DispatchTimelineDialog })),
+)
+const EditDispatchDialog = lazyDialog(() =>
+  import('./dispatch-dialogs').then((module) => ({ default: module.EditDispatchDialog })),
+)
 
 /**
  * The URL keys the dispatch list filters on. `sales_order_id` has no control of

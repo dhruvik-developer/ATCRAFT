@@ -121,6 +121,23 @@ export const ASSEMBLY_NOTES_MAX_LENGTH = 2000
 /** How often the unread-notifications badge is refreshed. */
 export const NOTIFICATION_POLL_MS = 60_000
 
+// ------------------------------------------------------- eager loading ------
+
+/**
+ * Eager loading. Right after the app shell paints, every screen the person can
+ * open is downloaded in the background, and every screen downloads its forms as
+ * soon as it paints, so no click waits on the network (lib/preload.ts). Off under
+ * Vitest, where it would compile every page for each test that renders the shell;
+ * a browser that asks to save data opts out at run time.
+ */
+export const EAGER_PRELOAD = import.meta.env.MODE !== 'test'
+
+/** How many screen downloads the eager preload keeps in flight at once. */
+export const ROUTE_PRELOAD_CONCURRENCY = 4
+
+/** Longest an eager download waits for the browser to be idle before it starts anyway. */
+export const PRELOAD_IDLE_TIMEOUT_MS = 1_000
+
 // ------------------------------------------------------------- toasts ------
 
 /** Auto-dismiss delays. Errors do not auto-dismiss: the user may need to read a correlation id. */

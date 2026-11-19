@@ -1,3 +1,4 @@
+import { lazyDialog } from '@/components/lazy-dialog'
 import { describeError } from '@/lib/messages'
 /**
  * One job-work order, whole: its lines, its timeline, its reconciliation, its
@@ -14,7 +15,7 @@ import { describeError } from '@/lib/messages'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { ArrowLeft, FlaskConical, PackageCheck, PackageMinus, Repeat } from 'lucide-react'
-import { Suspense, lazy, useMemo, useState } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -38,7 +39,7 @@ import { queryKeys } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
 
 import { ChallanDownload } from './job-work-challan-download'
-import { JobWorkIssueDialog, JobWorkQcResultDialog, JobWorkReceiveDialog } from './job-work-dialogs'
+
 import {
   acceptsIssue,
   acceptsReceipt,
@@ -57,8 +58,18 @@ import {
 } from './job-work-model'
 import type { ReworkPrefill } from './job-work-order-form-dialog'
 
+const JobWorkIssueDialog = lazyDialog(() =>
+  import('./job-work-dialogs').then((module) => ({ default: module.JobWorkIssueDialog })),
+)
+const JobWorkQcResultDialog = lazyDialog(() =>
+  import('./job-work-dialogs').then((module) => ({ default: module.JobWorkQcResultDialog })),
+)
+const JobWorkReceiveDialog = lazyDialog(() =>
+  import('./job-work-dialogs').then((module) => ({ default: module.JobWorkReceiveDialog })),
+)
+
 /** The rework form is the heaviest dialog on this page; it loads on demand. */
-const JobWorkOrderFormDialog = lazy(() =>
+const JobWorkOrderFormDialog = lazyDialog(() =>
   import('./job-work-order-form-dialog').then((m) => ({ default: m.JobWorkOrderFormDialog })),
 )
 
