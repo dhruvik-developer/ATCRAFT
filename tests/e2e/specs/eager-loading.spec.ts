@@ -1,7 +1,9 @@
 /**
  * Eager loading, proved in the production build: after sign-in the browser
- * downloads every screen the person can open, and each screen downloads its
- * forms as soon as it paints - so no click waits on the network.
+ * downloads every screen the person can open, and fetches each screen's forms
+ * as soon as that screen's code runs - during the same background preload - so
+ * no click waits on the network. That includes a form its screen mounts only
+ * while it is open, which no mount effect could have fetched before the click.
  *
  * The API is answered by fixtures (one identity, empty lists), so this needs no
  * seeded data and writes nothing.
@@ -16,6 +18,7 @@ const PERMISSIONS = [
   "item.view",
   "item.create",
   "customer.view",
+  "customer.create",
   "user.view",
   "user.create",
   "role.view",
@@ -109,8 +112,8 @@ test("every screen a person can open is downloaded after sign-in", async ({
     await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
   }
   // Opening them downloaded no screen: each rendered from what was already in
-  // the browser. (Each screen then fetches its own forms in the background,
-  // which the form tests below cover.)
+  // the browser. (Each screen's forms were fetched when its code ran, during
+  // the preload above, which the form tests below cover.)
   const screensFetchedOnClick = scripts
     .slice(before)
     .filter((path) => /\/assets\/[\w-]+-page-[\w-]+\.js$/.test(path));
@@ -119,12 +122,20 @@ test("every screen a person can open is downloaded after sign-in", async ({
 });
 
 const screens = [
+  // Always mounted, closed until the button is pressed.
   { route: "/items", module: "item-form-dialog", button: "New item" },
   { route: "/admin/users", module: "user-dialogs", button: "New user" },
+  // Mounted only while open: no form exists on the page before the click, so
+  // only a download started when the screen's code runs can have fetched it.
+  {
+    route: "/customers",
+    module: "customer-form-dialog",
+    button: "New customer",
+  },
 ] as const;
 
 for (const screen of screens) {
-  test(`${screen.route} downloads its form right after it paints`, async ({
+  test(`${screen.route} fetches its form when its code runs, before any click`, async ({
     page,
   }) => {
     const writes: string[] = [];
