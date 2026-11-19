@@ -5789,6 +5789,44 @@ and crediting them a quality score they have not earned would flatter them.
 different split. This rating is not the vendor performance report's score
 (§REP-2), nor the quotation recommendation's weighting (section 17).
 
+## §VEND-2. An item category has at most one preferred vendor
+
+**Assumed.** At most one vendor is preferred for an item category
+(`uq_vendor_categories_one_preferred`), as at most one is preferred for an item
+(`uq_item_vendor_links_one_preferred`). Qualifying a vendor as preferred for a
+category, or marking an existing qualification preferred, first demotes the
+category's current preferred vendor in the same transaction, so the index never
+sees two.
+
+**Why.** Two "preferred" vendors for one category give the sourcing screen, and
+the vendor resolution of section 51, no basis to choose between them.
+
+**Where.** `src/modules/vendors/models.py` - `VendorCategory`
+(`uq_vendor_categories_one_preferred`); `src/modules/vendors/service.py` -
+`VendorCategoryService.assign` and `update`;
+`src/modules/vendors/repository.py` - `VendorCategoryRepository.clear_preferred`.
+
+**Impact if wrong.** Several preferred vendors per category need a rank, and
+`preferred_category_vendor` a rule to pick among them; the partial unique index
+goes through a migration.
+
+## §VEND-3. A vendor is approved only with a tax identity and a payee on file
+
+**Assumed.** Approving a vendor is refused until it carries a GSTIN or an MSME
+(Udyam) number, a bank account number and the payee's account name: "Vendor
+cannot be approved until these details are recorded: ...", naming each missing
+field. The IFSC and the bank's name are not required.
+
+**Why.** Approving without them defers the problem to the first payment run,
+where it blocks a payment rather than a form.
+
+**Where.** `src/modules/vendors/service.py` - `VendorService._assert_approvable`,
+called by `approve_vendor`.
+
+**Impact if wrong.** A supplier registered for neither GST nor MSME cannot be
+approved today: the vendor record has no explicit "unregistered" marker to stand
+in for both numbers, and accepting such a supplier needs one.
+
 ## §REP-2. Dead stock is six months still, and the performance report weighs delivery and quality equally
 
 **Assumed.** The dead-stock report counts a position as dead when its stock has
@@ -6688,20 +6726,71 @@ or an explicit discount above `SALES_DISCOUNT_APPROVAL_PERCENT` - the edit is
 refused, and the order is cancelled and replaced, as for a changed unit price. A
 larger quantity only thins a flat discount and is never refused for it.
 
+Nor does a quantity change re-run price resolution, even when the new quantity
+crosses a price-list slab: the agreed unit price stays, and only the amounts
+derived from it are recomputed.
+
 **Why.** Every confirmed edit of an order that had needed approval used to open
 a new request that no workflow could decide, so it sat PENDING in the approvals
 inbox for ever. Allowing the deeper flat discount without a decision would
 instead let a confirmed order reach a below-cost or above-threshold price nobody
-approved.
+approved. A confirmed unit price is an agreed number, and restating it because
+a quantity moved would change what the customer owes without anybody deciding
+to.
 
-**Where.** `src/modules/sales/service.py` - `update_order` and
-`_assert_confirmed_prices_hold`; `tests/api/test_sales_routes_http.py`.
+**Where.** `src/modules/sales/service.py` - `update_order`, `_update_confirmed`
+and `_assert_confirmed_prices_hold`; `tests/api/test_sales_routes_http.py`.
 
 **Impact if wrong.** If an approval should be decidable after confirmation,
 extend `approve_order` to confirmed orders and open the request again from
 `update_order`. If a smaller quantity should keep the discount per unit instead,
 scale the flat amount in `_update_confirmed` - that changes the agreed terms, so
 it needs its own decision.
+
+## §SALES-2. Below cost means below standard cost, and an uncosted item has no floor
+
+**Assumed.** The cost floor a sales line is checked against (section 8, §E10-3,
+§SALES-1) is the item master's `standard_cost`, the same figure whichever
+warehouse the order ships from. An item whose standard cost is zero - never
+costed - has no floor: no price is below it, so none of its lines is flagged for
+a below-cost approval.
+
+**Why.** The stock's own cost, `inventory_balances.average_cost` (the FIFO
+layers' average, section 31), lives per stock position, so the same price would
+pass from one store and need approval from another, which is not a commercial
+rule anybody would recognise. A zero floor would demand an approval for every
+line of a freshly loaded item master, and an approval everyone clicks through
+protects nothing.
+
+**Where.** `src/modules/sales/service.py` - `is_below_cost`, read by
+`price_line` and `_assert_confirmed_prices_hold`.
+
+**Impact if wrong.** Pricing against stock cost means passing the order's
+warehouse to `is_below_cost` and reading a cost per position. Flagging an
+uncosted item means dropping the `standard_cost > ZERO` half, and every line of
+such an item then waits for approval until it is costed.
+
+## §SALES-3. A taxed order needs the seller's state code, and a zero-rated one does not
+
+**Assumed.** Creating a sales order, or editing a draft, is refused when any
+line carries tax and the seller has no state code: "GST cannot be charged
+because the selling company (or branch) has no state code configured, so
+intra-state and inter-state supply cannot be told apart." The seller's state is
+the branch's when the order names a branch that has one, and the company's
+otherwise. An order whose every line is zero-rated is not refused.
+
+**Why.** Place of supply (section 9) is decided from the seller's state, so a
+taxed order without it cannot be taxed correctly. A wholly zero-rated order
+never reads the treatment, and refusing it would block a legitimate document
+over a master-data field it does not use.
+
+**Where.** `src/modules/sales/service.py` - `_assert_seller_state_known`, called
+from `create_order` and `_update_draft`; `src/modules/sales/repository.py` -
+`OrderPartyRepository.seller_state_code`.
+
+**Impact if wrong.** If a zero-rated order should need the state code too, drop
+the tax test from `_assert_seller_state_known`, and every company without one
+then stops raising orders until it is set.
 
 ---
 

@@ -197,16 +197,17 @@ FROZEN_AFTER_CONFIRMATION = (
 def is_below_cost(unit_price: Decimal, standard_cost: Decimal) -> bool:
     """Whether an overridden price sits under the item's costing floor.
 
-    ASSUMPTION: "cost" here is ``items.standard_cost``, the item master's own
-    costing figure. Moving-average cost lives per warehouse on
-    ``inventory_balances`` and would make the same price acceptable from one
+    ASSUMPTION (docs/assumptions.md §SALES-2): "cost" here is
+    ``items.standard_cost``, the item master's own costing figure. The stock's
+    own cost, ``inventory_balances.average_cost`` (the FIFO layers' average),
+    lives per stock position and would make the same price acceptable from one
     store and not from another, which is not a commercial rule anybody would
     recognise.
 
-    ASSUMPTION: an item whose standard cost is zero - never costed - is not
-    treated as "everything is below cost". A zero floor would demand an
-    approval for every single line on a freshly loaded item master, and an
-    approval everyone clicks through protects nothing.
+    ASSUMPTION (docs/assumptions.md §SALES-2): an item whose standard cost is
+    zero - never costed - is not treated as "everything is below cost". A zero
+    floor would demand an approval for every single line on a freshly loaded
+    item master, and an approval everyone clicks through protects nothing.
     """
     return standard_cost > ZERO and unit_price < standard_cost
 
@@ -1651,9 +1652,10 @@ async def _resolve_shipping_context(
 def _assert_seller_state_known(seller_state_code: str | None, priced: Sequence[PricedLine]) -> None:
     """A taxed order cannot be raised from an unknown state.
 
-    ASSUMPTION: the check is conditional on the order actually carrying tax. A
-    wholly zero-rated order does not depend on the treatment, and refusing it
-    would block a legitimate document over a master-data field it never reads.
+    ASSUMPTION (docs/assumptions.md §SALES-3): the check is conditional on the
+    order actually carrying tax. A wholly zero-rated order does not depend on
+    the treatment, and refusing it would block a legitimate document over a
+    master-data field it never reads.
     """
     if seller_state_code is not None:
         return
@@ -2098,11 +2100,11 @@ async def update_order(
     more than it has reserved is exactly the discrepancy the picking list will
     find at the worst possible moment.
 
-    ASSUMPTION: changing the quantity of a confirmed line does **not** re-run
-    price resolution, even when the new quantity crosses a slab boundary. The
-    unit price on a confirmed order is an agreed number; silently restating it
-    because a quantity moved would change what the customer owes without anybody
-    deciding to.
+    ASSUMPTION (docs/assumptions.md §SALES-1): changing the quantity of a
+    confirmed line does **not** re-run price resolution, even when the new
+    quantity crosses a slab boundary. The unit price on a confirmed order is an
+    agreed number; silently restating it because a quantity moved would change
+    what the customer owes without anybody deciding to.
 
     ASSUMPTION: only a draft's edit opens or withdraws a pricing approval, because
     only a draft's approval can be decided (``approve_order``). A confirmed order
@@ -2438,7 +2440,7 @@ async def _update_confirmed(
         # orders; the check adds other open-order exposure and excludes this one.
         # ASSUMPTION: only an *increase* is re-checked. A reduction stays
         # unchecked so a customer now on hold can still shrink its exposure
-        # (docs/assumptions.md, credit limit semantics).
+        # (docs/assumptions.md §1, credit limit semantics).
         prospective = prospective_totals(
             existing, changed=changed, is_interstate=order.is_interstate
         )

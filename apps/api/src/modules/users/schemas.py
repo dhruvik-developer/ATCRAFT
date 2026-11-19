@@ -5,7 +5,8 @@ Conventions applied throughout, each for a reason:
 * **No request model carries ``company_id`` or ``is_superuser``.** The tenant
   comes from the authenticated principal (section 40), and the superuser flag is
   a platform-level escape hatch that must not be reachable through an ordinary
-  administrative API - see the ASSUMPTION note in ``service.py``.
+  administrative API - see the ASSUMPTION note in ``service.py`` and
+  docs/assumptions.md §USER-2.
 * **No response model carries ``password_hash``, ``mfa_secret`` or a session
   token.** They are not merely omitted from a serialiser; they are absent from
   the models, so a future field addition cannot leak one by accident.
@@ -154,9 +155,10 @@ class UserCreate(_Base):
     """Payload for creating an internal staff or vendor-portal account.
 
     ``is_superuser`` is deliberately absent - see the ASSUMPTION note in the
-    service. ``must_change_password`` defaults to True because an administrator
-    choosing someone else's first password means that password has been typed
-    into a chat window or read out over a telephone.
+    service and docs/assumptions.md §USER-2. ``must_change_password`` defaults
+    to True because an administrator choosing someone else's first password
+    means that password has been typed into a chat window or read out over a
+    telephone.
     """
 
     model_config = ConfigDict(extra="forbid")

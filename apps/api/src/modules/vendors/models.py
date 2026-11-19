@@ -380,10 +380,11 @@ class VendorCategory(TenantEntity):
         # "Who supplies this category?" - the query the sourcing screen and the
         # MRP purchase suggestion both run.
         Index("ix_vendor_categories_category", "company_id", "item_category_id"),
-        # ASSUMPTION: at most one preferred vendor per item category, mirroring
-        # the one-preferred-vendor-per-item rule already enforced on
-        # item_vendor_links. Two "preferred" vendors for one category gives the
-        # sourcing screen no basis to choose, so the ambiguity is refused here.
+        # ASSUMPTION (docs/assumptions.md §VEND-2): at most one preferred vendor
+        # per item category, mirroring the one-preferred-vendor-per-item rule
+        # already enforced on item_vendor_links. Two "preferred" vendors for one
+        # category gives the sourcing screen no basis to choose, so the
+        # ambiguity is refused here.
         Index(
             "uq_vendor_categories_one_preferred",
             "company_id",

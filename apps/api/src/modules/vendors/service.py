@@ -1212,10 +1212,10 @@ class VendorService:
     def _assert_approvable(self, vendor: Vendor) -> None:
         """Refuse to approve a record that cannot actually be transacted with.
 
-        ASSUMPTION: an approved vendor must have either a GSTIN or an explicit
-        MSME/unregistered marker, and must have a payee name and account number
-        on file. Approving without them defers the problem to the first payment
-        run, where it blocks a payment rather than a form.
+        ASSUMPTION (docs/assumptions.md §VEND-3): an approved vendor must have
+        either a GSTIN or an MSME (Udyam) number, and must have a payee name and
+        account number on file. Approving without them defers the problem to
+        the first payment run, where it blocks a payment rather than a form.
         """
         missing: list[str] = []
         if not vendor.gstin and not vendor.msme_number:
