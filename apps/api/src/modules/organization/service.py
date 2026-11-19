@@ -53,7 +53,6 @@ from src.core.deps import TenantContext
 from src.core.errors import (
     AuthorizationError,
     BusinessRuleError,
-    DuplicateError,
     NotFoundError,
     ValidationError,
     duplicate_code,
@@ -1386,10 +1385,7 @@ class FinancialYearService:
     async def create_year(self, payload: FinancialYearCreate) -> FinancialYearRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Financial year '{payload.code}' already exists in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Financial year", payload.code)
 
             assert_period_valid(payload.start_date, payload.end_date)
             if payload.is_active:

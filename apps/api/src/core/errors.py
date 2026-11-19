@@ -186,19 +186,22 @@ def duplicate_code(
     *,
     scope: str = "this company",
     note: str | None = None,
+    field: str = "code",
     **details: Any,
 ) -> DuplicateError:
     """The refusal for a code another record already holds, on the form's code field.
 
     One constructor so every such refusal reads the same (``code_already_used``)
     and carries ``details.fields.code``, which a form shows against its code
-    field instead of as a banner over the dialog. ``note`` adds what the caller
-    knows about why the code is taken; ``details`` the ids behind it.
+    field instead of as a banner over the dialog. ``field`` names that field
+    where the payload calls it something else - a user's ``employee_code``.
+    ``note`` adds what the caller knows about why the code is taken; ``details``
+    the ids behind it.
     """
     message = code_already_used(entity, code, scope)
     if note is not None:
         message = f"{message} {note}"
-    return DuplicateError(message, details={"code": code, **details, "fields": {"code": [message]}})
+    return DuplicateError(message, details={field: code, **details, "fields": {field: [message]}})
 
 
 class AuthenticationError(AppError):

@@ -6,6 +6,13 @@ lot keyed against an untracked item in eleven endings at twenty-four, until
 the only way to say either. These guards read every error raised in ``src``
 with a literal message and refuse one that states either rule itself; each has
 a self-test that feeds it the wordings that shipped.
+
+The first version of the duplicate-code rule needed the word "code" beside
+"already exists" or "already used", and two copies passed it: "Financial year
+'FY-27' already exists in this company." names no code once its placeholder is
+a placeholder, and "Employee code 'E-1' is already in use." says it a third way.
+Neither put the refusal on its form's field. A quoted value that already
+exists, is used or is in use is now the rule's shape too.
 """
 
 from __future__ import annotations
@@ -26,7 +33,9 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 RULES: dict[str, tuple[re.Pattern[str], str]] = {
     "duplicate code": (
         re.compile(
-            r"\bcode\b.*\balready (exists|used)\b|\balready (exists|used)\b.*\bcode\b",
+            r"\bcode\b.*\balready (exists|used|in use)\b"
+            r"|\balready (exists|used|in use)\b.*\bcode\b"
+            r"|['\"]\{\}['\"] (is )?already (exists|used|in use)\b",
             re.IGNORECASE,
         ),
         "src.core.errors.duplicate_code",
@@ -93,6 +102,10 @@ def test_the_guard_finds_the_wordings_that_shipped_and_passes_the_builders() -> 
             "raise BusinessRuleError(not_tracked(code, 'serial', 'serial numbers'))",
             "raise DuplicateError('This vendor is already linked to the item.')",
             "raise BusinessRuleError(f'Item {code} is serial tracked; name one serial per unit.')",
+            "raise DuplicateError(f\"Financial year '{code}' already exists in this company.\")",
+            "raise DuplicateError(f\"Employee code '{code}' is already in use.\")",
+            "raise DuplicateError(f'An account with the address {email} already exists.')",
+            "raise duplicate_code('Employee', code, field='employee_code')",
         ]
     )
 
@@ -105,4 +118,6 @@ def test_the_guard_finds_the_wordings_that_shipped_and_passes_the_builders() -> 
         "line 2: duplicate code",
         "line 3: not tracked",
         "line 4: not tracked",
+        "line 9: duplicate code",
+        "line 10: duplicate code",
     ]

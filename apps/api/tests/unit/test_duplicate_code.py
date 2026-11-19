@@ -47,6 +47,17 @@ def test_a_scope_a_note_and_the_ids_behind_it_are_carried() -> None:
     }
 
 
+def test_a_code_field_by_another_name_carries_the_refusal_under_that_name() -> None:
+    """A user's code is ``employee_code`` on the form, so that is where it is refused."""
+    refusal = duplicate_code("Employee", "E-1", field="employee_code")
+
+    assert refusal.message == "Employee code 'E-1' is already used in this company."
+    assert refusal.details == {
+        "employee_code": "E-1",
+        "fields": {"employee_code": [refusal.message]},
+    }
+
+
 def test_the_sentence_is_the_shared_one() -> None:
     assert code_already_used("Cost centre", "CC-1") == (
         "Cost centre code 'CC-1' is already used in this company."

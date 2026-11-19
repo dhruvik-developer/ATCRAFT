@@ -872,10 +872,7 @@ class UserService:
                     details={"email": payload.email},
                 )
             if payload.employee_code and await self.repo.employee_code_taken(payload.employee_code):
-                raise DuplicateError(
-                    f"Employee code '{payload.employee_code}' is already in use.",
-                    details={"employee_code": payload.employee_code},
-                )
+                raise duplicate_code("Employee", payload.employee_code, field="employee_code")
 
             validate_password_policy(payload.password, email=payload.email, field="password")
             await self._assert_references(
@@ -1018,10 +1015,7 @@ class UserService:
                 and new_code != user.employee_code
                 and await self.repo.employee_code_taken(new_code, exclude_id=user.id)
             ):
-                raise DuplicateError(
-                    f"Employee code '{new_code}' is already in use.",
-                    details={"employee_code": new_code},
-                )
+                raise duplicate_code("Employee", new_code, field="employee_code")
 
             if "extra_permissions" in changes or "denied_permissions" in changes:
                 grants_changed = True

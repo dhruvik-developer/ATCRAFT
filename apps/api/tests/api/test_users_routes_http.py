@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import utcnow
 from src.core.deps import Principal, TenantContext, get_current_principal
+from src.core.messages import code_already_used
 from src.core.permissions import Permission
 from src.core.security import verify_password
 from src.main import app
@@ -346,6 +347,66 @@ class TestCreateUser:
 
         assert error_of(response, 404)["code"] == "NOT_FOUND"
         assert await users_with_email(session, tenant.company_id, email) == 0
+
+    async def test_an_employee_code_another_account_holds_is_refused_on_that_field(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        unique_code,
+    ) -> None:
+        """The form calls it ``employee_code``, so the refusal is filed there and the
+        dialog shows it under Employee code rather than above its buttons."""
+        code = unique_code("EMP")
+        await make_user(session, tenant, principal, employee_code=code)
+        email = address()
+
+        response = await api_client.post(
+            "/users",
+            json={
+                "email": email,
+                "full_name": "Second Badge",
+                "password": GOOD_PASSWORD,
+                "employee_code": code,
+            },
+        )
+
+        error = error_of(response, 409)
+        assert error["code"] == "DUPLICATE_DOCUMENT"
+        assert error["message"] == code_already_used("Employee", code)
+        assert error["details"] == {
+            "employee_code": code,
+            "fields": {"employee_code": [error["message"]]},
+        }
+        assert await users_with_email(session, tenant.company_id, email) == 0
+
+
+# -----------------------------------------------------------------------------
+# PATCH /users/{user_id}
+# -----------------------------------------------------------------------------
+
+
+class TestUpdateUser:
+    async def test_taking_an_employee_code_another_account_holds_is_refused_on_that_field(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        unique_code,
+    ) -> None:
+        code = unique_code("EMP")
+        await make_user(session, tenant, principal, employee_code=code)
+        other = await make_user(session, tenant, principal)
+
+        response = await api_client.patch(f"/users/{other.id}", json={"employee_code": code})
+
+        error = error_of(response, 409)
+        assert error["code"] == "DUPLICATE_DOCUMENT"
+        assert error["details"]["fields"] == {"employee_code": [error["message"]]}
+        stored = await session.scalar(select(User.employee_code).where(User.id == other.id))
+        assert stored is None
 
 
 # -----------------------------------------------------------------------------

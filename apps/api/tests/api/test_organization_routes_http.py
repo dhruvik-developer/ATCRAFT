@@ -32,6 +32,7 @@ from starlette.datastructures import Headers, UploadFile
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.deps import Principal, TenantContext, get_current_principal
+from src.core.messages import code_already_used
 from src.main import app
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.documents.models import Document, DocumentCategory
@@ -726,9 +727,11 @@ class TestCreateFinancialYear:
         assert error["code"] == "BUSINESS_RULE_VIOLATION"
         assert error["details"]["conflicting_financial_year_id"] == str(existing.id)
 
-    async def test_a_duplicate_code_is_a_conflict(
+    async def test_a_duplicate_code_is_a_conflict_on_the_code_field(
         self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, unique_code
     ) -> None:
+        """Worded and placed as every other organisation master's, so the dialog
+        shows it against Code rather than only in a toast."""
         existing = await make_year(session, tenant, unique_code("FY"))
 
         response = await api_client.post(
@@ -740,7 +743,14 @@ class TestCreateFinancialYear:
             },
         )
 
-        assert error_of(response, 409)["code"] == "DUPLICATE_DOCUMENT"
+        error = error_of(response, 409)
+        assert error["code"] == "DUPLICATE_DOCUMENT"
+        assert error["message"] == code_already_used("Financial year", existing.code)
+        assert error["details"] == {
+            "code": existing.code,
+            "fields": {"code": [error["message"]]},
+        }
+        assert await count_codes(session, FinancialYear, tenant.company_id, existing.code) == 1
 
     async def test_missing_and_malformed_dates_are_field_errors(
         self, api_client: AsyncClient, unique_code
