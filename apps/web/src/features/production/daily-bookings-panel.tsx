@@ -44,13 +44,14 @@ import {
   type ProductionOrderRow,
 } from './production-model'
 
-/** One page of `GET /production/entries` is 200 rows; past that the tab says so. */
-// Kept out of the panel's first download, so opening the production screen does
-// not fetch every production form; it is fetched as soon as the panel paints.
+// Kept out of the panel's first download, so the production screen does not wait
+// on every production form before it paints; it is fetched as soon as the
+// panel's code has run (components/lazy-dialog.ts).
 const RecordProductionDialog = lazyDialog(() =>
   import('./production-dialogs').then((module) => ({ default: module.RecordProductionDialog })),
 )
 
+/** One page of `GET /production/entries` is 200 rows; past that the tab says so. */
 const DAY_BOOKING_LIMIT = 200
 
 interface DayTotal {

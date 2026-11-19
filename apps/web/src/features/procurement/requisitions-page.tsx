@@ -97,9 +97,9 @@ const RequisitionFormDialog = lazyDialog(() =>
 )
 
 /**
- * The conversion dialogs are the heaviest thing a buyer can open here, and most
- * visits to the queue never open them, so they arrive in their own chunk - one
- * module, both dialogs - on first use.
+ * The conversion dialogs are the heaviest thing a buyer can open here, so they
+ * live in their own chunk - one module, both dialogs - kept out of the queue's
+ * first download and fetched as soon as the screen's code has run.
  */
 const RequisitionConversionDialog = lazyDialog(() => import('./requisition-conversion-dialog'))
 const RequisitionBatchPicker = lazyDialog(() =>
@@ -217,8 +217,8 @@ export default function RequisitionsPage() {
   const [form, setForm] = useState<{ requisitionId: string | null } | null>(null)
 
   // What is being converted into purchase orders, and whether the batch picker
-  // is open. Each dialog is mounted only while it is in use, so its chunk is
-  // fetched on first use and its state starts clean every time.
+  // is open. Each dialog is mounted only while it is in use, so its state starts
+  // clean every time.
   const [conversion, setConversion] = useState<RequisitionConversionTarget | null>(null)
   const [picking, setPicking] = useState(false)
 

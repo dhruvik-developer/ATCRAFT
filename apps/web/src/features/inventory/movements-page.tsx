@@ -70,8 +70,9 @@ import {
 } from './types'
 
 // The five forms share one module, kept out of the screen's first download and
-// fetched as soon as it paints (components/lazy-dialog.ts); the two count forms
-// open from a row, so they load through lazy() and render from that same module.
+// fetched as soon as the screen's code has run (components/lazy-dialog.ts) -
+// whatever the person's rights, so the two count forms, which open from a row
+// through lazy(), render from that same module without a download of their own.
 const CreateTransferDialog = lazyDialog(() =>
   import('./movement-dialogs').then((module) => ({ default: module.CreateTransferDialog })),
 )

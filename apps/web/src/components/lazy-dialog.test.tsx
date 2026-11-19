@@ -86,6 +86,67 @@ describe('forms loaded on first use', () => {
     expect(mounted).toHaveBeenCalledTimes(1)
   })
 
+  it('opens a form whose code is already in memory with no loading dialog first', async () => {
+    const loader = vi.fn(async () => ({ default: form() }))
+    const Form = lazyDialog(loader)
+    // The customers screen shape: the form unmounts when it closes, so every
+    // opening is a new instance of it.
+    const view = render(<Form open onOpenChange={vi.fn()} />)
+    expect(await screen.findByLabelText('Item name')).toBeVisible()
+    view.rerender(<h1>Customers</h1>)
+    expect(screen.queryByLabelText('Item name')).toBeNull()
+
+    view.rerender(<Form open onOpenChange={vi.fn()} />)
+    // In the opening's own commit: no 'Loading form' dialog taking focus first.
+    expect(screen.queryByRole('heading', { name: 'Loading form' })).toBeNull()
+    expect(screen.getByLabelText('Item name')).toBeVisible()
+    expect(loader).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens a form mounted before its code arrived with no loading dialog first', async () => {
+    const loader = vi.fn(async () => ({ default: form() }))
+    const Form = lazyDialog(loader)
+    // An always-mounted form, closed; another instance of it fetches the code.
+    const view = render(
+      <>
+        <Form open={false} onOpenChange={vi.fn()} />
+        <Form open onOpenChange={vi.fn()} />
+      </>,
+    )
+    expect(await screen.findByLabelText('Item name')).toBeVisible()
+
+    view.rerender(
+      <>
+        <Form open onOpenChange={vi.fn()} />
+        <Form open={false} onOpenChange={vi.fn()} />
+      </>,
+    )
+    expect(screen.queryByRole('heading', { name: 'Loading form' })).toBeNull()
+    expect(screen.getByLabelText('Item name')).toBeVisible()
+    expect(loader).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a form opened before its code arrived mounted when its screen re-renders', async () => {
+    let finish!: (module: { default: ReturnType<typeof form> }) => void
+    const mounted = vi.fn()
+    const loader = vi.fn(
+      () =>
+        new Promise<{ default: ReturnType<typeof form> }>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const Form = lazyDialog(loader)
+    const view = render(<Form open onOpenChange={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Loading form' })).toBeVisible()
+    await act(async () => finish({ default: form(mounted) }))
+    await userEvent.type(await screen.findByLabelText('Item name'), 'Draft item')
+
+    // The screen re-renders with the form still open: the half-filled form stays.
+    view.rerender(<Form open onOpenChange={vi.fn()} />)
+    expect(screen.getByLabelText('Item name')).toHaveValue('Draft item')
+    expect(mounted).toHaveBeenCalledTimes(1)
+  })
+
   it('retries a failed form download without replacing the page', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const loader = vi

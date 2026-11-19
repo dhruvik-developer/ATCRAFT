@@ -126,9 +126,9 @@ export const NOTIFICATION_POLL_MS = 60_000
 /**
  * Eager loading. Right after the app shell paints, every screen the person can
  * open is downloaded in the background, and every screen downloads its forms as
- * soon as it paints, so no click waits on the network (lib/preload.ts). Off under
- * Vitest, where it would compile every page for each test that renders the shell;
- * a browser that asks to save data opts out at run time.
+ * soon as its own code has run, so no click waits on the network (lib/preload.ts).
+ * Off under Vitest, where it would compile every page for each test that renders
+ * the shell; a browser that asks to save data opts out at run time.
  */
 export const EAGER_PRELOAD = import.meta.env.MODE !== 'test'
 

@@ -68,7 +68,10 @@ const JobWorkReceiveDialog = lazyDialog(() =>
   import('./job-work-dialogs').then((module) => ({ default: module.JobWorkReceiveDialog })),
 )
 
-/** The rework form is the heaviest dialog on this page; it loads on demand. */
+/**
+ * The rework form is the heaviest dialog on this page; it is kept out of the
+ * page's first download and fetched as soon as the page's code has run.
+ */
 const JobWorkOrderFormDialog = lazyDialog(() =>
   import('./job-work-order-form-dialog').then((m) => ({ default: m.JobWorkOrderFormDialog })),
 )

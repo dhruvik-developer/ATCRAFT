@@ -109,8 +109,8 @@ const SalesOrderLineDialog = lazyDialog(() =>
 )
 
 /**
- * The dispatch dialog is the dispatch feature's, and a large one; loaded on the
- * first press of Dispatch so the order page's own chunk does not carry it.
+ * The dispatch dialog is the dispatch feature's, and a large one; kept out of
+ * the order page's own chunk and fetched as soon as the page's code has run.
  */
 const CreateDispatchDialog = lazyDialog(() =>
   import('@/features/dispatch/dispatch-dialogs').then((m) => ({
@@ -120,7 +120,8 @@ const CreateDispatchDialog = lazyDialog(() =>
 
 /**
  * The transfer dialog is the inventory feature's, and carries the whole line
- * editor; loaded on the first press of Raise transfer.
+ * editor; kept out of the order page's own chunk and fetched with the dispatch
+ * dialog.
  */
 const CreateTransferDialog = lazyDialog(() =>
   import('@/features/inventory/movement-dialogs').then((m) => ({

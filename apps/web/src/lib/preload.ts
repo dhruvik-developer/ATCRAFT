@@ -3,8 +3,9 @@
  * and how to run a download as soon as the main thread has a moment.
  *
  * The screens and forms themselves are preloaded by `preloadRoutes`
- * (app/route-loaders.ts) and `lazyDialog` (components/lazy-dialog.ts); both
- * start straight after a paint and only yield to work the person is waiting on.
+ * (app/route-loaders.ts), straight after the shell paints, and `lazyDialog`
+ * (components/lazy-dialog.ts), as soon as the screen that holds the form has
+ * loaded; both only yield to work the person is waiting on.
  */
 
 import { PRELOAD_IDLE_TIMEOUT_MS } from '@/lib/constants'
