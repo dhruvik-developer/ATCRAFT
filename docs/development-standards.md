@@ -38,6 +38,9 @@ public URLs.
 Document non-obvious algorithms, locking order, permission-dependent responses
 and business assumptions at the decision point. Record changed assumptions in
 [assumptions.md](assumptions.md); comments that restate an assignment add no value.
+A backend `ASSUMPTION` comment or docstring paragraph cites the entry that
+records its rule - `ASSUMPTION (docs/assumptions.md §<id>): ...` - and every
+section a citation names is written (`tests/unit/test_assumption_references.py`).
 
 ## Verification required for completion
 
