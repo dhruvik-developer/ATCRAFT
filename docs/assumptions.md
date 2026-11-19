@@ -4702,6 +4702,12 @@ are not implicit. Matched flat discounts are summed; percentage rates remain
 unchanged. Retained lines keep their issued tax-rate snapshots. A different
 procurement category requires a separate PO.
 
+Nor is a unit converted for any purchase-order line that draws on a requisition
+line, whether the order is raised, edited or amended: the quantity it takes is
+stated in the requisition line's unit, and an allocation in another unit is
+refused rather than converted (`purchase_order_sources.assert_source_units`), so
+incompatible units need a separate request in the purchasing unit.
+
 Only APPROVED, SENT and ACKNOWLEDGED orders with no GRN history can be amended;
 draft and cancelled receipts also count as history. The revision clears vendor
 acknowledgement and commitment, requires reapproval and resend, and retains the
@@ -5584,6 +5590,53 @@ a validation error on every unrelated edit of the company.
 
 **Impact if wrong.** If an unknown name must always be refused, ship `tzdata`
 in every image and remove the fallback.
+
+## §ORG-3. A department tree is at most six levels deep
+
+**Assumed.** Creating or moving a department is refused when it would sit
+deeper than six levels (`MAX_DEPARTMENT_DEPTH`), counted from the root down to
+the department itself: "Department hierarchy may not be deeper than 6 levels."
+The departments beneath it are not counted, so moving one that has children can
+leave them deeper than six - a gap the cost-centre rule closes (section 45). The
+limit is a named constant, not a database constraint.
+
+**Why.** Company, division, function, department, section and cell are already
+six levels, so a deeper tree is a data-entry mistake rather than a real
+organisation chart. A constant rather than a CHECK means raising it needs no
+migration.
+
+**Where.** `src/modules/organization/service.py` - `MAX_DEPARTMENT_DEPTH`,
+passed by `DepartmentService._assert_parent` to `assert_parent_allowed`
+(`src/common/hierarchy.py`).
+
+**Impact if wrong.** Raise the constant; the cost-centre limit is defined as
+equal to it and moves with it (section 45). Counting descendants on a move is
+`subtree_height`, which the department check does not pass yet.
+
+## §ORG-4. A financial year is tied to the documents numbered in it by its code
+
+**Assumed.** Deleting a financial year is refused once it is closed, and once
+any document has been numbered in its period: `422 REFERENCED_RECORD_IN_USE`,
+"Documents have already been numbered in financial year <code>." The period is
+found by matching the year's `code` against `document_sequences.period_key`, the
+label `financial_year_key` gives a yearly series (`2026-27`), because
+`document_sequences` carries no `financial_year_id`. Nothing holds a year's code
+to that label - the form shows `2026-27` as a placeholder - and a year coded any
+other way finds no documents and stays deletable.
+
+**Why.** A numbering series must stay contiguous and traceable to a period that
+still exists, and the code is the only link between the two tables.
+
+**Where.** `src/modules/organization/repository.py` -
+`FinancialYearRepository.document_numbers_issued`;
+`src/modules/organization/service.py` - `FinancialYearService.delete_year`;
+`src/common/codes.py` - `financial_year_key`, `next_document_number`.
+
+**Impact if wrong.** A reliable link needs `document_sequences` to record the
+year it numbered in, or year codes held to the label. Numbering derives the
+label with an April start whatever `financial_year_start_month` says (section
+13), so for a company whose year starts in another month this guard can match
+the wrong period or none.
 
 ## §WH-2. A warehouse or bin tree is at most five levels deep
 
@@ -6775,3 +6828,43 @@ deliberately, never by default.
 **Impact if wrong.** If charges with no order line should pass, they need a line
 type of their own with a tolerance of its own - exempting every unlinked line
 would let any added line through.
+
+## §PO-1. Goods are received against an order the vendor has not acknowledged
+
+**Assumed.** A goods receipt is created and posted against a purchase order that
+is SENT, ACKNOWLEDGED or PARTIALLY_RECEIVED (`RECEIVABLE_PO_STATUSES`), so the
+state machine runs from SENT to PARTIALLY_RECEIVED or RECEIVED as well as from
+ACKNOWLEDGED. An order that is APPROVED but has not been sent takes no receipt.
+
+**Why.** Acknowledgement is a courtesy from the vendor, not a gate on the store;
+the alternative is a lorry at the gate and a document that refuses to accept it.
+
+**Where.** `src/modules/procurement/service_rules.py` -
+`PURCHASE_ORDER_LIFECYCLE`; `src/modules/procurement/models.py` -
+`RECEIVABLE_PO_STATUSES`; `src/modules/procurement/service.py` -
+`create_goods_receipt`, `post_goods_receipt`.
+
+**Impact if wrong.** If a receipt must wait for acknowledgement, SENT leaves
+`RECEIVABLE_PO_STATUSES` and its two receipt edges leave the machine; a buyer
+then records the vendor's acknowledgement before the store can receive.
+
+## §PO-2. An order with nothing awaiting inspection skips QC_PENDING
+
+**Assumed.** When a receipt completes a purchase order, the order moves to
+RECEIVED and straight on, each hop an audited transition: to QC_PENDING when any
+of its receipt lines still awaits an incoming-inspection verdict, otherwise
+directly to GRN_COMPLETED. An order none of whose lines was held for inspection
+never passes through QC_PENDING or QC_COMPLETED.
+
+**Why.** Forcing every receipt through a QC state nobody inspects would make the
+state meaningless exactly where it matters: a purchase order in QC_PENDING says
+an inspection is outstanding.
+
+**Where.** `src/modules/procurement/service_rules.py` -
+`PURCHASE_ORDER_LIFECYCLE` (the RECEIVED to GRN_COMPLETED edge);
+`src/modules/procurement/service.py` - `_advance_order_after_receipt`.
+
+**Impact if wrong.** If every completed order must show an inspection stage,
+`_advance_order_after_receipt` always takes QC_PENDING - and an order leaves
+QC_PENDING only when its inspections are decided (§E4-2), so one with nothing to
+inspect would need another way out.

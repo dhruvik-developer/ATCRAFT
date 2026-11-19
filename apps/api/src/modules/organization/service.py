@@ -122,11 +122,11 @@ AUDIT_ENTITY_FINANCIAL_YEAR = "financial_year"
 #: How a cost centre is named in messages and on its state machine.
 COST_CENTRE_ENTITY = "Cost centre"
 
-# ASSUMPTION: a department hierarchy deeper than six levels is a data-entry
-# mistake rather than a real org chart - company > division > function >
-# department > section > cell is already six. A named constant rather than a
-# database constraint, so raising it is a deliberate code change and not a
-# migration.
+# ASSUMPTION (docs/assumptions.md §ORG-3): a department hierarchy deeper than six
+# levels is a data-entry mistake rather than a real org chart - company >
+# division > function > department > section > cell is already six. A named
+# constant rather than a database constraint, so raising it is a deliberate code
+# change and not a migration.
 MAX_DEPARTMENT_DEPTH = 6
 
 # ASSUMPTION: a cost-centre tree is bounded exactly like the department tree it

@@ -835,8 +835,9 @@ async def _cancel_demand(
             and all(line.status == RequisitionLineStatus.CANCELLED for line in children)
             and not any(line.ordered_quantity for line in children)
         ):
-            # ASSUMPTION: exhausted converted requests close through their
-            # existing graph; untouched approved requests can be cancelled.
+            # ASSUMPTION (docs/assumptions.md §D1-4): exhausted converted
+            # requests close through their existing graph; untouched approved
+            # requests can be cancelled.
             target = (
                 RequisitionStatus.CANCELLED
                 if header.status == RequisitionStatus.APPROVED

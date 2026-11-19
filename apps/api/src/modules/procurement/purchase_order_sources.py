@@ -117,9 +117,9 @@ def assert_source_units(
 ) -> None:
     """The allocation quantity is expressed in the requisition's unit.
 
-    ASSUMPTION: a linked PO cannot silently convert units. Explicit conversion
-    factors are not part of this document contract; incompatible units require
-    a separate request in the same purchasing unit.
+    ASSUMPTION (docs/assumptions.md §D1-2): a linked PO cannot silently convert
+    units. Explicit conversion factors are not part of this document contract;
+    incompatible units require a separate request in the same purchasing unit.
     """
     for payload in payloads:
         unit_id = payload.uom_id or resolved_units[payload.item_id]

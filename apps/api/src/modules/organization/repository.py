@@ -954,10 +954,11 @@ class FinancialYearRepository(BaseRepository[FinancialYear]):
     async def document_numbers_issued(self, period_key: str) -> bool:
         """Has any document already been numbered inside this period?
 
-        ASSUMPTION: ``document_sequences.period_key`` holds the financial year
-        label produced by :func:`src.common.codes.financial_year_key`
-        (``2026-27``), and a financial year is created with that same label as
-        its code. Matching on the string is therefore the only link available -
+        ASSUMPTION (docs/assumptions.md §ORG-4): ``document_sequences.period_key``
+        holds the financial year label produced by
+        :func:`src.common.codes.financial_year_key` (``2026-27``), and a
+        financial year is created with that same label as its code. Matching on
+        the string is therefore the only link available -
         ``document_sequences`` carries no ``financial_year_id``. The check is
         conservative: a code that does not follow the convention simply finds
         nothing and the year stays deletable.

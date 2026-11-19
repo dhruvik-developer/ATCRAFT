@@ -223,14 +223,15 @@ REQUOTABLE_QUOTATION_STATUSES: frozenset[QuotationStatus] = frozenset(
 # The purchase order graph is database.md section 7, plus three edges it does
 # not draw and one it does not need:
 #
-# * SENT -> PARTIALLY_RECEIVED / RECEIVED. ASSUMPTION: goods that physically
-#   arrive can be received against an order the vendor never acknowledged.
-#   Acknowledgement is a courtesy from the vendor, not a gate on the store; the
-#   alternative is a lorry at the gate and a document that refuses to accept it.
-# * RECEIVED -> GRN_COMPLETED. ASSUMPTION: an order where no line required
-#   incoming inspection completes without passing through QC_PENDING. Forcing
-#   every receipt through a QC state nobody inspects would make the state
-#   meaningless exactly where it matters.
+# * SENT -> PARTIALLY_RECEIVED / RECEIVED. ASSUMPTION (docs/assumptions.md §PO-1):
+#   goods that physically arrive can be received against an order the vendor
+#   never acknowledged. Acknowledgement is a courtesy from the vendor, not a gate
+#   on the store; the alternative is a lorry at the gate and a document that
+#   refuses to accept it.
+# * RECEIVED -> GRN_COMPLETED. ASSUMPTION (docs/assumptions.md §PO-2): an order
+#   with no receipt line still awaiting incoming inspection completes without
+#   passing through QC_PENDING. Forcing every receipt through a QC state nobody
+#   inspects would make the state meaningless exactly where it matters.
 # * PARTIALLY_RECEIVED -> CLOSED. A short close, for the balance that will never
 #   arrive. Without it a partially received order is stuck open forever, which
 #   is worse than an audited decision to stop expecting the rest.
