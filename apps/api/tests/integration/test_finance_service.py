@@ -19,9 +19,6 @@ created once and dropped afterwards, with every test's writes rolled back.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import importlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import date, timedelta
@@ -30,15 +27,10 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncSession
 
-import src.modules.organization.models
-import src.modules.users.models  # noqa: F401 - registers `users`
-from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
-from src.core.models import Base
 from src.core.pagination import DateCursorParams, PageParams
 from src.core.permissions import Permission
 from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
@@ -75,28 +67,9 @@ from tests.finance_support import (
     posted_purchase_return,
     seed,
 )
-from tests.schema_support import report_database_setup_failure
+from tests.private_schema_support import private_schema, rolled_back_session
 
 pytestmark = pytest.mark.integration
-
-# These modules own tables this one points at and are built beside it; prefer
-# their real definitions and fall back to whatever the metadata already holds.
-for _module_path, _table in (
-    ("src.modules.inventory.models", "inventory_balances"),
-    ("src.modules.sales.models", "sales_order_lines"),
-    ("src.modules.dispatch.models", "dispatch_lines"),
-):
-    if _table not in Base.metadata.tables:
-        with contextlib.suppress(ModuleNotFoundError):
-            importlib.import_module(_module_path)
-
-
-def _schema_engine(schema: str):
-    return create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-    )
 
 
 @pytest.fixture(scope="module")
@@ -106,57 +79,25 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     The second company exists so tenant isolation can be asserted rather than
     assumed - a scoping rule that is never tested is a claim, not a property.
     """
-    schema = f"it_finance_{uuid.uuid4().hex[:10]}"
     company_id = uuid.uuid4()
     other_company_id = uuid.uuid4()
     user_id = uuid.uuid4()
 
-    async def setup() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        finally:
-            await admin.dispose()
+    async def seed(session: AsyncSession) -> None:
+        # Through the ORM builders, not a hand-written INSERT: the
+        # column lists went stale twice in the files CLAUDE.md names.
+        for identifier in (company_id, other_company_id):
+            await seed_support.seed_company(session, company_id=identifier, prefix="FIN")
+        await seed_support.seed_user(
+            session,
+            company_id=company_id,
+            user_id=user_id,
+            email="accounts@atcraft.test",
+            full_name="Accountant",
+        )
 
-        engine = _schema_engine(schema)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(
-                    lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=False)
-                )
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with factory() as session, session.begin():
-                # Through the ORM builders, not a hand-written INSERT: the
-                # column lists went stale twice in the files CLAUDE.md names.
-                for identifier in (company_id, other_company_id):
-                    await seed_support.seed_company(session, company_id=identifier, prefix="FIN")
-                await seed_support.seed_user(
-                    session,
-                    company_id=company_id,
-                    user_id=user_id,
-                    email="accounts@atcraft.test",
-                    full_name="Accountant",
-                )
-        finally:
-            await engine.dispose()
-
-    async def teardown() -> None:
-        admin = create_async_engine(settings.database_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await admin.dispose()
-
-    try:
-        asyncio.run(setup())
-    except Exception as exc:  # pragma: no cover - environment, not a test failure
-        report_database_setup_failure(exc)
-
-    yield schema, company_id, other_company_id, user_id
-    asyncio.run(teardown())
+    with private_schema("it_finance", seed) as schema:
+        yield schema, company_id, other_company_id, user_id
 
 
 @pytest_asyncio.fixture
@@ -165,7 +106,6 @@ async def ctx(
 ) -> AsyncIterator[tuple[AsyncSession, TenantContext, Principal]]:
     """A session whose writes are rolled back at the end of each test."""
     schema, company_id, _other, user_id = _schema
-    engine = _schema_engine(schema)
     tenant = TenantContext(company_id=company_id, user_id=user_id)
     principal = Principal(
         user_id=user_id,
@@ -176,20 +116,8 @@ async def ctx(
         permissions=frozenset(str(p) for p in Permission),
         role_codes=("ACCOUNTS",),
     )
-    try:
-        async with engine.connect() as connection:
-            outer = await connection.begin()
-            factory = async_sessionmaker(
-                bind=connection,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            )
-            async with factory() as session:
-                yield session, tenant, principal
-            await outer.rollback()
-    finally:
-        await engine.dispose()
+    async with rolled_back_session(schema, autoflush=True) as session:
+        yield session, tenant, principal
 
 
 # -----------------------------------------------------------------------------
