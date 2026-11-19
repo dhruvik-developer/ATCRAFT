@@ -1127,8 +1127,9 @@ ledger tells such a label from a unit already received, so a second receipt of
 a received unit is refused (`already_received` in `serial_transition`). A
 registration's position is recorded exactly as stated: one naming a bin and no
 warehouse is checked (the bin is this company's, in a store the caller is
-assigned to) but no warehouse is inferred from it, and one placed at warehouse
-level has no bin. A recorded warehouse or bin that is NULL gives a movement
+assigned to) but no warehouse is inferred from it - the register's warehouse
+scope still reads the bin's store (§WH-3) - and one placed at warehouse level
+has no bin. A recorded warehouse or bin that is NULL gives a movement
 nothing to disagree with, so that half of the comparison is skipped.
 
 **Why.** Clearing the position on issue or dispatch destroyed the last-known
@@ -5675,7 +5676,9 @@ storage locations.
 **Assumed.** A user restricted to some warehouses lists, opens and prints labels
 only for units positioned in an assigned warehouse, and may register a unit only
 at an assigned warehouse or at a bin inside one (403 `SCOPE_DENIED` otherwise).
-A unit with no warehouse yet - a label registered ahead of the goods - is in no
+A unit registered at a bin with no warehouse stated records no warehouse
+(section 30), and is positioned in its bin's warehouse for this rule. A unit with
+neither a warehouse nor a bin - a label registered ahead of the goods - is in no
 store and stays visible to everyone in the company. The movement engine and the
 documents' own unit checks resolve units under their own warehouse rules and are
 not narrowed by the reader's assignment.
@@ -5683,18 +5686,21 @@ not narrowed by the reader's assignment.
 **Why.** The register would otherwise tell a user assigned to one store which
 units sit in which bins of another, the position the balance screens already
 hide from them, and a unit they registered in a store they are not assigned to
-would be one they could never read back. A unit nobody has positioned is in no
-store, so no assignment can claim it. A movement must never lose a unit to the
-reader's scope.
+would be one they could never read back. A bin is inside exactly one store, so a
+unit registered at one is in that store whether or not the warehouse was keyed;
+reading it as "in no store" showed every restricted user the unit and its bin. A
+unit nobody has positioned is in no store, so no assignment can claim it. A
+movement must never lose a unit to the reader's scope.
 
 **Where.** `src/modules/inventory/repository.py` -
-`StockSerialRepository._visible`; `src/modules/inventory/service.py` -
+`StockSerialRepository._visible` (the bin's warehouse, read through
+`storage_locations`), which the list, the single read and the label sheet all
+use; `src/modules/inventory/service.py` -
 `TraceabilityService._validate_serial_position`.
 
-**Impact if wrong.** If a unit with no warehouse should be hidden from
-restricted users, drop the `warehouse_id IS NULL` arm of `_visible`; only an
-unrestricted user could then read or print a label registered ahead of its
-goods.
+**Impact if wrong.** If a unit with no position should be hidden from restricted
+users, drop the `location_id IS NULL` arm of `_visible`; only an unrestricted
+user could then read or print a label registered ahead of its goods.
 
 ## §PROD-1. A job may draw or book 10% beyond plan, and carries at most 500 components
 

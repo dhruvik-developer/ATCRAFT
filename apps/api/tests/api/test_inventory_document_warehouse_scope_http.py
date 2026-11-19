@@ -146,6 +146,7 @@ async def register(session, tenant, unique_code) -> SimpleNamespace:
         for _ in range(2)
     ]
     outside_bin = await _bin(session, tenant.company_id, outside, unique_code)
+    allowed_bin = await _bin(session, tenant.company_id, allowed, unique_code)
     traceability = TraceabilityService(session, tenant)
     units = {}
     for name, warehouse_id in (
@@ -164,6 +165,7 @@ async def register(session, tenant, unique_code) -> SimpleNamespace:
         allowed=allowed.id,
         outside=str(outside.id),
         outside_bin=str(outside_bin.id),
+        allowed_bin=str(allowed_bin.id),
         units=units,
     )
 
@@ -199,6 +201,54 @@ async def test_a_restricted_user_reads_only_their_stores_units_and_unplaced_labe
     assert hidden.status_code == 404
     shown = await api_client.post(labels, json={"serial_ids": sorted(visible)})
     assert (shown.status_code, shown.headers["content-type"]) == (200, "application/pdf")
+
+
+async def test_a_unit_registered_at_a_bin_alone_is_in_that_bin_s_store(
+    api_client, session, tenant, principal, register, unique_code
+):
+    """§WH-3 with section 30: a bin named without a warehouse records no warehouse.
+
+    The unit is still in that bin's store. Read as "in no store", it was listed,
+    opened and printed - bin and all - for every restricted user in the company,
+    which is the one thing the register's scope exists to stop.
+    """
+    traceability = TraceabilityService(session, tenant)
+    at_bin = {}
+    for name, location_id in (("outside", register.outside_bin), ("allowed", register.allowed_bin)):
+        unit = await traceability.create_serial(
+            StockSerialCreate(
+                item_id=uuid.UUID(register.item_id),
+                serial_number=unique_code("SN"),
+                location_id=uuid.UUID(location_id),
+            )
+        )
+        assert (unit.warehouse_id, str(unit.location_id)) == (None, location_id)
+        at_bin[name] = str(unit.id)
+
+    restricted_to(principal, register.allowed)
+    visible = {register.units["allowed"], register.units["unplaced"], at_bin["allowed"]}
+    listed = await api_client.get("/inventory/serials", params={"item_id": register.item_id})
+    assert listed.status_code == 200
+    assert {row["id"] for row in listed.json()["data"]} == visible
+    at_outside_bin = await api_client.get(
+        "/inventory/serials", params={"location_id": register.outside_bin}
+    )
+    assert (at_outside_bin.status_code, at_outside_bin.json()["data"]) == (200, [])
+    assert (await api_client.get(f"/inventory/serials/{at_bin['outside']}")).status_code == 404
+    assert (await api_client.get(f"/inventory/serials/{at_bin['allowed']}")).status_code == 200
+    labels = "/inventory/serials/labels"
+    hidden = await api_client.post(labels, json={"serial_ids": [at_bin["outside"]]})
+    assert hidden.status_code == 404
+    shown = await api_client.post(labels, json={"serial_ids": [at_bin["allowed"]]})
+    assert (shown.status_code, shown.headers["content-type"]) == (200, "application/pdf")
+
+    restricted_to(principal)
+    everything = await api_client.get("/inventory/serials", params={"item_id": register.item_id})
+    assert {row["id"] for row in everything.json()["data"]} == {
+        *register.units.values(),
+        *at_bin.values(),
+    }
+    assert (await api_client.get(f"/inventory/serials/{at_bin['outside']}")).status_code == 200
 
 
 async def test_a_restricted_user_cannot_register_units_in_another_store(

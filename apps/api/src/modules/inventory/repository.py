@@ -1628,14 +1628,36 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         documents' unit checks resolve ids under their own warehouse rules, and
         the movement engine must never lose a unit to a reader's scope.
 
-        ASSUMPTION (docs/assumptions.md §WH-3): a unit with no warehouse yet (a
-        label registered ahead of the goods) is in nobody's store and stays
-        visible to everyone in the company.
+        ASSUMPTION (docs/assumptions.md §WH-3): a unit with no warehouse recorded
+        is in the store of the bin it was registered at - section 30 records a
+        bin named alone without inferring its warehouse, and the bin still says
+        which store it is in. Only a unit with neither (a label registered ahead
+        of the goods, with no position) is in nobody's store and stays visible to
+        everyone in the company. The bin is read by a correlated ``EXISTS`` on
+        its own primary key, so the list stays one statement, in the same order,
+        however many rows it returns.
         """
         scope = warehouse_scope(self.tenant, StockSerial.warehouse_id)
         if not scope:
             return self._scoped()
-        return self._scoped().where(or_(StockSerial.warehouse_id.is_(None), *scope))
+        bin_in_scope = (
+            select(StorageLocation.id)
+            .where(
+                StorageLocation.company_id == self.tenant.company_id,
+                StorageLocation.id == StockSerial.location_id,
+                *warehouse_scope(self.tenant, StorageLocation.warehouse_id),
+            )
+            .exists()
+        )
+        return self._scoped().where(
+            or_(
+                *scope,
+                and_(
+                    StockSerial.warehouse_id.is_(None),
+                    or_(StockSerial.location_id.is_(None), bin_in_scope),
+                ),
+            )
+        )
 
     async def get_visible(self, serial_id: uuid.UUID) -> StockSerial | None:
         stmt = self._visible().where(StockSerial.id == serial_id)
