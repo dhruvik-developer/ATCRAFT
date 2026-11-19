@@ -10,6 +10,12 @@ so a PATCH of ``{"name": null}`` reached a NOT NULL column and came back as a
 stock documents each refused an unknown or inactive store in code of their own,
 and procurement and production each kept the scoped destination check.
 
+A copy is found under the helper's own name and under a name it replaced
+(:data:`REPLACED`): assembly and job work each defined ``_assert_warehouses``,
+procurement and production ``_assert_warehouse``, and a copy restored from
+history comes back with that name rather than the new one. Packing, quality and
+dispatch wrote their check inline, which no definition guard can see.
+
 A definition elsewhere that delegates to the owner - ``mrp``'s
 ``_failure_message`` binds the shared sentence to the planning run - is a call,
 not a copy, and passes. A re-implementation does not.
@@ -50,6 +56,13 @@ OWNERS: dict[str, str] = {
     "require_warehouse_in_scope": "modules/warehouses/service.py",
 }
 
+#: A name a copy had before its helper was shared -> the helper in :data:`OWNERS`
+#: that replaced it. A copy is restored under its old name, not its new one.
+REPLACED: dict[str, str] = {
+    "assert_warehouses": "require_active_warehouses",
+    "assert_warehouse": "require_warehouse_in_scope",
+}
+
 #: The error code only :func:`src.core.errors.referenced_in_use` attaches by hand
 #: (the integrity handler maps a foreign-key violation to it from a table).
 _IN_USE_CODE = "REFERENCED_RECORD_IN_USE"
@@ -71,14 +84,14 @@ def copies(source: str, relative: str) -> list[str]:
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        helper = node.name.lstrip("_")
+        name = node.name.lstrip("_")
+        helper = REPLACED.get(name, name)
         if helper not in OWNERS or OWNERS[helper] == relative:
             continue
         if helper in _calls(node):
             continue  # delegates to the shared helper
-        found.append(
-            (node.lineno, f"line {node.lineno}: {node.name} (defined in {OWNERS[helper]})")
-        )
+        where = OWNERS[helper] if helper == name else f"{OWNERS[helper]} as {helper}"
+        found.append((node.lineno, f"line {node.lineno}: {node.name} (defined in {where})"))
     # ast.walk is breadth-first; report in source order so a failure reads top-down.
     return [finding for _, finding in sorted(found)]
 
@@ -117,13 +130,55 @@ def test_the_guard_finds_a_copied_helper() -> None:
     assert hand_built_in_use_errors(source) == ["line 8"]
 
 
+def test_the_guard_finds_a_renamed_warehouse_check() -> None:
+    """The copies 2b7ccca2 replaced, as they stood before it, under their own names."""
+    assembly = (
+        "async def _assert_warehouses(session, tenant, *ids):\n"
+        "    found = await WarehouseLookupRepository(session, tenant).load(list(ids))\n"
+        "    for warehouse_id in ids:\n"
+        "        row = found.get(warehouse_id)\n"
+        "        if row is None:\n"
+        "            raise NotFoundError('Warehouse', warehouse_id)\n"
+        "        code, is_active = row\n"
+        "        if not is_active:\n"
+        "            raise BusinessRuleError(\n"
+        "                inactive_record('Warehouse', code, 'cannot be used by an assembly'),\n"
+        "                details={'warehouse_id': str(warehouse_id), 'warehouse_code': code},\n"
+        "            )\n"
+    )
+    procurement = (
+        "async def _assert_warehouse(session, tenant, warehouse_id):\n"
+        "    if not await WarehouseLookupRepository(session, tenant).exists_in_tenant(\n"
+        "        warehouse_id\n"
+        "    ):\n"
+        "        raise NotFoundError('Warehouse', warehouse_id)\n"
+    )
+
+    assert copies(assembly, "modules/assembly/service.py") == [
+        "line 1: _assert_warehouses "
+        "(defined in modules/warehouses/service.py as require_active_warehouses)",
+    ]
+    assert copies(procurement, "modules/procurement/service.py") == [
+        "line 1: _assert_warehouse "
+        "(defined in modules/warehouses/service.py as require_warehouse_in_scope)",
+    ]
+
+
 def test_the_guard_lets_a_delegating_wrapper_through() -> None:
     source = (
         "def _failure_message(exc):\n"
         "    return failure_message(exc, 'The planning run', logged_against='worker log')\n"
+        "async def _assert_warehouses(session, tenant, *ids):\n"
+        "    await require_active_warehouses(session, tenant, ids, consequence='cannot')\n"
     )
 
     assert copies(source, "workers/tasks/mrp.py") == []
+
+
+def test_every_replaced_name_points_at_a_shared_helper() -> None:
+    """A map entry naming no owned helper would silently check nothing."""
+    assert set(REPLACED.values()) <= set(OWNERS)
+    assert not set(REPLACED) & set(OWNERS)
 
 
 def test_every_owner_defines_its_helper() -> None:
