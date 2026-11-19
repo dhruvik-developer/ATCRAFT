@@ -42,7 +42,7 @@ from src.modules.audit.models import AuditLog
 from src.modules.inventory.models import InventoryBalance
 from src.modules.organization.models import Branch
 from src.modules.warehouses.models import StorageLocation, Warehouse
-from src.modules.warehouses.repository import WarehouseLookupRepository
+from src.modules.warehouses.repository import WarehouseLookupRepository, WarehouseRepository
 from src.modules.warehouses.schemas import (
     StorageLocationCreate,
     StorageLocationFilters,
@@ -50,7 +50,12 @@ from src.modules.warehouses.schemas import (
     WarehouseFilters,
     WarehouseUpdate,
 )
-from src.modules.warehouses.service import StorageLocationService, WarehouseService
+from src.modules.warehouses.service import (
+    StorageLocationService,
+    WarehouseService,
+    require_active_warehouses,
+    require_warehouse_in_scope,
+)
 from tests import seed_support
 
 pytestmark = pytest.mark.integration
@@ -654,7 +659,7 @@ class TestListing:
 
 
 # -----------------------------------------------------------------------------
-# The reference lookup assembly, job work, packing and quality share
+# The reference lookups the stock documents share
 # -----------------------------------------------------------------------------
 
 
@@ -707,6 +712,168 @@ class TestWarehouseLookup:
         found = await WarehouseLookupRepository(session, restricted).load([unassigned.id])
 
         assert found == {unassigned.id: ("FG-01", True)}
+
+    async def test_ids_in_scope_is_narrowed_by_assignments_and_ignores_active(
+        self, session: AsyncSession, tenant: TenantContext, other_tenant: TenantContext
+    ) -> None:
+        """The procurement and production destination lookup docs/security.md names.
+
+        ``WarehouseRepository.ids_in_scope``, which both read through
+        ``require_warehouse_in_scope`` instead of each keeping the statement.
+        """
+        assigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-01"
+        )
+        assigned_inactive = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-02", is_active=False
+        )
+        unassigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="FG-01"
+        )
+        retired = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-03", deleted_at=utcnow()
+        )
+        foreign = await seed_support.seed_warehouse(
+            session, company_id=other_tenant.company_id, code="RM-01"
+        )
+        asked = [
+            assigned.id,
+            assigned_inactive.id,
+            unassigned.id,
+            retired.id,
+            foreign.id,
+            uuid.uuid4(),
+            assigned.id,
+        ]
+        restricted = TenantContext(
+            company_id=tenant.company_id,
+            user_id=tenant.user_id,
+            allowed_warehouse_ids=(assigned.id, assigned_inactive.id, retired.id, foreign.id),
+        )
+
+        narrowed = await WarehouseRepository(session, restricted).ids_in_scope(asked)
+        unrestricted = await WarehouseRepository(session, tenant).ids_in_scope(asked)
+
+        # An assignment never widens the company or revives a retired store.
+        assert narrowed == {assigned.id, assigned_inactive.id}
+        assert unrestricted == {assigned.id, assigned_inactive.id, unassigned.id}
+        assert await WarehouseRepository(session, tenant).ids_in_scope([]) == set()
+
+
+# -----------------------------------------------------------------------------
+# The refusals the stock documents share
+# -----------------------------------------------------------------------------
+
+
+class TestSharedWarehouseChecks:
+    async def test_active_stores_pass_and_each_failure_is_worded_by_its_caller(
+        self, session: AsyncSession, tenant: TenantContext, other_tenant: TenantContext
+    ) -> None:
+        active = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-01"
+        )
+        inactive = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-02", is_active=False
+        )
+        retired = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-03", deleted_at=utcnow()
+        )
+        foreign = await seed_support.seed_warehouse(
+            session, company_id=other_tenant.company_id, code="RM-04"
+        )
+
+        # The same store named twice - an order's source and its output - passes.
+        await require_active_warehouses(
+            session, tenant, [active.id, active.id], consequence="cannot be packed from"
+        )
+
+        with pytest.raises(BusinessRuleError) as refused:
+            await require_active_warehouses(
+                session, tenant, [active.id, inactive.id], consequence="cannot be packed from"
+            )
+        assert refused.value.code == ErrorCode.BUSINESS_RULE_VIOLATION
+        assert refused.value.message == "Warehouse RM-02 is inactive and cannot be packed from."
+        assert refused.value.details == {
+            "warehouse_id": str(inactive.id),
+            "warehouse_code": "RM-02",
+        }
+
+        for absent in (retired.id, foreign.id, uuid.uuid4()):
+            with pytest.raises(NotFoundError) as missing:
+                await require_active_warehouses(
+                    session, tenant, [absent], consequence="cannot be packed from"
+                )
+            assert missing.value.message == f"Warehouse not found: {absent}."
+
+    async def test_the_first_failing_store_in_the_order_given_is_the_one_reported(
+        self, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        inactive = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-02", is_active=False
+        )
+        unknown = uuid.uuid4()
+
+        with pytest.raises(BusinessRuleError):
+            await require_active_warehouses(
+                session, tenant, [inactive.id, unknown], consequence="cannot be dispatched from"
+            )
+        with pytest.raises(NotFoundError):
+            await require_active_warehouses(
+                session, tenant, [unknown, inactive.id], consequence="cannot be dispatched from"
+            )
+
+    async def test_the_active_check_is_not_narrowed_by_assignments(
+        self, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        assigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-01"
+        )
+        unassigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="FG-01"
+        )
+        restricted = TenantContext(
+            company_id=tenant.company_id,
+            user_id=tenant.user_id,
+            allowed_warehouse_ids=(assigned.id,),
+        )
+
+        await require_active_warehouses(
+            session, restricted, [unassigned.id], consequence="cannot be packed from"
+        )
+
+    async def test_a_destination_must_be_live_here_and_inside_the_assignment(
+        self, session: AsyncSession, tenant: TenantContext, other_tenant: TenantContext
+    ) -> None:
+        assigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-01"
+        )
+        assigned_inactive = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-02", is_active=False
+        )
+        unassigned = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="FG-01"
+        )
+        retired = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code="RM-03", deleted_at=utcnow()
+        )
+        foreign = await seed_support.seed_warehouse(
+            session, company_id=other_tenant.company_id, code="RM-04"
+        )
+        restricted = TenantContext(
+            company_id=tenant.company_id,
+            user_id=tenant.user_id,
+            allowed_warehouse_ids=(assigned.id, assigned_inactive.id, retired.id, foreign.id),
+        )
+
+        # Scope is the whole question here: an inactive store inside it passes.
+        await require_warehouse_in_scope(session, restricted, assigned.id)
+        await require_warehouse_in_scope(session, restricted, assigned_inactive.id)
+        await require_warehouse_in_scope(session, tenant, unassigned.id)
+
+        for absent in (unassigned.id, retired.id, foreign.id, uuid.uuid4()):
+            with pytest.raises(NotFoundError) as refused:
+                await require_warehouse_in_scope(session, restricted, absent)
+            assert refused.value.message == f"Warehouse not found: {absent}."
 
 
 # -----------------------------------------------------------------------------

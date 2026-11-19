@@ -198,7 +198,7 @@ from src.modules.quality.serial_tracking import (
     validate_serial_decision,
 )
 from src.modules.warehouses.models import Warehouse
-from src.modules.warehouses.repository import WarehouseLookupRepository
+from src.modules.warehouses.service import require_active_warehouses
 
 log = get_logger(__name__)
 
@@ -1493,15 +1493,9 @@ async def _prepare(
             details={"item_id": str(item_id)},
         )
 
-    warehouses = await WarehouseLookupRepository(session, tenant).load([warehouse_id])
-    warehouse = warehouses.get(warehouse_id)
-    if warehouse is None:
-        raise NotFoundError("Warehouse", warehouse_id)
-    if not warehouse[1]:
-        raise BusinessRuleError(
-            inactive_record("Warehouse", warehouse[0], "cannot hold stock for inspection"),
-            details={"warehouse_id": str(warehouse_id)},
-        )
+    await require_active_warehouses(
+        session, tenant, [warehouse_id], consequence="cannot hold stock for inspection"
+    )
 
     if item.is_batch_tracked and batch_id is None:
         raise BusinessRuleError(

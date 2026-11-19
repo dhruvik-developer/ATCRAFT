@@ -1124,6 +1124,7 @@ Every transition writes an audit row via `record_status_change`.
 | Vendor bill approved or disputed; payment to a vendor approved or allocated | Also `notify` the vendor's users holding `vendor_portal.invoice` |
 | Dealer checkout | One DRAFT `sales_orders` row with `source = DEALER_PORTAL`, server prices and scheme `offer_id`s per line, cart cleared, one `dealer_checkout` audit row, and `notify` the assigned salesperson else `sales_order.approve` holders - all in one transaction, or nothing (§C3-6) |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
+| A stock document naming a warehouse | Assembly, job work, packing, quality and dispatch: `warehouses.service.require_active_warehouses` (tenant, live, active; the refusal ends with the caller's own consequence, not narrowed by warehouse assignments). Procurement and production destinations: `warehouses.service.require_warehouse_in_scope` (tenant, live, inside the principal's warehouse assignment) |
 | Any status change | `audit.record_status_change` in the same transaction |
 
 Production obtains subcontract actuals only through

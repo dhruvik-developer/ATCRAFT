@@ -1394,6 +1394,38 @@ class TestRaisingInspections:
                     reference_code="GRN/2026-27/00099",
                 )
 
+    async def test_an_inactive_warehouse_cannot_hold_stock_for_inspection(
+        self, ctx: tuple[AsyncSession, TenantContext]
+    ) -> None:
+        """Refused in quality's own words, through the warehouses module's shared check."""
+        session, tenant = ctx
+        uom_id = await seed_uom(session, tenant.company_id)
+        item_id = await seed_item(session, tenant.company_id, uom_id, code=_code("FG"))
+        code = _code("WH")
+        inactive = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code=code, is_active=False
+        )
+        inactive_id = inactive.id
+
+        with pytest.raises(BusinessRuleError) as refused:
+            await service.create_inspection(
+                session,
+                tenant,
+                InspectionCreate(
+                    item_id=item_id,
+                    warehouse_id=inactive_id,
+                    qc_stage=QcStage.FINAL,
+                    inspected_quantity=Decimal("5"),
+                    hold_stock=True,
+                    reason="Pre-dispatch audit of a finished lot",
+                ),
+            )
+
+        assert refused.value.message == (
+            f"Warehouse {code} is inactive and cannot hold stock for inspection."
+        )
+        assert refused.value.details == {"warehouse_id": str(inactive_id), "warehouse_code": code}
+
     async def test_each_inspection_takes_the_next_number_in_the_series(
         self, ctx: tuple[AsyncSession, TenantContext]
     ) -> None:

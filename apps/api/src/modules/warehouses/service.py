@@ -25,6 +25,7 @@ impossible to build or test on its own.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +52,7 @@ from src.modules.audit.service import record_audit, record_status_change, snapsh
 from src.modules.warehouses.models import StorageLocation, Warehouse, WarehouseType
 from src.modules.warehouses.repository import (
     StorageLocationRepository,
+    WarehouseLookupRepository,
     WarehouseRepository,
 )
 from src.modules.warehouses.schemas import (
@@ -751,6 +753,64 @@ class StorageLocationService:
         )
 
 
+# -----------------------------------------------------------------------------
+# The reference checks stock documents share
+# -----------------------------------------------------------------------------
+
+
+async def require_active_warehouses(
+    session: AsyncSession,
+    tenant: TenantContext,
+    warehouse_ids: Sequence[uuid.UUID],
+    *,
+    consequence: str,
+) -> None:
+    """Every warehouse a stock document is about to name, if it may name them.
+
+    A warehouse that is not this company's live store - another company's id, a
+    retired store and an unknown id alike - is :class:`NotFoundError`. An
+    inactive one is a :class:`BusinessRuleError` built by ``inactive_record``
+    from its code and the caller's ``consequence``, the verb phrase of what the
+    document was about to do there ("cannot be packed from"), so each document
+    still says what it was refused; its details name the warehouse's id and
+    code. One statement for the whole set, and the ids are checked in the order
+    given, so the first that fails is the one reported.
+
+    Assembly, job work, packing, quality and dispatch each carried their own
+    copy of this check. It is deliberately not narrowed by the principal's
+    warehouse assignments - see
+    :class:`~src.modules.warehouses.repository.WarehouseLookupRepository`.
+    """
+    found = await WarehouseLookupRepository(session, tenant).load(warehouse_ids)
+    for warehouse_id in warehouse_ids:
+        facts = found.get(warehouse_id)
+        if facts is None:
+            raise NotFoundError("Warehouse", warehouse_id)
+        code, is_active = facts
+        if not is_active:
+            raise BusinessRuleError(
+                inactive_record("Warehouse", code, consequence),
+                details={"warehouse_id": str(warehouse_id), "warehouse_code": code},
+            )
+
+
+async def require_warehouse_in_scope(
+    session: AsyncSession, tenant: TenantContext, warehouse_id: uuid.UUID
+) -> None:
+    """The destination a procurement or production document names, if the principal may use it.
+
+    :class:`NotFoundError` unless it is this company's live store *and* inside
+    the principal's warehouse assignment - docs/security.md applies the
+    assignment to these destination lookups, so a third store answers exactly
+    as another company's would. Whether the store is active is not asked.
+    Procurement and production each carried their own copy of this check and of
+    the statement behind it, which is :meth:`WarehouseRepository.ids_in_scope`.
+    """
+    known = await WarehouseRepository(session, tenant).ids_in_scope([warehouse_id])
+    if warehouse_id not in known:
+        raise NotFoundError("Warehouse", warehouse_id)
+
+
 __all__ = [
     "AUDIT_ENTITY_LOCATION",
     "AUDIT_ENTITY_WAREHOUSE",
@@ -760,4 +820,6 @@ __all__ = [
     "WAREHOUSE_LIFECYCLE",
     "StorageLocationService",
     "WarehouseService",
+    "require_active_warehouses",
+    "require_warehouse_in_scope",
 ]

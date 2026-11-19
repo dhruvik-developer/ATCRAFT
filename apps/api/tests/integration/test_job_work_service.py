@@ -105,6 +105,7 @@ from tests.job_work_support import (
 )
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
+from tests.seed_support import seed_warehouse as seed_store
 
 pytestmark = pytest.mark.integration
 
@@ -1889,6 +1890,30 @@ async def test_an_unapproved_vendor_cannot_be_sent_company_material(ctx, job: Pv
         await service.create_order(session, tenant, payload)
 
     assert "not approved" in str(exc.value)
+
+
+async def test_an_inactive_return_warehouse_cannot_be_used_by_a_job_work_order(
+    ctx, job: PvdJob
+) -> None:
+    """Refused in job work's own words, through the warehouses module's shared check.
+
+    The issue store is active, so the refusal is for the second store the order names.
+    """
+    session, tenant = ctx
+    code = _code("WH")
+    inactive = await seed_store(session, company_id=tenant.company_id, code=code, is_active=False)
+    inactive_id = inactive.id
+
+    payload = job.payload()
+    payload.return_warehouse_id = inactive_id
+
+    with pytest.raises(BusinessRuleError) as exc:
+        await service.create_order(session, tenant, payload)
+
+    assert exc.value.message == (
+        f"Warehouse {code} is inactive and cannot be used by a job work order."
+    )
+    assert exc.value.details == {"warehouse_id": str(inactive_id), "warehouse_code": code}
 
 
 async def test_a_tracked_item_conversion_is_refused_without_lineage(ctx, job: PvdJob) -> None:

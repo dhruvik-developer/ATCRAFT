@@ -49,7 +49,6 @@ from sqlalchemy import Select, and_, case, func, or_, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
-from src.common.warehouse_scope import warehouse_scope
 from src.core.pagination import PageParams, SortParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO, to_quantity
@@ -82,7 +81,7 @@ from src.modules.production.schemas import (
 )
 from src.modules.products.models import Item
 from src.modules.routing.models import WorkCenter
-from src.modules.warehouses.models import StorageLocation, Warehouse
+from src.modules.warehouses.models import StorageLocation
 
 #: Work-order statuses still occupying capacity on a work centre.
 OPEN_WORK_ORDER_STATUSES: tuple[WorkOrderStatus, ...] = (
@@ -274,45 +273,6 @@ class ProductionItemRepository(BaseRepository[Item]):
             )
             for row in rows
         }
-
-
-class WarehouseLookupRepository(BaseRepository[Warehouse]):
-    """Existence and code lookups. Never loads the whole warehouse row."""
-
-    model = Warehouse
-
-    async def codes(self, warehouse_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
-        if not warehouse_ids:
-            return {}
-        stmt = select(Warehouse.id, Warehouse.code).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.deleted_at.is_(None),
-            *warehouse_scope(self.tenant, Warehouse.id),
-            Warehouse.id.in_(list(dict.fromkeys(warehouse_ids))),
-        )
-        return {row.id: row.code for row in (await self.session.execute(stmt)).all()}
-
-    async def exists_in_tenant(self, warehouse_id: uuid.UUID) -> bool:
-        stmt = select(Warehouse.id).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.id == warehouse_id,
-            Warehouse.deleted_at.is_(None),
-            *warehouse_scope(self.tenant, Warehouse.id),
-        )
-        return (await self.session.execute(stmt.limit(1))).first() is not None
-
-    async def existing_ids(self, warehouse_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
-        """Which of these warehouses are this tenant's. One statement for a kit."""
-        wanted = list(dict.fromkeys(warehouse_ids))
-        if not wanted:
-            return set()
-        stmt = select(Warehouse.id).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.id.in_(wanted),
-            Warehouse.deleted_at.is_(None),
-            *warehouse_scope(self.tenant, Warehouse.id),
-        )
-        return {row.id for row in (await self.session.execute(stmt)).all()}
 
 
 class StorageLocationLookupRepository(BaseRepository[StorageLocation]):
@@ -1445,7 +1405,6 @@ __all__ = [
     "ProductionOrderRepository",
     "ReservationCoverageRepository",
     "StorageLocationLookupRepository",
-    "WarehouseLookupRepository",
     "WipOrderAggregate",
     "WorkCentreCapacityFacts",
     "WorkCentreLoad",

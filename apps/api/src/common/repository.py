@@ -28,8 +28,10 @@ fixed on its own. Two limits keep that cost from growing:
 
 * A lookup identical in two modules belongs to the owner, once:
   :class:`~src.modules.warehouses.repository.WarehouseLookupRepository` serves
-  assembly, job work, packing and quality, and
-  ``tests/unit/test_repository_copies.py`` fails the build on the next copy.
+  assembly, job work, packing, quality and dispatch, the owner's
+  ``ids_in_scope`` serves the procurement and production destinations, and
+  ``tests/unit/test_repository_copies.py`` fails the build on the next copied
+  class or method.
 * A reference governed by a rule of its own goes through the owner's service
   seam, never a copy of its query: a stored document reference is checked by
   ``DocumentService.require_live``, which refuses an expired file.

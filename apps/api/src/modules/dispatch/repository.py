@@ -26,11 +26,12 @@ convenience:
   ordered and grouped by company so a caller cannot use it as a cross-tenant read
   path - see :func:`scan_delayed_across_tenants`.
 
-Reads that cross into ``items``, ``customers``, ``vendors``, ``warehouses``,
-``sales_orders``, ``packing_orders``, ``cartons``, ``stock_batches`` and
-``stock_serials`` go through ``BaseRepository`` so the tenant filter - and the
-soft-delete filter where the table has one - stays automatic rather than
-something each statement has to remember.
+Reads that cross into ``items``, ``customers``, ``vendors``, ``sales_orders``,
+``packing_orders``, ``cartons``, ``stock_batches`` and ``stock_serials`` go
+through ``BaseRepository`` so the tenant filter - and the soft-delete filter
+where the table has one - stays automatic rather than something each statement
+has to remember. The warehouse a consignment ships from is checked by the
+owner's ``require_active_warehouses``, which the other stock documents share.
 """
 
 from __future__ import annotations
@@ -82,7 +83,6 @@ from src.modules.packing.models import (
 from src.modules.products.models import Item
 from src.modules.sales.models import SalesOrder, SalesOrderLine
 from src.modules.vendors.models import Transporter, Vendor
-from src.modules.warehouses.models import Warehouse
 
 #: ASSUMPTION: the board's "QC pending" and "GRN pending" columns are read off
 #: the consignment's own status, which is what the section 7 dispatch flow
@@ -240,19 +240,6 @@ class VendorLookupRepository(BaseRepository[Vendor]):
             is_active=row.is_active,
             is_blocked=not row.is_approved,
         )
-
-
-class WarehouseLookupRepository(BaseRepository[Warehouse]):
-    model = Warehouse
-
-    async def get_facts(self, warehouse_id: uuid.UUID) -> tuple[str, bool] | None:
-        stmt = select(Warehouse.code, Warehouse.is_active).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.deleted_at.is_(None),
-            Warehouse.id == warehouse_id,
-        )
-        row = (await self.session.execute(stmt)).first()
-        return (row.code, row.is_active) if row is not None else None
 
 
 class TransporterLookupRepository(BaseRepository[Transporter]):
@@ -1148,7 +1135,6 @@ __all__ = [
     "SerialLookupRepository",
     "TransporterLookupRepository",
     "VendorLookupRepository",
-    "WarehouseLookupRepository",
     "mark_delay_notified",
     "scan_delayed_across_tenants",
 ]

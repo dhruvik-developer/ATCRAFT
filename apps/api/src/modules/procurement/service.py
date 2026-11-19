@@ -154,7 +154,6 @@ from src.modules.procurement.repository import (
     VendorFacts,
     VendorLookupRepository,
     VendorUserFacts,
-    WarehouseLookupRepository,
 )
 from src.modules.procurement.schemas import (
     MAX_LINES_PER_DOCUMENT,
@@ -277,6 +276,7 @@ from src.modules.products.models import Item, UnitOfMeasure
 from src.modules.vendors.models import Vendor
 from src.modules.vendors.service import can_receive_purchase_orders
 from src.modules.warehouses.models import StorageLocation
+from src.modules.warehouses.service import require_warehouse_in_scope
 
 log = get_logger(__name__)
 
@@ -640,13 +640,6 @@ def _assert_purchasable(items: dict[uuid.UUID, PurchasableItem]) -> None:
             f"These items are inactive and cannot be ordered: {', '.join(sorted(inactive))}.",
             details={"item_codes": sorted(inactive)},
         )
-
-
-async def _assert_warehouse(
-    session: AsyncSession, tenant: TenantContext, warehouse_id: uuid.UUID
-) -> None:
-    if not await WarehouseLookupRepository(session, tenant).exists_in_tenant(warehouse_id):
-        raise NotFoundError("Warehouse", warehouse_id)
 
 
 async def _load_vendor(
@@ -1199,7 +1192,7 @@ async def _create_requisition(
     line_repo = RequisitionLineRepository(session, tenant)
 
     async with transaction(session):
-        await _assert_warehouse(session, tenant, payload.warehouse_id)
+        await require_warehouse_in_scope(session, tenant, payload.warehouse_id)
         # Only what the client named is checked: the fallbacks are the caller's
         # own placement, read from the verified principal.
         await _assert_organisation(
@@ -1291,7 +1284,7 @@ async def update_requisition(
         before = snapshot(requisition, REQUISITION_AUDITED_FIELDS)
 
         if payload.warehouse_id is not None:
-            await _assert_warehouse(session, tenant, payload.warehouse_id)
+            await require_warehouse_in_scope(session, tenant, payload.warehouse_id)
             requisition.warehouse_id = payload.warehouse_id
         await _assert_organisation(
             session, tenant, branch_id=payload.branch_id, department_id=payload.department_id
@@ -1581,7 +1574,7 @@ async def create_rfq(
     requisition_line_repo = RequisitionLineRepository(session, tenant)
 
     async with transaction(session):
-        await _assert_warehouse(session, tenant, payload.warehouse_id)
+        await require_warehouse_in_scope(session, tenant, payload.warehouse_id)
 
         line_payloads = payload.lines
         requisition: PurchaseRequisition | None = None
@@ -1682,7 +1675,7 @@ async def update_rfq(
             )
 
         if payload.warehouse_id is not None:
-            await _assert_warehouse(session, tenant, payload.warehouse_id)
+            await require_warehouse_in_scope(session, tenant, payload.warehouse_id)
             rfq.warehouse_id = payload.warehouse_id
         if payload.vendor_ids is not None:
             vendors = await VendorLookupRepository(session, tenant).load(payload.vendor_ids)
@@ -2707,7 +2700,7 @@ async def _prepare_purchase_order(
     """Validate and lock a proposed order without creating a document."""
     vendor = await _load_vendor(session, tenant, payload.vendor_id)
     _assert_orderable(vendor)
-    await _assert_warehouse(session, tenant, payload.warehouse_id)
+    await require_warehouse_in_scope(session, tenant, payload.warehouse_id)
     await _assert_organisation(session, tenant, branch_id=payload.branch_id)
 
     items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
@@ -3023,7 +3016,7 @@ async def update_purchase_order(
             order.first_approved_at = None
 
         if payload.warehouse_id is not None:
-            await _assert_warehouse(session, tenant, payload.warehouse_id)
+            await require_warehouse_in_scope(session, tenant, payload.warehouse_id)
             order.warehouse_id = payload.warehouse_id
         await _assert_organisation(session, tenant, branch_id=payload.branch_id)
         for field in (

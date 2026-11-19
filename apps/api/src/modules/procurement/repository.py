@@ -52,7 +52,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
-from src.common.warehouse_scope import warehouse_scope
 from src.core.database import affected_rows
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams, empty_page, paginate_rows
@@ -98,7 +97,6 @@ from src.modules.procurement.schemas import (
 from src.modules.products.models import Item, ItemCategory, ItemVendorLink
 from src.modules.users.models import Role, User, user_roles
 from src.modules.vendors.models import Vendor, VendorCategory
-from src.modules.warehouses.models import Warehouse
 
 #: The duplicate search returns at most this many open lines per (vendor,
 #: warehouse) it is asked about - see ``DuplicateSearchRepository``.
@@ -605,21 +603,6 @@ class VendorLookupRepository(BaseRepository[Vendor]):
             )
             for row in rows
         }
-
-
-class WarehouseLookupRepository(BaseRepository[Warehouse]):
-    """Existence probes for the destinations a procurement document names."""
-
-    model = Warehouse
-
-    async def exists_in_tenant(self, warehouse_id: uuid.UUID) -> bool:
-        stmt = select(Warehouse.id).where(
-            Warehouse.company_id == self.tenant.company_id,
-            Warehouse.id == warehouse_id,
-            Warehouse.deleted_at.is_(None),
-            *warehouse_scope(self.tenant, Warehouse.id),
-        )
-        return (await self.session.execute(stmt.limit(1))).first() is not None
 
 
 class BatchLookupRepository(BaseRepository[StockBatch]):
@@ -1884,6 +1867,5 @@ __all__ = [
     "VendorFacts",
     "VendorLookupRepository",
     "VendorUserFacts",
-    "WarehouseLookupRepository",
     "category_within",
 ]

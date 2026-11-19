@@ -127,7 +127,6 @@ from src.modules.dispatch.repository import (
     SerialLookupRepository,
     TransporterLookupRepository,
     VendorLookupRepository,
-    WarehouseLookupRepository,
     mark_delay_notified,
     scan_delayed_across_tenants,
     scan_delayed_for_company,
@@ -172,6 +171,7 @@ from src.modules.sales.service import (
     live_reserved,
 )
 from src.modules.sales.service import _transition as transition_sales_order
+from src.modules.warehouses.service import require_active_warehouses
 
 log = get_logger(__name__)
 
@@ -1331,17 +1331,12 @@ async def _validate_header(
                 details={"vendor_id": str(vendor_id)},
             )
 
-    warehouse = await WarehouseLookupRepository(session, tenant).get_facts(warehouse_id)
-    if warehouse is None:
-        raise NotFoundError("Warehouse", warehouse_id)
-    if not warehouse[1]:
-        # A deactivated warehouse may still give stock up (the inventory engine
-        # allows outbound movements from one), so this is not a refusal to ship -
-        # it is a refusal to *plan* new work into a store being wound down.
-        raise BusinessRuleError(
-            inactive_record("Warehouse", warehouse[0], "cannot be dispatched from"),
-            details={"warehouse_id": str(warehouse_id)},
-        )
+    # A deactivated warehouse may still give stock up (the inventory engine
+    # allows outbound movements from one), so its refusal here is not a refusal
+    # to ship - it is a refusal to *plan* new work into a store being wound down.
+    await require_active_warehouses(
+        session, tenant, [warehouse_id], consequence="cannot be dispatched from"
+    )
 
     if transporter_id is not None:
         transporter = await TransporterLookupRepository(session, tenant).get_facts(transporter_id)

@@ -61,6 +61,7 @@ from src.modules.packing.schemas import (
     ItemPackingSpecWrite,
     PackingOrderCreate,
     PackingOrderLineIn,
+    PackingOrderUpdate,
     SealCartonRequest,
 )
 from src.modules.products.models import ItemGroup, ProductionType
@@ -1151,6 +1152,45 @@ async def test_goods_may_not_be_packed_for_a_blocked_customer(
 
     with pytest.raises(BusinessRuleError, match="blocked"):
         await service.create_order(session, tenant, payload)
+
+
+async def test_goods_may_not_be_packed_from_an_inactive_or_unknown_warehouse(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    """The create and the draft edit refuse the store in packing's own words.
+
+    Through the warehouses module's shared check, which also names the store's
+    code in the details. Ids are held in plain variables: a refused write rolls
+    its savepoint back and expires what was loaded before it.
+    """
+    session, tenant = ctx
+    inactive = await seed_support.seed_warehouse(
+        session, company_id=tenant.company_id, code=_code("WH"), is_active=False
+    )
+    inactive_id, inactive_code = inactive.id, inactive.code
+    draft, _ = await service.create_order(session, tenant, bench.order_payload())
+    draft_id = draft.id
+
+    payload = bench.order_payload()
+    payload.warehouse_id = inactive_id
+    with pytest.raises(BusinessRuleError) as refused:
+        await service.create_order(session, tenant, payload)
+    assert refused.value.message == (
+        f"Warehouse {inactive_code} is inactive and cannot be packed from."
+    )
+    assert refused.value.details == {
+        "warehouse_id": str(inactive_id),
+        "warehouse_code": inactive_code,
+    }
+
+    payload.warehouse_id = uuid.uuid4()
+    with pytest.raises(NotFoundError):
+        await service.create_order(session, tenant, payload)
+
+    with pytest.raises(BusinessRuleError, match="cannot be packed from"):
+        await service.update_order(
+            session, tenant, draft_id, PackingOrderUpdate(warehouse_id=inactive_id)
+        )
 
 
 async def test_a_new_order_is_a_draft_with_numbered_lines_and_a_document_code(

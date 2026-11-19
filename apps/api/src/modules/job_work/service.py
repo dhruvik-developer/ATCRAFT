@@ -269,13 +269,16 @@ from src.modules.production.repository import ProductionOrderRepository
 from src.modules.products.models import Item, UnitOfMeasure
 from src.modules.sales.repository import SalesOrderRepository
 from src.modules.vendors.models import Transporter, Vendor
-from src.modules.warehouses.repository import WarehouseLookupRepository
+from src.modules.warehouses.service import require_active_warehouses
 
 log = get_logger(__name__)
 
 AUDIT_JOB_WORK_ORDER = "job_work_order"
 AUDIT_JOB_WORK_CHALLAN = "job_work_challan"
 AUDIT_JOB_WORK_RECEIPT = "job_work_receipt"
+
+#: The verb phrase an inactive warehouse's refusal ends with.
+_WAREHOUSE_REFUSAL = "cannot be used by a job work order"
 
 #: ``documents.entity_type`` of a file filed against a delivery challan - the
 #: PDF the report worker renders, and the job worker's acknowledged copy.
@@ -1055,21 +1058,6 @@ async def _transition(
         action=action,
     )
     return order
-
-
-async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids: uuid.UUID) -> None:
-    """Both warehouses in one statement, and both must be able to hold stock."""
-    found = await WarehouseLookupRepository(session, tenant).load(list(ids))
-    for warehouse_id in ids:
-        row = found.get(warehouse_id)
-        if row is None:
-            raise NotFoundError("Warehouse", warehouse_id)
-        code, is_active = row
-        if not is_active:
-            raise BusinessRuleError(
-                inactive_record("Warehouse", code, "cannot be used by a job work order"),
-                details={"warehouse_id": str(warehouse_id), "warehouse_code": code},
-            )
 
 
 def _assert_return_not_in_past(expected_return_date: date) -> None:
@@ -1920,7 +1908,12 @@ async def create_order(
     async with transaction(session):
         vendor_code = await _assert_vendor(session, tenant, payload.vendor_id)
         return_warehouse_id = payload.return_warehouse_id or payload.warehouse_id
-        await _assert_warehouses(session, tenant, payload.warehouse_id, return_warehouse_id)
+        await require_active_warehouses(
+            session,
+            tenant,
+            [payload.warehouse_id, return_warehouse_id],
+            consequence=_WAREHOUSE_REFUSAL,
+        )
         resolved = await _resolve_lines(session, tenant, payload.lines)
         await _assert_source(
             session, tenant, source_type=payload.source_type, source_id=payload.source_id
@@ -2048,7 +2041,12 @@ async def update_order(
         warehouse_id = fields.get("warehouse_id", order.warehouse_id)
         return_warehouse_id = fields.get("return_warehouse_id", order.return_warehouse_id)
         if {"warehouse_id", "return_warehouse_id"} & fields.keys():
-            await _assert_warehouses(session, tenant, warehouse_id, return_warehouse_id)
+            await require_active_warehouses(
+                session,
+                tenant,
+                [warehouse_id, return_warehouse_id],
+                consequence=_WAREHOUSE_REFUSAL,
+            )
         # A new return date is held to the create's rule. Re-sending the date
         # the draft already carries is not a new promise, so a draft whose
         # promised date has slipped stays amendable rather than uneditable.

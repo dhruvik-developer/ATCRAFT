@@ -185,12 +185,15 @@ from src.modules.products.models import Item, ItemGroup
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.repository import ReportSnapshotRepository
-from src.modules.warehouses.repository import WarehouseLookupRepository
+from src.modules.warehouses.service import require_active_warehouses
 
 log = get_logger(__name__)
 
 AUDIT_PACKING_ORDER = "packing_order"
 AUDIT_CARTON = "carton"
+
+#: The verb phrase an inactive warehouse's refusal ends with.
+_WAREHOUSE_REFUSAL = "cannot be packed from"
 
 #: ``documents.entity_type`` of a file filed against a packing order - its
 #: generated packing list, and what a person files from the Documents screen.
@@ -1524,15 +1527,9 @@ async def create_order(
                 details={"customer_id": str(customer.id)},
             )
 
-        warehouses = await WarehouseLookupRepository(session, tenant).load([payload.warehouse_id])
-        found = warehouses.get(payload.warehouse_id)
-        if found is None:
-            raise NotFoundError("Warehouse", payload.warehouse_id)
-        if not found[1]:
-            raise BusinessRuleError(
-                inactive_record("Warehouse", found[0], "cannot be packed from"),
-                details={"warehouse_id": str(payload.warehouse_id)},
-            )
+        await require_active_warehouses(
+            session, tenant, [payload.warehouse_id], consequence=_WAREHOUSE_REFUSAL
+        )
 
         if payload.sales_order_id is not None:
             header = await SalesOrderLookupRepository(session, tenant).lock_header(
@@ -1887,17 +1884,9 @@ async def update_order(
         new_lines = changes.pop("lines", None)
 
         if "warehouse_id" in changes and changes["warehouse_id"] is not None:
-            warehouses = await WarehouseLookupRepository(session, tenant).load(
-                [changes["warehouse_id"]]
+            await require_active_warehouses(
+                session, tenant, [changes["warehouse_id"]], consequence=_WAREHOUSE_REFUSAL
             )
-            found = warehouses.get(changes["warehouse_id"])
-            if found is None:
-                raise NotFoundError("Warehouse", changes["warehouse_id"])
-            if not found[1]:
-                raise BusinessRuleError(
-                    inactive_record("Warehouse", found[0], "cannot be packed from"),
-                    details={"warehouse_id": str(changes["warehouse_id"])},
-                )
 
         for field, value in changes.items():
             if value is None and field not in CLEARABLE_UPDATE_FIELDS:

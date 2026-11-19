@@ -129,7 +129,6 @@ from src.modules.production.repository import (
     ProductionOrderRepository,
     ReservationCoverageRepository,
     StorageLocationLookupRepository,
-    WarehouseLookupRepository,
     WorkCentreRateRepository,
     WorkOrderRepository,
 )
@@ -198,6 +197,8 @@ from src.modules.routing.service import (
     windows_overlap,
 )
 from src.modules.sales.repository import SalesOrderLineRepository, SalesOrderRepository
+from src.modules.warehouses.repository import WarehouseRepository
+from src.modules.warehouses.service import require_warehouse_in_scope
 
 # =============================================================================
 # Constants
@@ -1059,13 +1060,6 @@ async def _load_items(
     return items
 
 
-async def _assert_warehouse(
-    session: AsyncSession, tenant: TenantContext, warehouse_id: uuid.UUID
-) -> None:
-    if not await WarehouseLookupRepository(session, tenant).exists_in_tenant(warehouse_id):
-        raise NotFoundError("Warehouse", warehouse_id)
-
-
 async def _assert_line_positions(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1090,7 +1084,7 @@ async def _assert_line_positions(
         return
 
     warehouse_ids = [warehouse_id for warehouse_id, _ in positions.values()]
-    known_warehouses = await WarehouseLookupRepository(session, tenant).existing_ids(warehouse_ids)
+    known_warehouses = await WarehouseRepository(session, tenant).ids_in_scope(warehouse_ids)
     missing_warehouse = sorted(
         line_number
         for line_number, (warehouse_id, _) in positions.items()
@@ -1377,7 +1371,7 @@ async def _validate_order_references(
             details={"item_code": item.code},
         )
 
-    await _assert_warehouse(session, tenant, warehouse_id)
+    await require_warehouse_in_scope(session, tenant, warehouse_id)
     if plant_id is not None and not await PlantLookupRepository(session, tenant).exists_in_tenant(
         plant_id
     ):
@@ -1955,7 +1949,7 @@ async def release_order(
             )
 
         if payload.component_warehouse_id is not None:
-            await _assert_warehouse(session, tenant, payload.component_warehouse_id)
+            await require_warehouse_in_scope(session, tenant, payload.component_warehouse_id)
 
         items = await _load_items(session, tenant, [c.item_id for c in explosion.components])
         plans = plan_components(
@@ -2683,7 +2677,7 @@ async def create_material_issue(
         header_warehouse = payload.warehouse_id or next(
             iter(components[line.component_id].warehouse_id for line in payload.lines)
         )
-        await _assert_warehouse(session, tenant, header_warehouse)
+        await require_warehouse_in_scope(session, tenant, header_warehouse)
         line_positions = {
             payload_line.line_number: (
                 payload_line.warehouse_id or components[payload_line.component_id].warehouse_id,

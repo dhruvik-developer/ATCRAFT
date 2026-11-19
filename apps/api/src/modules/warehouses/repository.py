@@ -353,16 +353,19 @@ class WarehouseRepository(BaseRepository[Warehouse]):
 class WarehouseLookupRepository(BaseRepository[Warehouse]):
     """The reference check a stock document makes before it names a warehouse.
 
-    Assembly, job work, packing and quality each refuse a warehouse that is not
-    this company's live store (404) or that is inactive (a refusal naming its
-    code), so they read the same two facts the same way - one definition here
-    rather than four identical copies.
+    Assembly, job work, packing, quality and dispatch each refuse a warehouse
+    that is not this company's live store (404) or that is inactive (a refusal
+    naming its code), so they read the same two facts the same way - one
+    definition here, and one refusal in
+    :func:`~src.modules.warehouses.service.require_active_warehouses`, rather
+    than five copies of either.
 
     It is deliberately *not* narrowed by the principal's warehouse assignments,
     unlike :meth:`WarehouseRepository._scoped`: docs/security.md ("Warehouse
     assignments on stock documents and movements") applies that policy to the
-    procurement and production destination lookups, and the movement engine
-    re-checks every movement against it before it locks a balance.
+    procurement and production destination lookups - which therefore read
+    :meth:`WarehouseRepository.ids_in_scope` - and the movement engine re-checks
+    every movement against it before it locks a balance.
     """
 
     model = Warehouse

@@ -1191,6 +1191,35 @@ async def test_a_consignment_that_was_never_made_ready_cannot_be_sent(ctx: Ctx) 
     assert balance.on_hand_quantity == Decimal("100.0000")
 
 
+async def test_no_consignment_is_planned_from_an_inactive_or_unknown_warehouse(ctx: Ctx) -> None:
+    """Refused in dispatch's own words, through the warehouses module's shared check.
+
+    The store is switched off after its stock is in place: it may still give that
+    stock up, but no new consignment is planned from it. Everything the refused
+    calls need is read first - a refusal rolls its savepoint back and expires
+    every row loaded before it.
+    """
+    bench = await seed_bench(ctx)
+    warehouse_id, warehouse_code = bench.warehouse.id, bench.warehouse.code
+    from_inactive = bench.payload("10")
+    from_unknown = bench.payload("10", warehouse_id=uuid.uuid4())
+    bench.warehouse.is_active = False
+    await ctx.session.flush()
+
+    with pytest.raises(BusinessRuleError) as refused:
+        await service.create_dispatch(ctx.session, ctx.tenant, from_inactive)
+    assert refused.value.message == (
+        f"Warehouse {warehouse_code} is inactive and cannot be dispatched from."
+    )
+    assert refused.value.details == {
+        "warehouse_id": str(warehouse_id),
+        "warehouse_code": warehouse_code,
+    }
+
+    with pytest.raises(NotFoundError):
+        await service.create_dispatch(ctx.session, ctx.tenant, from_unknown)
+
+
 async def test_a_sent_consignment_can_no_longer_be_edited(ctx: Ctx) -> None:
     bench = await seed_bench(ctx)
     result = await send(ctx, bench, "10")

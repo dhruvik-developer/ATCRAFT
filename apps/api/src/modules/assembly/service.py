@@ -180,11 +180,14 @@ from src.modules.inventory.service import (
 )
 from src.modules.products.models import Item
 from src.modules.sales.repository import SalesOrderRepository
-from src.modules.warehouses.repository import WarehouseLookupRepository
+from src.modules.warehouses.service import require_active_warehouses
 
 log = get_logger(__name__)
 
 AUDIT_ASSEMBLY_ORDER = "assembly_order"
+
+#: The verb phrase an inactive warehouse's refusal ends with.
+_WAREHOUSE_REFUSAL = "cannot be used by an assembly order"
 
 
 class KitShortageError(InsufficientStockError):
@@ -1201,21 +1204,6 @@ async def _persist_components(
     return components
 
 
-async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids: uuid.UUID) -> None:
-    """Both warehouses in one statement, and both must be able to hold stock."""
-    found = await WarehouseLookupRepository(session, tenant).load(list(ids))
-    for warehouse_id in ids:
-        row = found.get(warehouse_id)
-        if row is None:
-            raise NotFoundError("Warehouse", warehouse_id)
-        code, is_active = row
-        if not is_active:
-            raise BusinessRuleError(
-                inactive_record("Warehouse", code, "cannot be used by an assembly order"),
-                details={"warehouse_id": str(warehouse_id), "warehouse_code": code},
-            )
-
-
 async def _assert_source(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1559,7 +1547,12 @@ async def create_order(
             )
 
         output_warehouse_id = payload.output_warehouse_id or payload.warehouse_id
-        await _assert_warehouses(session, tenant, payload.warehouse_id, output_warehouse_id)
+        await require_active_warehouses(
+            session,
+            tenant,
+            [payload.warehouse_id, output_warehouse_id],
+            consequence=_WAREHOUSE_REFUSAL,
+        )
         await _assert_source(session, tenant, payload.source_type, payload.source_id)
 
         bom = await _resolve_bom(session, tenant, item_id=payload.item_id, bom_id=payload.bom_id)
@@ -1653,7 +1646,12 @@ async def update_order(
         warehouse_id = fields.get("warehouse_id", order.warehouse_id)
         output_warehouse_id = fields.get("output_warehouse_id", order.output_warehouse_id)
         if {"warehouse_id", "output_warehouse_id"} & fields.keys():
-            await _assert_warehouses(session, tenant, warehouse_id, output_warehouse_id)
+            await require_active_warehouses(
+                session,
+                tenant,
+                [warehouse_id, output_warehouse_id],
+                consequence=_WAREHOUSE_REFUSAL,
+            )
 
         for field, value in fields.items():
             setattr(order, field, value)

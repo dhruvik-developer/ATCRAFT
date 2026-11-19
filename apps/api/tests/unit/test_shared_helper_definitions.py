@@ -6,7 +6,9 @@ promising "one constructor" or "one predicate, in one place": six
 (only one counted the levels that move with a record), five ``can_approve`` and
 four ``_clean_name`` validators in warehouses - two of which returned ``None``,
 so a PATCH of ``{"name": null}`` reached a NOT NULL column and came back as a
-422 naming no field.
+422 naming no field. The warehouse reference checks went the same way: five
+stock documents each refused an unknown or inactive store in code of their own,
+and procurement and production each kept the scoped destination check.
 
 A definition elsewhere that delegates to the owner - ``mrp``'s
 ``_failure_message`` binds the shared sentence to the planning run - is a call,
@@ -44,6 +46,8 @@ OWNERS: dict[str, str] = {
     "draft_only_delete": "core/messages.py",
     "currency_code": "core/fields.py",
     "normalise_serial_labels": "core/fields.py",
+    "require_active_warehouses": "modules/warehouses/service.py",
+    "require_warehouse_in_scope": "modules/warehouses/service.py",
 }
 
 #: The error code only :func:`src.core.errors.referenced_in_use` attaches by hand
