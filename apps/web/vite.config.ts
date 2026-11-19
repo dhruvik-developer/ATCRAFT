@@ -76,6 +76,9 @@ function vendorChunk(id: string): string | undefined {
  * element reports what is missing rather than "Test timed out".
  */
 const TEST_TIMEOUT_MS = 30_000
+// Polling crosses Docker Desktop's Windows filesystem bridge. The default
+// 100 ms interval competes with page transforms and API source reads.
+const DEV_POLL_INTERVAL_MS = 1_000
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '../..'), 'VITE_')
@@ -91,6 +94,21 @@ export default defineConfig(({ mode }) => {
       host: true, // required so the container port mapping reaches the dev server
       port: 5173,
       strictPort: true,
+      // Eager loading for the dev server: compile every screen and layout at
+      // start-up, so the first click on a screen in the local stack does not
+      // wait for an on-demand transform across the Windows file bridge. Never
+      // under Vitest, which serves through this config and must not pre-load
+      // the app around its own setup files.
+      warmup:
+        mode === 'test'
+          ? undefined
+          : {
+              clientFiles: [
+                './src/main.tsx',
+                './src/features/**/*-page.tsx',
+                './src/features/**/*-layout.tsx',
+              ],
+            },
       // Hybrid development (master rules 49A mode 1): the API runs on the host
       // while Postgres/Redis run in Docker. Proxying keeps the browser on one
       // origin, so no CORS preflight in the inner development loop.
@@ -103,6 +121,7 @@ export default defineConfig(({ mode }) => {
       watch: {
         // Bind mounts on Windows/macOS do not deliver inotify events reliably.
         usePolling: process.env.VITE_USE_POLLING === 'true',
+        interval: DEV_POLL_INTERVAL_MS,
       },
     },
 
