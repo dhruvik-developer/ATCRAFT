@@ -136,20 +136,20 @@ log = get_logger(__name__)
 AUDIT_ENTITY_USER = "user"
 AUDIT_ENTITY_SESSION = "user_session"
 
-# ASSUMPTION: a password-reset link lives for one hour. The master rules and
-# config carry no setting for it, and an hour is the shortest window that still
-# survives a mail server queueing the message for a few minutes. A named
-# constant rather than a literal so it can be promoted to configuration without
-# hunting through the service.
+# ASSUMPTION (docs/assumptions.md §AUTH-2): a password-reset link lives for one
+# hour. The master rules and config carry no setting for it, and an hour is the
+# shortest window that still survives a mail server queueing the message for a
+# few minutes. A named constant rather than a literal so it can be promoted to
+# configuration without hunting through the service.
 PASSWORD_RESET_TTL_MINUTES = 60
 
-# ASSUMPTION: the same address may exist in several companies (``users`` is
-# unique on ``(company_id, email)``), and sign-in has no tenant context. When
-# more than one live account matches, the request must name a ``company_code``.
-# Guessing a tenant would sign somebody into the wrong company's data; answering
-# "which company?" without a password would confirm the address exists. So the
-# generic credentials error is returned and the attempt is recorded for each
-# matching account.
+# ASSUMPTION (docs/assumptions.md §AUTH-3): the same address may exist in
+# several companies (``users`` is unique on ``(company_id, email)``), and sign-in
+# has no tenant context. When more than one live account matches, the request
+# must name a ``company_code``. Guessing a tenant would sign somebody into the
+# wrong company's data; answering "which company?" without a password would
+# confirm the address exists. So the generic credentials error is returned and
+# the attempt is recorded for each matching account.
 MAX_MATCHING_ACCOUNTS = 1
 
 #: Constant Argon2 hash used only to burn the same CPU time a real verification

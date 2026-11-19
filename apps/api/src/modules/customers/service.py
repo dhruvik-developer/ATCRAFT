@@ -108,17 +108,18 @@ AUDIT_CONTACT = "customer_contact"
 # silently grants infinite credit. With this convention a mistake fails closed.
 CREDIT_LIMIT_NULL_MEANS_UNLIMITED = True
 
-# ASSUMPTION: an inactive customer may not take on new exposure. The credit
-# check therefore refuses an order for a deactivated or retired account, rather
-# than leaving that to each calling module to remember.
+# ASSUMPTION (docs/assumptions.md §CUST-2): an inactive customer may not take on
+# new exposure. The credit check therefore refuses an order for a deactivated or
+# retired account, rather than leaving that to each calling module to remember.
 INACTIVE_CUSTOMER_MAY_NOT_ORDER = True
 
-# ASSUMPTION: dealer and distributor accounts are managed by the channel team.
-# Writing one therefore requires Permission.DEALER_MANAGE *in addition* to the
-# customer permission the route already gates on. The alternative - letting any
-# holder of customer.update change a dealer's price list or credit limit -
-# would put the entire dealer-margin structure behind the most widely granted
-# permission in the sales department.
+# ASSUMPTION (docs/assumptions.md §CUST-3): dealer and distributor accounts are
+# managed by the channel team. Writing one therefore requires
+# Permission.DEALER_MANAGE *in addition* to the customer permission the route
+# already gates on. The alternative - letting any holder of customer.update
+# change a dealer's price list or credit limit - would put the entire
+# dealer-margin structure behind the most widely granted permission in the sales
+# department.
 DEALER_CHANNELS: frozenset[CustomerType] = frozenset(
     {CustomerType.DEALER, CustomerType.DISTRIBUTOR}
 )
@@ -131,10 +132,11 @@ DEALER_CHANNELS: frozenset[CustomerType] = frozenset(
 # stops encoding the state in the GSTIN.
 ENFORCE_GSTIN_STATE_CODE_MATCH = True
 
-# ASSUMPTION: a customer with a non-zero outstanding balance may not be retired.
-# Retiring one would hide a receivable behind a soft-deleted master row, which
-# is precisely the "never use soft delete to hide a financial obligation" case
-# in section 28. Settle or write off the balance first.
+# ASSUMPTION (docs/assumptions.md §CUST-4): a customer with a non-zero
+# outstanding balance may not be retired. Retiring one would hide a receivable
+# behind a soft-deleted master row, which is precisely the "never use soft
+# delete to hide a financial obligation" case in master rules section 28. Settle
+# or write off the balance first.
 BLOCK_RETIREMENT_WITH_OUTSTANDING = True
 
 #: Upper bound on the address and contact lists embedded in a customer detail

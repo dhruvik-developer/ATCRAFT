@@ -5057,6 +5057,55 @@ pair it with a CAPTCHA or a per-account notification. To restart the count after
 a lapse, reset `failed_login_attempts` in `_register_failure` when
 `locked_until` is in the past.
 
+## §AUTH-2. A password-reset link lives one hour, and only the newest one works
+
+**Assumed.** A reset link is valid for 60 minutes from the request
+(`PASSWORD_RESET_TTL_MINUTES`) and can be redeemed once. Requesting another
+burns every unused link the account holds, so only the newest works. A used,
+expired or superseded link is refused exactly as an unknown one is: `401
+TOKEN_INVALID`, "This password reset link is invalid or has expired."
+
+**Why.** Neither the master rules nor configuration set a lifetime. An hour is
+the shortest window that still survives a mail server queueing the message for
+a few minutes, and a longer one leaves a live account-takeover credential
+sitting in a mailbox. Burning the older links means a request made by someone
+who has since lost the mailbox does not leave a working token behind.
+
+**Where.** `src/modules/auth/service.py` - `PASSWORD_RESET_TTL_MINUTES`,
+`request_password_reset`, `confirm_password_reset`;
+`src/modules/users/repository.py` -
+`UserRepository.invalidate_password_reset_grants`.
+
+**Impact if wrong.** Change the constant, which is the candidate for a setting if
+a site's mail is slow. A link already issued keeps the expiry it was given.
+
+## §AUTH-3. An address held in two companies signs in only with a company code
+
+**Assumed.** `users.email` is unique per company (`uq_users_company_id_email`),
+so one address may hold accounts in several companies, and sign-in has no
+tenant context. When the address matches more than one account that is not
+retired, in a company that exists and is active, the request must name its
+`company_code`. Without it a sign-in answers the generic `401
+INVALID_CREDENTIALS` ("Incorrect email or password."), and records a failed
+attempt (`ambiguous_email`) and an audit entry against each matching account; a
+reset request issues no link, and answers as it does for any other address.
+
+**Why.** Guessing a tenant would sign somebody into the wrong company's data,
+and answering "which company?" before the password is checked would confirm
+that the address exists. Each company records the attempt because, from its
+side, somebody tried to sign in to one of its accounts and failed.
+
+**Where.** `src/modules/auth/service.py` - `MAX_MATCHING_ACCOUNTS`,
+`_resolve_account`, `login`, `_record_unresolved_attempt`,
+`request_password_reset`; `src/modules/auth/repository.py` -
+`find_accounts_by_email`.
+
+**Impact if wrong.** The sign-in screen sends no company code (the reset screen
+does), so a person whose address is held in two companies cannot sign in from
+it: it needs a company field before any address is shared across companies. If
+such a person should choose a company instead, the choice belongs after the
+password is verified, never before it.
+
 ## §RATE-1. Uploads, document PDFs and exports have their own per-user budget
 
 **Assumed.** Every route that takes a file spends `RateLimitPolicy.FILE_UPLOAD`
@@ -5757,6 +5806,67 @@ GST portal rejects.
 
 **Impact if wrong.** Set the flag False only if a jurisdiction stops encoding the
 state in the GSTIN.
+
+## §CUST-2. An inactive customer takes on no new exposure
+
+**Assumed.** The credit check refuses an order for a customer that is not
+active (`INACTIVE_CUSTOMER_MAY_NOT_ORDER`), whatever its credit limit, with a
+business error naming the account. Confirming an order and growing a confirmed
+one both run that check (section 1), and creating a sales order refuses an
+inactive or retired customer on its own check as well.
+
+**Why.** Deactivating an account is a decision to stop trading with it. Leaving
+the refusal to each calling module means the first one that forgets lets the
+account order again, and the credit check is the one place every order's new
+exposure passes through.
+
+**Where.** `src/modules/customers/service.py` - `INACTIVE_CUSTOMER_MAY_NOT_ORDER`,
+`evaluate_credit`, `assert_within_credit_limit`; `src/modules/sales/service.py` -
+`create_order`, `_assert_credit_with_open_orders`.
+
+**Impact if wrong.** If an inactive account may still finish the orders it has,
+set the flag False - growing such an order is still new exposure on an account
+nobody is meant to be trading with.
+
+## §CUST-3. A dealer or distributor account is written only with dealer.manage
+
+**Assumed.** Every write to a customer of type DEALER or DISTRIBUTOR
+(`DEALER_CHANNELS`) - creating, editing, activating or deactivating, putting on
+or taking off hold, retiring, restoring, and every change to its addresses and
+contacts - needs `dealer.manage` in addition to the customer permission its
+route requires, and is refused with `403 PERMISSION_DENIED` naming it. An edit
+is checked against the account's current and its proposed type, so an account
+moves neither into nor out of the dealer channel without it.
+
+**Why.** A dealer account's price list and credit limit set the channel's
+margins, which are the channel team's to manage. `customer.update` is the most
+widely granted permission in the sales department, and letting it reach a
+dealer account would put the whole dealer-margin structure behind it.
+
+**Where.** `src/modules/customers/service.py` - `DEALER_CHANNELS`,
+`assert_channel_write_allowed`, called by every write of `CustomerService`.
+
+**Impact if wrong.** If the sales desk should keep dealer accounts, grant its
+roles `dealer.manage`. Removing the check instead lets every holder of
+`customer.update` change a dealer's price list and credit limit.
+
+## §CUST-4. A customer that still owes or is owed money cannot be retired
+
+**Assumed.** Retiring a customer is refused while its cached outstanding balance
+is not zero (`BLOCK_RETIREMENT_WITH_OUTSTANDING`), with `422
+REFERENCED_RECORD_IN_USE` and a message stating the balance. A credit balance
+blocks it as a debt does. The balance is settled or written off first.
+
+**Why.** Retiring soft-deletes the master row, and a receivable - or a refund the
+company owes - hidden behind a soft-deleted account is the "never use soft
+delete to hide a financial obligation" case of master rules section 28.
+
+**Where.** `src/modules/customers/service.py` -
+`BLOCK_RETIREMENT_WITH_OUTSTANDING`, in `CustomerService.retire_customer`.
+
+**Impact if wrong.** A dormant balance that should not hold retirement up is
+written off through a customer adjustment (section 32) first, never ignored by
+the retirement.
 
 ## §INV-1. A count sheet covers at most 5,000 positions
 
