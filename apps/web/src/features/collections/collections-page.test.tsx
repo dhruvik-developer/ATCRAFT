@@ -3,6 +3,7 @@ import type { UserEvent } from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
+import { SEARCH_DEBOUNCE_MS } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { cursorPage, fail, ok, page, renderScreen } from '@/test/harness'
 import type { SchemaOf } from '@/types/api'
@@ -319,5 +320,78 @@ describe('collections worklist', () => {
         next_action_date: null,
       })
     })
+  })
+})
+
+/**
+ * The worklist's search, which two boxes write.
+ *
+ * The phone card list draws a search box of its own beside the table's, and
+ * both stay mounted at every width - CSS hides one. The phone box used to write
+ * its settled value to the URL whenever the URL disagreed with it, and the URL
+ * disagrees with it every time the table writes a search the phone box has not
+ * caught up with: the table's "north" was replaced by the phone box's "" in the
+ * same commit, so a desktop search emptied itself - and a bookmarked search came
+ * back as soon as the table cleared it.
+ */
+describe('searching the worklist', () => {
+  const SEARCH = 'Search customer code or name'
+
+  /** Long enough for every debounce on the screen to settle, so a revert has happened. */
+  const debouncesSettle = () =>
+    new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS * 3))
+
+  function renderWorklist(route = '/finance/collections') {
+    const reads: URLSearchParams[] = []
+    const screenResult = renderScreen(<CollectionsPage />, {
+      permissions: [P.COLLECTION_VIEW],
+      route,
+      routes: {
+        [`GET ${WORKLIST_PATH}`]: ({ url }) => {
+          reads.push(url.searchParams)
+          return page([worklistRow()])
+        },
+      },
+    })
+    return { ...screenResult, reads }
+  }
+
+  it('keeps a search typed in the table, and the phone box follows it', async () => {
+    const { user, reads } = renderWorklist()
+
+    // The table's box is a plain textbox; the phone's is a searchbox.
+    await user.type(await screen.findByRole('textbox', { name: SEARCH }), 'north')
+    await waitFor(() => expect(reads.some((read) => read.get('search') === 'north')).toBe(true))
+    await debouncesSettle()
+
+    expect(reads.at(-1)?.get('search')).toBe('north')
+    expect(screen.getByRole('textbox', { name: SEARCH })).toHaveValue('north')
+    expect(screen.getByRole('searchbox', { name: SEARCH })).toHaveValue('north')
+  })
+
+  it('clears a bookmarked search from the table, and it stays cleared', async () => {
+    const { user, reads } = renderWorklist('/finance/collections?q=north')
+
+    const table = await screen.findByRole('textbox', { name: SEARCH })
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('north'))
+    expect(table).toHaveValue('north')
+    await user.clear(table)
+    await waitFor(() => expect(reads.at(-1)?.has('search')).toBe(false))
+    await debouncesSettle()
+
+    expect(reads.at(-1)?.has('search')).toBe(false)
+    expect(screen.getByRole('textbox', { name: SEARCH })).toHaveValue('')
+    expect(screen.getByRole('searchbox', { name: SEARCH })).toHaveValue('')
+  })
+
+  it('searches from the phone box through the URL the table reads', async () => {
+    const { user, reads } = renderWorklist()
+
+    await user.type(await screen.findByRole('searchbox', { name: SEARCH }), 'north')
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('north'))
+    await debouncesSettle()
+
+    expect(reads.at(-1)?.get('search')).toBe('north')
+    expect(screen.getByRole('textbox', { name: SEARCH })).toHaveValue('north')
   })
 })

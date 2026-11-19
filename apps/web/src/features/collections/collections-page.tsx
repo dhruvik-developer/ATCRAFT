@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { CalendarClock, CirclePlus, ExternalLink } from 'lucide-react'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { CellButton, DataTable } from '@/components/data-table'
@@ -145,10 +145,16 @@ export default function CollectionsPage() {
   const setRegisterFilter = (key: string, value: string | undefined) =>
     writeRegister({ [key]: value })
 
-  // The narrow-screen search box types into the worklist's own search.
+  // The narrow-screen search box types into the worklist's own search - when
+  // what it settled on changes, and only then. Both boxes stay mounted at every
+  // width, so a search typed in the table reaches the URL while this box still
+  // holds its old settled value: answering every URL that disagreed with it
+  // wrote that stale value straight back over the table's search.
+  const pushedMobileSearch = useRef(settledMobileSearch)
   useEffect(() => {
-    const currentSearch = searchParams.get('q') ?? ''
-    if (settledMobileSearch === currentSearch) return
+    if (settledMobileSearch === pushedMobileSearch.current) return
+    pushedMobileSearch.current = settledMobileSearch
+    if (settledMobileSearch === (searchParams.get('q') ?? '')) return
     writeWorklist({ q: settledMobileSearch })
   }, [searchParams, settledMobileSearch, writeWorklist])
 
