@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { toDateInput } from '@/lib/format'
@@ -94,6 +94,48 @@ describe('dealer credit note amounts', () => {
       expect(fetch.calls.some((call) => call.path.startsWith('/finance/'))).toBe(false)
     },
   )
+})
+
+describe('dealer account statement', () => {
+  it('keeps its dates while paging, and starts a new date range on its first page', async () => {
+    const requested: URLSearchParams[] = []
+    const latest = () => requested.at(-1)
+    const { user } = renderScreen(<DealerAccountPage />, {
+      permissions: [P.DEALER_PORTAL_ACCOUNT],
+      route: '/dealer/account?date_from=2026-10-01&statement_page=3',
+      routes: {
+        'GET /dealer-portal/me': ok(dealer),
+        'GET /dealer-portal/outstanding': ok({
+          currency: 'INR',
+          overdue_amount: '0',
+          ageing_not_due: '0',
+          ageing_total_outstanding: '0',
+          overdue_invoices: [],
+        }),
+        'GET /dealer-portal/statement': ({ url }) => {
+          requested.push(url.searchParams)
+          return ok({ opening_balance: '0', closing_balance: '0', rows: [] })
+        },
+        'GET /dealer-portal/credit-notes': page([]),
+      },
+    })
+    await waitFor(() => expect(latest()?.get('page')).toBe('3'))
+    expect(latest()?.get('date_from')).toBe('2026-10-01')
+
+    const pager = await screen.findByRole('navigation', { name: 'Statement pagination' })
+    await user.click(within(pager).getByRole('button', { name: 'Previous' }))
+    await waitFor(() => expect(latest()?.get('page')).toBe('2'))
+    expect(latest()?.get('date_from')).toBe('2026-10-01')
+
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-10-31' } })
+    await waitFor(() => expect(latest()?.get('date_to')).toBe('2026-10-31'))
+    expect(latest()?.get('page')).toBe('1')
+    expect(latest()?.get('date_from')).toBe('2026-10-01')
+
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } })
+    await waitFor(() => expect(latest()?.get('date_from')).toBeNull())
+    expect(latest()?.get('date_to')).toBe('2026-10-31')
+  })
 })
 const cart: SchemaOf<'DealerCartRead'> = {
   cart_id: 'cart',

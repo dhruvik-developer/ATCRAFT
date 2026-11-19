@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/table'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
-import { useListQuery } from '@/hooks/use-list-query'
+import { useFilterWriter, useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
@@ -354,11 +354,18 @@ function DealerCreditNotes({ invoiceId }: { invoiceId?: string }) {
   )
 }
 
+/** The URL key the account statement keeps its page under; its credit notes use `credits_page`. */
+const STATEMENT_PAGE_PARAM = 'statement_page'
+
 export function DealerAccountPage() {
   const me = useDealerRead<SchemaOf<'DealerPortalMe'>>('me')
   const outstanding = useDealerRead<SchemaOf<'DealerOutstanding'>>('outstanding')
-  const [params, setParams] = useSearchParams()
-  const rawPage = Number(params.get('statement_page') || '1')
+  const [params] = useSearchParams()
+  // A new date range is a new statement, so it starts on the statement's first
+  // page; turning a page narrows nothing, so it keeps every other key.
+  const writeDates = useFilterWriter(STATEMENT_PAGE_PARAM)
+  const turnPage = useFilterWriter(null)
+  const rawPage = Number(params.get(STATEMENT_PAGE_PARAM) || '1')
   const page = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1
   const statementParams = {
     page,
@@ -375,14 +382,6 @@ export function DealerAccountPage() {
       }),
     staleTime: staleTimes.transactional,
   })
-  const setField = (key: string, value: string) =>
-    setParams((current) => {
-      const next = new URLSearchParams(current)
-      if (value) next.set(key, value)
-      else next.delete(key)
-      if (key !== 'statement_page') next.delete('statement_page')
-      return next
-    })
   const position = outstanding.data
   return (
     <>
@@ -454,7 +453,7 @@ export function DealerAccountPage() {
                 id="statement-from"
                 type="date"
                 value={params.get('date_from') || ''}
-                onChange={(event) => setField('date_from', event.target.value)}
+                onChange={(event) => writeDates({ date_from: event.target.value })}
                 max={params.get('date_to') || undefined}
                 className="mt-1 min-h-11"
               />
@@ -465,7 +464,7 @@ export function DealerAccountPage() {
                 id="statement-to"
                 type="date"
                 value={params.get('date_to') || ''}
-                onChange={(event) => setField('date_to', event.target.value)}
+                onChange={(event) => writeDates({ date_to: event.target.value })}
                 min={params.get('date_from') || undefined}
                 className="mt-1 min-h-11"
               />
@@ -519,7 +518,7 @@ export function DealerAccountPage() {
                   <Button
                     variant="outline"
                     disabled={page <= 1}
-                    onClick={() => setField('statement_page', String(page - 1))}
+                    onClick={() => turnPage({ [STATEMENT_PAGE_PARAM]: page - 1 })}
                   >
                     Previous
                   </Button>
@@ -527,7 +526,7 @@ export function DealerAccountPage() {
                   <Button
                     variant="outline"
                     disabled={(statement.data.rows?.length ?? 0) < DEFAULT_PAGE_SIZE}
-                    onClick={() => setField('statement_page', String(page + 1))}
+                    onClick={() => turnPage({ [STATEMENT_PAGE_PARAM]: page + 1 })}
                   >
                     Next
                   </Button>

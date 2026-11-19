@@ -19,12 +19,18 @@ write that narrows nothing); ``cleared(keys)`` is what a Clear button writes.
 
 So outside that module this guard refuses, on comment-blanked source:
 
-* a ``.delete(...)`` or ``.set(...)`` of a page key - ``'page'``, a template
+* a ``.delete(...)`` or ``.set(...)`` of a page key - a quoted key ending in
+  ``page`` (``'page'``, a namespaced list's ``'statement_page'``), a template
   ending in ``page``, or a ``pageParam``/``pageKey`` variable;
-* a ``setSearchParams(...)`` call whose updater loops ``Object.entries`` - a
+* a call of the URL setter whose updater loops ``Object.entries`` - a
   hand-written multi-key writer;
-* a ``setSearchParams(...)`` call whose updater names a page key some other
-  way - the tab switches deleted ``for (const key of ['page', 'sort', 'dir'])``.
+* a call of the URL setter whose updater names a page key some other way - the
+  tab switches deleted ``for (const key of ['page', 'sort', 'dir'])``.
+
+The URL setter is ``setSearchParams``, or whatever name the file gave it in
+``const [params, setParams] = useSearchParams()``. The dealer account page kept
+a hand-built statement-page updater past an earlier version of this guard
+through both gaps: it renamed the setter, and quoted its namespaced page key.
 
 A single-key updater that is not about the page - dropping a one-shot
 ``create_from_sales_order_id``, or starting a tab with fresh parameters - is
@@ -47,14 +53,29 @@ WRITER = WEB_SRC / "hooks" / "use-list-query.ts"
 #: Where the one-navigation updater lives.
 OWNERS = frozenset({"hooks/use-list-query.ts"})
 
-#: A URL page key: the literal, a template ending in it, or a variable holding one.
+#: A URL page key: a quoted key or a template ending in ``page`` - ``'page'`` or a
+#: namespaced list's ``'statement_page'`` - or a variable holding one.
 _PAGE_KEY = (
-    r"(?:'page'|\"page\"|`[^`\n]*page`"
+    r"(?:'[^'\n]*page'|\"[^\"\n]*page\"|`[^`\n]*page`"
     r"|(?<![\w$])(?:[A-Za-z_$][\w$]*\.)*[pP]age(?:Param|Key)(?![\w$]))"
 )
 _PAGE_KEY_WRITE = re.compile(r"\.(?:delete|set)\(\s*" + _PAGE_KEY + r"\s*[,)]")
 _PAGE_KEY_NAMED = re.compile(_PAGE_KEY)
-_SET_SEARCH_PARAMS = re.compile(r"\bsetSearchParams\(")
+#: ``const [params, setParams] = useSearchParams()`` - the setter, by its local name.
+_URL_SETTER_NAMED = re.compile(
+    r"\b(?:const|let)\s*\[\s*(?:[A-Za-z_$][\w$]*)?\s*,\s*([A-Za-z_$][\w$]*)\s*\]"
+    r"\s*=\s*useSearchParams\b"
+)
+
+
+def _url_setter_calls(code: str) -> re.Pattern[str]:
+    """A bare call of ``setSearchParams``, or of the name this file gave that setter.
+
+    Bare, so a list's own ``list.setParams(...)`` is not read as the URL setter in
+    a file that also calls its URL setter ``setParams``.
+    """
+    names = sorted({"setSearchParams", *_URL_SETTER_NAMED.findall(code)})
+    return re.compile(r"(?<![\w$.])(?:" + "|".join(map(re.escape, names)) + r")\(")
 
 
 def _call_end(code: str, open_paren: int) -> int:
@@ -78,7 +99,7 @@ def hand_written_writers(source: str) -> list[str]:
         for match in _PAGE_KEY_WRITE.finditer(code)
     ]
     found = list(writes)
-    for match in _SET_SEARCH_PARAMS.finditer(code):
+    for match in _url_setter_calls(code).finditer(code):
         start = match.end() - 1
         end = _call_end(code, start)
         body = code[start + 1 : end]
@@ -161,6 +182,35 @@ def test_the_rule_finds_the_shapes_that_shipped() -> None:
             "      { replace: true },",
             "    )",
             "        next.delete(followUps.pageParam)",
+            # The dealer account page: a renamed setter, and a namespaced page key.
+            "  const [params, setParams] = useSearchParams()",
+            "  const setField = (key: string, value: string) =>",
+            "    setParams((current) => {",
+            "      const next = new URLSearchParams(current)",
+            "      if (value) next.set(key, value)",
+            "      else next.delete(key)",
+            "      if (key !== 'statement_page') next.delete('statement_page')",
+            "      return next",
+            "    })",
+            "    setSearchParams((current) => {",
+            "      const next = new URLSearchParams(current)",
+            "      next.set('overdue', 'true')",
+            "      next.delete('followups_page')",
+            "      return next",
+            "    })",
+            "  const writeAll = (changes: Record<string, string>) =>",
+            "    setParams((current) => {",
+            "      const next = new URLSearchParams(current)",
+            "      for (const [key, value] of Object.entries(changes)) next.set(key, value)",
+            "      return next",
+            "    })",
+            "  const changeTab = (tab: string) =>",
+            "    setParams((current) => {",
+            "      const next = new URLSearchParams(current)",
+            "      next.set('tab', tab)",
+            "      for (const key of ['statement_page', 'sort']) next.delete(key)",
+            "      return next",
+            "    })",
         ]
     )
     assert hand_written_writers(source) == [
@@ -171,6 +221,10 @@ def test_the_rule_finds_the_shapes_that_shipped() -> None:
         "line 16: a multi-key updater",
         "line 22: a page key in an updater",
         "line 31: .delete(followUps.pageParam)",
+        "line 38: .delete('statement_page')",
+        "line 44: .delete('followups_page')",
+        "line 48: a multi-key updater",
+        "line 54: a page key in an updater",
     ]
 
 
@@ -195,6 +249,10 @@ def test_the_rule_leaves_other_updaters_alone() -> None:
             "    queryFn: ({ pageParam, signal }) => fetchPage({ cursor: pageParam, signal }),",
             "  const homepageKey = `${slug}-homepage`",
             "  url.searchParams.set('pages', '2')",
+            # A renamed setter starting a tab fresh; a list's own writer is not it.
+            "  const [params, setParams] = useSearchParams()",
+            "          setParams({ tab })",
+            "  orders.setParams(Object.fromEntries(Object.entries(draft).filter(([, v]) => v)))",
         ]
     )
     assert hand_written_writers(source) == []
