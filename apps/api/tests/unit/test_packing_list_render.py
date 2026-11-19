@@ -14,14 +14,7 @@ from __future__ import annotations
 
 from src.workers.tasks.reports import CARTONS_PER_PAGE, render_packing_list_pdf
 from tests.packing_list_support import carton, document
-
-PDF_MAGIC = b"%PDF-"
-
-
-def page_count(payload: bytes) -> int:
-    """Pages in the produced document, read from the PDF's own page objects."""
-    return payload.count(b"/Type /Page\n") or payload.count(b"/Type /Page ")
-
+from tests.pdf_support import PDF_MAGIC, page_count
 
 # -----------------------------------------------------------------------------
 # The ordinary document

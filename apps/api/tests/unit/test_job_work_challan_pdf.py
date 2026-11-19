@@ -13,13 +13,7 @@ from src.workers.tasks.reports import (
     render_job_work_challan_pdf,
 )
 from tests.job_work_challan_support import document, party
-
-PDF_MAGIC = b"%PDF-"
-
-
-def page_count(payload: bytes) -> int:
-    """Pages in the produced document, read from the PDF's own page objects."""
-    return payload.count(b"/Type /Page\n") or payload.count(b"/Type /Page ")
+from tests.pdf_support import PDF_MAGIC, page_count
 
 
 def test_a_full_challan_renders_to_a_pdf() -> None:
