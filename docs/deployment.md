@@ -25,6 +25,13 @@ git pull --ff-only origin main
 ./scripts/deploy.sh main health
 ```
 
+`up` restarts the deployment's own Nginx, which reads its configuration from the
+checkout. The host Nginx under `/etc/nginx` is installed by hand and `up` does
+not touch it: when a release changes `infrastructure/nginx/host/`, reinstall and
+reload it as the runbook's
+[host Nginx procedure](../ONE-BOX-RUNBOOK.md#when-a-release-changes-the-host-nginx)
+describes.
+
 `up` is intentionally an ordered release transaction:
 
 1. Verify the expected branch, a clean working tree, a `HEAD` that is the

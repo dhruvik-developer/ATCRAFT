@@ -474,8 +474,11 @@ which knows the authenticated user and can be both strict and fair.
 
 | Budget                             | Value                     | Keyed on           | Reasoning                                                                                                                              |
 | ---------------------------------- | ------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `api_general` (Nginx, both layers) | 3000 r/m, burst 300       | address            | An office of 50 doing ~30 req/min of real navigation is 1500 r/m; this is twice that, and still an order of magnitude below a scraper. |
+| `main_edge`, `api_general` (Nginx) | 3000 r/m, burst 300       | address            | An office of 50 doing ~30 req/min of real navigation is 1500 r/m; this is twice that, and still an order of magnitude below a scraper. |
 | `api_auth` (Nginx)                 | 60 r/m, burst 30          | address            | Deliberately looser than the application's own login budget, so that budget is the one that binds.                                     |
+| `main_assets` (host Nginx)         | 30000 r/m, burst 3000     | address            | `/assets/` only. A cold sign-in is ~263 chunks, 50 in a minute 13,150; the burst covers 11 at once and the first minute 33,000.        |
+| `conn_per_ip` (Nginx)              | 50 in flight              | address            | Requests in flight on every location except `/assets/`: the API, sign-in, documents and the SPA shell.                                 |
+| `conn_assets_per_ip` (Nginx)       | 1024 in flight            | address            | `/assets/` only. A cold sign-in holds up to 128 (the host's HTTP/2 stream cap); four overlapping make 512, and this is twice that.     |
 | `RATE_LIMIT_DEFAULT_PER_MINUTE`    | 300                       | authenticated user | A detail page fires ~5 queries and a dialog on it ~5 more, so a clerk moving through 15 documents a minute spends ~150.                |
 | `RATE_LIMIT_AUTH_PER_MINUTE`       | 20 (100 per 5-min window) | address            | A shift change is 50 people signing in inside one window, some twice. Caps account _spraying_ at 20 attempts a minute.                 |
 | `LOGIN_PER_EMAIL`                  | 5 per 5 min               | account            | Fixed security constant. This, with the lockout, is what stops credential stuffing — not the per-address budget.                       |
@@ -492,6 +495,19 @@ control: `api_general` at 120 r/m refused a single operator working properly, an
 `RATE_LIMIT_AUTH_PER_MINUTE` at 4 refused the twenty-first person at a shift
 change — before their password was ever checked, which from the floor is
 indistinguishable from the ERP being down.
+
+Static assets have budgets of their own because their traffic has a different
+shape. A content-hashed chunk is served `immutable` for a year, so a warm
+browser asks for none of it, and a cold one - after a release, on a new
+browser, after a cleared cache - asks for the whole build at once: eager loading
+fetches every screen as soon as the shell paints, about 263 requests for one
+sign-in in the 19 November 2026 build. Counted with everything else, one cold
+sign-in could hold more requests in flight than `conn_per_ip` allows, and two at
+once overran `main_edge`'s burst, so the morning after a release would draw 503s
+for chunks and for the API calls made alongside them. The arithmetic for each
+limit is written beside it in `infrastructure/nginx/host/atcraft-main.conf` and
+`infrastructure/nginx/conf.d/atcraft.conf`. The per-person cost is the build's
+chunk count, so re-measure it when the build grows.
 
 When raising the per-address login budget, note what it does and does not
 defend. It bounds how many _different_ accounts one address may try. It is not

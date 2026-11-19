@@ -772,11 +772,50 @@ commit. Images are tagged and labelled with the
 exact commit, so the running artifact can be traced and an old commit's image
 cannot be silently overwritten by a later branch build.
 
+The host nginx under `/etc/nginx` is not part of `up`. When a release changes
+`infrastructure/nginx/host/`, install it as
+[below](#when-a-release-changes-the-host-nginx) - the same pull, one more step.
+
 Verify and synchronize the two branches, then release production from `main`:
 
 ```
 develop → checks → same commit on develop and main → deployment verification
 ```
+
+### When a release changes the host nginx
+
+`up` restarts the deployment's own nginx, which reads
+`infrastructure/nginx/nginx.conf` and `infrastructure/nginx/conf.d/` from this
+checkout, so a change there takes effect with the release. The host nginx does
+not: it reads the copies [step 9](#9-host-nginx) installed under `/etc/nginx`,
+and nothing but this procedure updates them. After `git pull`, compare the
+installed copies with the checkout - the `sed` puts the real hostname into the
+template, so only real differences show:
+
+```bash
+cd /srv/atcraft-main
+sed 's/erp\.example\.com/erp.yourcompany.com/g' infrastructure/nginx/host/atcraft-main.conf \
+  | diff -u /etc/nginx/conf.d/atcraft-main.conf -
+diff -u /etc/nginx/conf.d/00-default.conf infrastructure/nginx/host/00-default.conf
+diff -u /etc/nginx/snippets/atcraft-proxy.conf infrastructure/nginx/host/snippets/atcraft-proxy.conf
+```
+
+No output means the host is current. Any output is a change the release made -
+or one made by hand on the box, which belongs in the repository before it is
+overwritten. Install the release's copies the way step 9 does, load them in a
+throwaway nginx, then reload the live one:
+
+```bash
+sudo cp infrastructure/nginx/host/snippets/atcraft-proxy.conf /etc/nginx/snippets/
+sudo cp infrastructure/nginx/host/00-default.conf \
+        infrastructure/nginx/host/atcraft-main.conf /etc/nginx/conf.d/
+sudo sed -i 's/erp\.example\.com/erp.yourcompany.com/g' /etc/nginx/conf.d/atcraft-main.conf
+./scripts/check-host-nginx.sh --installed
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+A reload does not drop traffic: nginx starts workers on the new configuration
+and lets the old ones finish the requests they hold.
 
 ### Once, when upgrading past the tax-identifier release
 
