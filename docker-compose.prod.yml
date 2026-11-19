@@ -143,7 +143,8 @@ services:
     build:
       target: production
     # Static files behind the deployment's nginx: it needs almost nothing, and
-    # a ceiling means a runaway cannot take the box from the other deployment.
+    # a ceiling means a runaway cannot starve the API, workers and database
+    # that share the box with it.
     deploy:
       resources:
         limits:
@@ -163,7 +164,7 @@ services:
     # firewall rule is forgotten. 0.0.0.0 here would publish the whole
     # application, unencrypted, on a port nobody remembers opening.
     ports:
-      - "127.0.0.1:${HTTP_PORT:?HTTP_PORT must be set - each deployment needs its own}:80"
+      - "127.0.0.1:${HTTP_PORT:?HTTP_PORT must be set - the loopback port the host nginx proxies to}:80"
     deploy:
       resources:
         limits:

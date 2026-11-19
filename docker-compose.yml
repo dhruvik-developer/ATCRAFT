@@ -7,8 +7,8 @@
 #   development:
 #     make dev          hybrid - Postgres and Redis here, API and Vite on the host
 #     make dev-docker   full Docker         (Windows: .\make.ps1 dev / dev-docker)
-#   deployed (behind the host nginx):
-#     ./scripts/deploy.sh <main|dev> up
+#   deployed (behind the host nginx) - production, from main, the only one:
+#     ./scripts/deploy.sh main up
 #
 # Each wraps this file plus the matching overlay and supplies the project name;
 # a bare `docker compose up` fails on the ${COMPOSE_PROJECT_NAME:?} guard
@@ -446,7 +446,7 @@ services:
   # TLS and does not know its own public hostname - the host nginx does both,
   # and proxies to the single port this container publishes on loopback.
   #
-  # Keeping it means each deployment is complete and testable on its own:
+  # Keeping it means a stack is complete and testable on its own:
   #   curl http://127.0.0.1:<HTTP_PORT>/healthz
   # answers without the host nginx being configured at all.
   nginx:
