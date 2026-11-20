@@ -2279,8 +2279,8 @@ async def decide_inspection(
                 tenant,
                 inspection,
                 owed=(
-                    f"{inspection.rejected_quantity} rejected at incoming inspection "
-                    f"{inspection.code}"
+                    f"{_plain_quantity(inspection.rejected_quantity)} rejected at incoming "
+                    f"inspection {inspection.code}"
                     + (f" against {inspection.reference_code}" if inspection.reference_code else "")
                     + "."
                 ),

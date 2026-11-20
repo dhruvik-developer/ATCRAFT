@@ -1027,7 +1027,11 @@ async def test_a_re_decision_that_rejects_nothing_new_tells_the_buyers_nothing_n
     )
     assert first.return_required is True
     [told] = await return_notices(db, inspection_id)
-    assert f"rejected at incoming inspection {inspection.code}" in told.body
+    # The quantity reads as the rework cycle's notice states it: 10, not 10.0000.
+    assert told.body == (
+        f"10 rejected at incoming inspection {inspection.code}. "
+        "Raise a purchase return or agree a replacement with the vendor."
+    )
 
     await quality_service.decide_inspection(
         db, tenant, inspection_id, decide_payload(accepted="40", rejected="10")
