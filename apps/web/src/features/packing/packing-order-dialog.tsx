@@ -1052,7 +1052,9 @@ function CartonCard({
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title={`Remove carton ${carton.carton_number}?`}
-        description="Whatever is in it goes back to the order's lines. The carton number is not reused."
+        // docs/assumptions.md §PACK-5: a new carton takes the highest number
+        // left on the order plus one, and its barcode is built from that number.
+        description="Its contents go back to the order's lines and no other carton is renumbered. New cartons are numbered after the highest one left, so this carton's number and barcode come back once no carton above it remains."
         confirmLabel="Remove carton"
         destructive
         loading={removeCarton.isPending}

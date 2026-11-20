@@ -977,3 +977,52 @@ describe('packing list status recovery', () => {
     expect(h.fetch.calls.filter((call) => call.path.endsWith('/packing-list'))).toHaveLength(1)
   })
 })
+
+/**
+ * Removing an open carton.
+ *
+ * A new carton takes the highest number left on the order plus one, and its
+ * barcode is built from the order's code and that number (docs/assumptions.md
+ * §PACK-5). So removing the top carton gives its number and barcode to a later
+ * one - and a label can be printed while a carton is still open. The
+ * confirmation promised "The carton number is not reused", which told the
+ * packer a label already on a box could never scan to another.
+ */
+describe('removing an open carton', () => {
+  it('says the number and barcode come back, never that the number is retired', async () => {
+    const { user } = await openOrder('IN_PROGRESS', [P.PACKING_VIEW, P.PACKING_MANAGE], {
+      [`GET /packing/${ORDER_ID}/cartons`]: page([
+        {
+          id: '01a00000-0000-7000-8000-0000000000cb',
+          packing_order_id: ORDER_ID,
+          carton_number: 2,
+          carton_type: 'BOX',
+          barcode: 'PK-0001-C002',
+          length_cm: null,
+          width_cm: null,
+          height_cm: null,
+          tare_weight_kg: '0.5000',
+          net_weight_kg: '0.0000',
+          gross_weight_kg: '0.5000',
+          packing_material_item_id: '01a00000-0000-7000-8000-0000000000pm',
+          packing_material_quantity: '1.0000',
+          material_transaction_id: null,
+          is_sealed: false,
+          sealed_at: null,
+          contents: [],
+        },
+      ]),
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Remove carton 2' }))
+
+    expect(
+      await screen.findByText(
+        "Its contents go back to the order's lines and no other carton is renumbered. " +
+          "New cartons are numbered after the highest one left, so this carton's number and " +
+          'barcode come back once no carton above it remains.',
+      ),
+    ).toBeVisible()
+    expect(screen.queryByText(/not reused/i)).toBeNull()
+  })
+})
