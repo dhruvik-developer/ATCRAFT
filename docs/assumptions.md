@@ -301,13 +301,20 @@ agreements, and is a candidate for a per-vendor or per-item setting.
 ## 4. Job-work loss tolerance
 
 **Assumed.** Loss within the line's `expected_loss_percentage` is posted as
-`SCRAP` automatically. Loss beyond it requires approval and flags the vendor for
-a debit note.
+`SCRAP` automatically. Loss beyond it requires approval and is debited to the
+vendor. The debit is the value of the company material lost beyond the
+allowance - the excess quantity priced at the unit cost the ledger recorded on
+that line's process-loss `SCRAP` movement - and nothing else: not a penalty, and
+not a re-charge of the processing fee. It accrues on the receipt line
+(`vendor_debit_amount`) and is recovered when a bill that invoices that line is
+approved (§B3-2).
 
 **Why.** Polishing and PVD have real, expected material loss. Silently absorbing
-loss beyond the agreed figure would hide a vendor problem.
+loss beyond the agreed figure would hide a vendor problem. A penalty or a
+re-charged fee would be a number this module invented; the cost of the material
+lost is one the ledger already holds.
 
-**Where.** `src/modules/job_work/service.py` — the receipt path,
+**Where.** `src/modules/job_work/service.py` — the receipt path (`receive`),
 `assert_excess_loss_authorised`. Accepting loss beyond the allowance requires
 `job_work.close`, the module's senior right: a `job_work.receive` holder who
 sets `approve_excess_loss` is refused with `PERMISSION_DENIED`, and the receipt
@@ -2088,13 +2095,24 @@ grain; the `TRANSFER_OUT` fallback covers a direct movement with no document-lev
 lot to replay. The batch register
 defaults to the same FEFO order.
 
+An assembly release picks a batch-tracked component's lot the same way before it
+reserves it: one active, unexpired lot at the component warehouse whose
+available quantity covers the whole line - the lot already recorded on the line
+while it still can, otherwise the first by expiry (undated last), receipt date
+and lot number. The lot is recorded on the line (`issued_batch_id`) and reserved
+there; a line no single lot can cover refuses the release, listing the lots and
+what each holds. Completion consumes that lot unless it names another.
+
 **Why.** FEFO is the picking rule shelf life requires, and the lot is part of the
 balance grain: splitting a line automatically would write a document that does
 not say which stock it consumed. A caller that needs two lots can key two lines,
 which is visible and auditable.
 
 **Where.** `src/modules/inventory/service.py` - `_assign_fefo_batches`;
-`src/modules/inventory/repository.py` - `StockBatchRepository.build_list_stmt`.
+`src/modules/inventory/repository.py` - `StockBatchRepository.build_list_stmt`;
+`src/modules/assembly/service.py` - `release_order`, `plan_consumption`;
+`src/modules/assembly/repository.py` -
+`ComponentAvailabilityRepository.reservable_batches`.
 
 **Impact if wrong.** If Atcraft expects automatic lot splitting, the movement
 needs several ledger rows per line and the document needs to show the split; that
@@ -2147,8 +2165,9 @@ identity at the point of posting: a goods receipt names one serial per accepted
 unit (adopting a pre-registered label or minting a missing one); a production
 booking or completion names the output batch for a batch-tracked item and one
 serial per produced unit for a serial-tracked item; an assembly completion names
-the output lot and one serial per assembled unit and the lot of every batch-tracked
-component; job-work input and output carry their batch where the item is
+the output lot and one serial per assembled unit, the lot of every batch-tracked
+component and one serial per consumed unit of every serial-tracked one; job-work
+input and output carry their batch where the item is
 batch-tracked; transfers and adjustments name their lot and units. Transfers and
 adjustments resolve only already-registered labels - they move stock that exists.
 A rejected or scrapped production unit gets no output identity.
@@ -4183,8 +4202,9 @@ vendor debit through B3a behind an explicitly approved setting.
 
 ## §E7b-5. Job-work identity follows the physical lot or unit
 
-**Assumed.** A batch-tracked item may go for job work only when the processed
-output is the same item. The lot is selected on the draft order, so approval
+**Assumed.** A batch-tracked item may go for job work when the processed output
+is the same item, or another batch-tracked item it is converted into one-to-one
+(§JW-batch-1). The lot is selected on the draft order, so approval
 reserves that exact stock grain; every challan, receipt and movement for the
 line uses the selected batch. A second batch uses a separate order line.
 Serial issues select each unit explicitly. Receipts select disjoint issued
@@ -4203,7 +4223,7 @@ immutable, one-to-one conversion links it to the input. Both ledger histories
 remain unchanged and either identity's trace includes the conversion family.
 Reusing a converted identity, converting back into an already-received identity,
 and non-one-to-one or mixed tracking conversions are refused. Batch-tracked SKU
-transformations still require a batch lineage policy.
+transformations needed a lineage policy of their own, which §JW-batch-1 records.
 
 **Why.** A batch is the identity of a lot, not of a particular warehouse
 position, so the lot can return to a different warehouse without losing its
@@ -5779,6 +5799,28 @@ done would inflate the cost of every short-closed job.
 **Impact if wrong.** `charged_minutes` decides all three cases; deducting
 downtime, or costing an unclocked completion at zero, is a change there alone.
 
+## §ASSEMBLY-1. Output the bench rejects at completion is never received
+
+**Assumed.** Completing an assembly order receives only `assembled_quantity`:
+the `ASSEMBLY_RECEIPT` carries the good output, and the `rejected_quantity` the
+completion reports is recorded on the order and moves no stock. The components
+those rejects used are consumed all the same, because consumption is scaled by
+everything produced, good and rejected. Output held for inspection is a
+different case: all of it was received onto QC hold, and the share an
+inspection refuses is moved by that decision - to damaged stock, or to scrap -
+and added to the order's `rejected_quantity`.
+
+**Why.** A failed assembly is not a saleable unit, and receiving it would put
+scrap into the finished-goods balance. A rejected lock set used its cylinder
+exactly as a good one did, so its components are not given back.
+
+**Where.** `src/modules/assembly/service.py` - `complete_assembly`,
+`build_movements`, `_apply_verdict`.
+
+**Impact if wrong.** If a rejected assembly is kept - stripped for parts or
+reworked - completion must receive `rejected_quantity` as well, into damaged
+stock rather than the available pool.
+
 ## §JW-1. A job-work receipt may run 2% over the expected output
 
 **Assumed.** A vendor may return up to 2% more output than a job-work line
@@ -5795,6 +5837,78 @@ and either needs a person rather than a silent adjustment.
 and `plan_line_receipt`.
 
 **Impact if wrong.** Raise the constant; it is one reviewable line.
+
+## §JW-2. A job-work order is approved under job_work.close, which separates roles, not people
+
+**Assumed.** The permission vocabulary has no `job_work.approve`. Approving a
+draft - which takes a hard reservation for every line it will send out - needs
+`job_work.close`, the module's senior right, as do closing an order and
+accepting loss beyond the allowance (section 4). Of the role presets the Plant
+Manager holds it, as the administrators hold every right; the Production
+Supervisor, who raises, issues and receives orders, does not. The approver is
+not compared with the person who raised the order: job-work approval is not one
+of section 2's self-approval refusals, so a Plant Manager, who may raise orders
+too, may approve their own.
+
+**Why.** Approval commits company material to a vendor and takes it from every
+other document. Gating it on the right the plant manager holds and the shop
+floor does not keeps raising and issuing apart from approving without inventing
+a permission the vocabulary lacks.
+
+**Where.** `src/modules/job_work/service.py` - `JOB_WORK_ORDER_LIFECYCLE`,
+`approve_order`; `src/modules/job_work/router.py` - the approve route;
+`src/core/permissions.py` - `ROLE_PRESETS`.
+
+**Impact if wrong.** A separate approval right is a new `job_work.approve`
+permission, granted to the roles that should hold it and moved onto the
+`DRAFT -> APPROVED` edge and the approve route. If the person who raised an
+order must not approve it, `approve_order` refuses with `SelfApprovalError`, as
+the modules section 2 lists do, and section 2's table gains a row.
+
+## §JW-3. A job-work line returns one output unit per input unit unless it says otherwise
+
+**Assumed.** A line's `expected_output_quantity` defaults to its
+`quantity_to_issue`, so a line that states no yield expects one unit back for
+every unit sent out, whatever the process. A yield that is not one-to-one - ten
+blanks machined out of one bar - is stated by setting the expected output, and
+every conversion between the line's two sides goes through the ratio of the two
+(`yield_ratio`). The ratio is fixed once the order leaves DRAFT, because only a
+draft's lines can be amended. A serial-tracked line, and a line converting one
+batch-tracked item into another, must be one-to-one (§E7b-5, §JW-batch-1).
+
+**Why.** One out and one back is true of polishing, coating, PVD and laser
+marking, and of most machining, so the default fits the ordinary order and the
+yield that differs is stated rather than guessed. Fixing it with the order stops
+a later edit restating what an issued order was supposed to return.
+
+**Where.** `src/modules/job_work/service.py` - `_persist_lines`,
+`_expected_output_total`, `yield_ratio`, `update_order`.
+
+**Impact if wrong.** If a process routinely yields other than one-to-one, the
+default would come from the process or the item instead of the line; receipt
+planning and MRP's job-work supply (§E3b-1) already read the stored ratio, so
+only the default changes.
+
+## §JW-4. A vendor earns its charge on good output, and a lot rate once
+
+**Assumed.** Each receipt accrues the vendor's charge on the good output it
+returns, at the order's agreed rate: a `PER_PIECE` or `PER_KG` rate is
+multiplied by the good output, so rejected output, rework the vendor keeps,
+unprocessed returns and process loss earn nothing. A `LOT` rate is accrued once,
+in full, on the first receipt that returns any good output, and later receipts
+on the order accrue nothing. The receipt's charge is shared across its lines by
+their good output.
+
+**Why.** A vendor is paid for good pieces delivered, so a short or rejected
+delivery costs less without anybody raising a credit note. A lot rate is a flat
+charge for the consignment, however much of it comes back.
+
+**Where.** `src/modules/job_work/service.py` - `receipt_charge`, `receive`;
+`src/modules/job_work/models.py` - `RateBasis`.
+
+**Impact if wrong.** If a vendor is paid for everything it processed, pass and
+fail alike, `receipt_charge` counts the rejected output too; a lot rate earned
+on every delivery drops its `lot_already_charged` test.
 
 ## §VEND-1. A vendor is rated on five receipts or more, delivery 60% and quality 40%
 
@@ -5962,6 +6076,34 @@ for that hand-off. If a later decision that rejects more should tell the buyers
 again, notify on a grown rejected quantity rather than on the flag rising; if
 the inspector's re-decision should be able to withdraw a returned rework's
 claim, that needs its own audited action rather than a silent overwrite.
+
+## §QC-4. An assembly or job-work order is inspected when the order says so, not because of its item
+
+**Assumed.** Whether an assembly order's output, or the output a job-work vendor
+returns, is held for inspection is the order's own `requires_qc` flag. It is
+false unless the request that raises or amends the draft sets it, and an order
+MRP raises leaves it false. Neither module reads the item master's inspection
+flags: `requires_production_qc` holds a production order's output (§E5-1) and
+`requires_final_qc` raises packing's FINAL inspection (§E5-8), so an item
+carrying either is assembled or processed uninspected unless its order asks.
+A set flag receives the output onto QC hold and raises its inspection - the
+per-document choice a purchase-order line makes for incoming inspection
+(section 18).
+
+**Why.** Whether a run's output must be looked at is decided per order, as it
+is for a purchase-order line: a first build, or a new vendor's first lot, is
+inspected where a repeat is not. Each of the item master's two flags names a
+stage of its own - the production floor and the packing bench - and reading
+either here would apply a policy to a stage it was not set for.
+
+**Where.** `src/modules/assembly/service.py` - `create_order`, `update_order`,
+`build_movements`, `complete_assembly`; `src/modules/job_work/service.py` -
+`create_order`, `update_order`, `_build_receipt_movements`, `receive`.
+
+**Impact if wrong.** If an item that must always be inspected is to be held
+wherever it is made, `create_order` in both modules defaults `requires_qc` from
+`requires_production_qc`, an explicit choice on the order still winning, as
+`production._resolve_requires_qc` does; orders already raised keep their flag.
 
 ## §USER-1. A held role cannot be retired, and nobody retires or deactivates their own account
 
@@ -6513,6 +6655,94 @@ and the `carton_type_is_known` CHECK.
 
 **Impact if wrong.** Another form is one enum member and the CHECK, through a
 migration.
+
+## §PACK-2. A carton's material is offered by item group, never refused by it
+
+**Assumed.** The carton form offers the active items whose `item_group` is
+`PACKING_MATERIAL`, with what each has on the shelf at the order's warehouse
+(`list_packing_materials`). Opening a carton accepts any item that exists, is
+active and is tracked neither by lot nor by unit; one outside that group is
+logged (`packing.unexpected_packing_material`) and accepted. Sealing the carton
+issues it.
+
+**Why.** `docs/database.md` section 3 makes `item_group` a reporting and
+default-behaviour classification that no business rule may read to decide
+whether an operation is permitted, so it may choose what the form offers, and
+refusing the box on it would be exactly the prohibited branch. An item outside
+the group is almost always a mis-picked box, which is why it is logged. A
+tracked item is refused because the seal posts one `MATERIAL_ISSUE` for the box,
+with no lot or unit to name.
+
+**Where.** `src/modules/packing/service.py` - `_resolve_packing_material`,
+`add_carton`, `list_packing_materials`; `src/modules/packing/repository.py` -
+`ItemLookupRepository.packing_materials`.
+
+**Impact if wrong.** If only packing material may be used as a box, that needs a
+capability flag on the item, as `can_job_work` is for job work - never a branch
+on `item_group`.
+
+## §PACK-3. A short pack completes only when the request says so
+
+**Assumed.** Completing a packing order with any line packed below its quantity
+to pack is refused, naming the short lines, unless the request sets
+`allow_short_pack`, which is false by default. Whoever may complete an order
+(`packing.manage`) may set it, and the completion's audit entry records the flag
+and the short lines.
+
+**Why.** The ordinary case must not silently ship less than was asked for; a
+short shipment is a decision somebody states, and the audit trail keeps it.
+
+**Where.** `src/modules/packing/service.py` - `complete_packing`;
+`src/modules/packing/schemas.py` - `CompleteRequest`.
+
+**Impact if wrong.** If a short pack needs somebody more senior, the flag is
+honoured only from a holder of a further right, as accepting excess job-work
+loss is (section 4).
+
+## §PACK-4. Packing reserves nothing
+
+**Assumed.** No packing operation reserves the goods it packs or moves them:
+filling and sealing cartons and completing the order leave the packed stock
+where it was, and apart from the box's own `MATERIAL_ISSUE` at sealing - and its
+return by the legacy recovery (§E5-8) - packing posts no movement. A packing
+order raised for a sales order relies on whatever reservation that order holds
+until dispatch consumes it; one raised for a customer alone protects nothing,
+and the goods its cartons hold stay available to any other demand.
+
+**Why.** A packing order for a sales order packs goods that order already holds
+through its own reservation, and a hard reservation taken here as well would
+count the same goods twice against availability.
+
+**Where.** `src/modules/packing/service.py` - the carton paths (`add_carton`,
+`seal_carton`, `remove_carton`) and `complete_packing`, none of which calls the
+allocation service.
+
+**Impact if wrong.** If boxed goods must be protected when no sales order holds
+them, packing would reserve what a carton takes for an order with no sales
+order, through `allocation.service`, and dispatch would consume or release it.
+
+## §PACK-5. A removed carton's number is left as a gap, but the highest can come back
+
+**Assumed.** A new carton takes the highest number still on its packing order
+plus one, read under the order's row lock, and its barcode is built from the
+order's code and that number. Removing an unsealed carton deletes it and
+renumbers nothing, so removing carton 3 of 5 leaves a gap and the next carton is
+6. Removing the highest-numbered carton is different: nothing is left above it,
+so the next carton opened takes its number - and its barcode - again. A sealed
+carton cannot be removed.
+
+**Why.** A carton's label can be printed while it is still open, so renumbering
+cartons 4 and 5 would make two boxes claim one number. The number is not a
+legally sequential series, and the order's row lock already serialises two
+packers, so `MAX + 1` is safe where a document number's would not be.
+
+**Where.** `src/modules/packing/repository.py` -
+`CartonRepository.next_carton_number`; `src/modules/packing/service.py` -
+`add_carton`, `remove_carton`, `build_barcode`.
+
+**Impact if wrong.** If a removed carton's label may already be on a box, the top
+number must not come back either: the number would come from a counter on the
+order that only rises, rather than from the cartons that remain.
 
 ## §PRIORITY-1. A sales or purchase priority is 1 to 9, 5 by default
 

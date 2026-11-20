@@ -41,31 +41,44 @@ why each lives here rather than in a caller:
 ## Assumptions
 
 Each of these is a rule the contract did not fix. The conservative option was
-taken, named, and is changeable in one place.
+taken, named, and is changeable in one place. Each one cites the section of
+docs/assumptions.md that records it.
 
-* **The packing-material item is not gated on ``item_group``.** database.md
-  section 3 is explicit that ``item_group`` is a reporting and default-behaviour
-  classification and that no business rule may read it to decide whether an
-  operation is permitted. So ``item_group == PACKING_MATERIAL`` decides what the
-  carton form *offers* (``list_packing_materials``) and a carton sealed against
-  anything else is logged as unusual - but it is not refused, because refusing
-  it would be exactly the prohibited branch. The item must exist and be active;
-  that is the check that is actually about permission.
-* **A sealed carton stays immutable in the normal flow.** The legacy recovery
-  exception only handles an unclaimed order whose serial FINAL inspection named
-  quantities without units. It returns physically recovered packing material at
-  the original issue cost, audits both ledger entries and reopens the carton so
-  the order can be cancelled and repacked with actual serial selections.
-* **Short-packing is allowed only explicitly.** ``CompleteRequest.allow_short_pack``
-  defaults to false, so the ordinary case cannot silently ship less than was
-  asked for, and using it is recorded on the audit entry.
-* **Packing reserves nothing.** Section 22 gives packing no reservation
-  contract, and taking a hard reservation here would double-count against the
-  one the sales order already holds. The goods are protected by that
-  reservation until dispatch consumes it.
-* **``carton_number`` is never reused.** Removing carton 3 of 5 leaves a gap
-  rather than renumbering 4 and 5, because their labels have already been
-  printed and a renumber would make two different boxes claim one number.
+* ASSUMPTION (docs/assumptions.md §PACK-2): **The packing-material item is not
+  gated on ``item_group``.** database.md section 3 is explicit that
+  ``item_group`` is a reporting and default-behaviour classification and that
+  no business rule may read it to decide whether an operation is permitted. So
+  ``item_group == PACKING_MATERIAL`` decides what the carton form *offers*
+  (``list_packing_materials``) and a carton opened on anything else is logged
+  as unusual - but it is not refused, because refusing it would be exactly the
+  prohibited branch. The item must exist, be active and be tracked neither by
+  lot nor by unit, because the seal posts one untracked issue for the box;
+  those are the checks that are actually about permission.
+
+* ASSUMPTION (docs/assumptions.md §E5-8): **A sealed carton stays immutable in
+  the normal flow.** The legacy recovery exception only handles an unclaimed
+  order whose serial FINAL inspection named quantities without units. It
+  returns physically recovered packing material at the original issue cost,
+  audits both ledger entries and reopens the carton so the order can be
+  cancelled and repacked with actual serial selections.
+
+* ASSUMPTION (docs/assumptions.md §PACK-3): **Short-packing is allowed only
+  explicitly.** ``CompleteRequest.allow_short_pack`` defaults to false, so the
+  ordinary case cannot silently ship less than was asked for, and using it is
+  recorded on the audit entry.
+
+* ASSUMPTION (docs/assumptions.md §PACK-4): **Packing reserves nothing.**
+  Section 22 gives packing no reservation contract, and taking a hard
+  reservation here would double-count against the one the sales order already
+  holds. A packing order raised for a sales order relies on that reservation
+  until dispatch consumes it; one raised for a customer alone protects nothing.
+
+* ASSUMPTION (docs/assumptions.md §PACK-5): **Removing a carton renumbers
+  nothing.** Removing carton 3 of 5 leaves a gap rather than renumbering 4 and
+  5, because their labels may already have been printed and a renumber would
+  make two different boxes claim one number. A new carton takes the highest
+  number left plus one, so the highest-numbered carton's number - and its
+  barcode - does come back once that carton is removed.
 """
 
 from __future__ import annotations
