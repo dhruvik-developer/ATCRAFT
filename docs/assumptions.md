@@ -352,15 +352,26 @@ approved. Finance should confirm both figures.
 ## 6. MAKE_OR_BUY resolution in MRP
 
 **Assumed.** An item with `production_type = MAKE_OR_BUY` is suggested for
-**manufacture** when an approved default BOM exists, and for **purchase**
-otherwise, with no warning: buying it is this rule working, not a gap. A `MAKE`
-item is suggested for manufacture whether or not it has a structure. Every item
-the run suggests manufacturing with no approved BOM effective on the run date is
-named in one run warning saying that no component demand was raised for it,
-whether a demand line asked for the item or a parent's explosion did. The warning
-lists `MAX_UNSTRUCTURED_LISTED` codes and counts the rest. An item its own stock
-covers raises no suggestion, and so no warning: the missing structure changed
-nothing in that plan, which is the section 21 rule for caveats.
+**manufacture** when its approved default BOM is effective on the run date, and
+for **purchase** otherwise, with no warning: buying it is this rule working, not
+a gap. A `MAKE` item is suggested for manufacture whether or not it has a
+structure. Every item the run suggests manufacturing with no approved BOM
+effective on the run date is named in one run warning saying that no component
+demand was raised for it, whether a demand line asked for the item or a parent's
+explosion did. The warning lists `MAX_UNSTRUCTURED_LISTED` codes and counts the
+rest. An item its own stock covers raises no suggestion, and so no warning: the
+missing structure changed nothing in that plan, which is the section 21 rule for
+caveats.
+
+The suggestion type also decides whether an item's shortfall is exploded. Each
+item's type is settled once, when the run first reads the item with its
+structure, and the descent into that structure, the explosion and the
+suggestion all read that one answer. An item the run suggests manufacturing is
+exploded through the approved structure effective on the run date, default or
+not. An item it buys — `BUY`, or `MAKE_OR_BUY` with no default structure in
+force — raises no demand for its parts, whatever its capability flags allow. A
+`JOB_WORK` item is exploded only when it is also flagged manufacturable. A
+phantom structure is blown through whatever the item's type (section 12).
 
 **Why.** The existence of an approved BOM is the strongest available signal that
 the item is genuinely made in-house. The alternative — always purchase — would
@@ -371,8 +382,15 @@ demand lines because a sub-assembly is where a missing structure usually hides:
 nobody orders it by name, so a check of the directly demanded items said nothing
 while its components went unplanned, and told the planner a bought
 `MAKE_OR_BUY` item "is planned as manufactured" beside the purchase suggestion.
+The explosion reads the suggestion type rather than restating the production
+types because, while they were two rules, a `MAKE_OR_BUY` item whose only
+structure in force was not its default was suggested for purchase and exploded
+as well: the run planned the item and everything it is made from, and a planner
+converting both bought it twice.
 
-**Where.** `src/modules/mrp/engine.py` — `choose_suggestion_type`, and the
+**Where.** `src/modules/mrp/engine.py` — `choose_suggestion_type`;
+`is_explodable`, fed the suggestion type `_discover_levels` settles for each
+item, which `plan()` reads back for the explosion and the suggestion; and the
 missing-structure warning built from the suggestions in `plan()`
 (`_unstructured_manufacture_warning`, `MAX_UNSTRUCTURED_LISTED`).
 
@@ -380,7 +398,9 @@ missing-structure warning built from the suggestions in `plan()`
 planner sees and can change every suggestion before conversion, so the cost is
 noise rather than a wrong transaction. If a missing structure should be reported
 even where stock covers the item, read the warning off the requirements instead
-of the suggestions.
+of the suggestions. A `MAKE_OR_BUY` item that is in fact built from a
+non-default structure gets neither a manufacture suggestion nor component
+demand until that structure is made its default.
 
 ---
 
@@ -5387,29 +5407,61 @@ declared one.
 **Assumed.** A document stored without an `expires_at` takes its category's
 default retention (`DEFAULT_RETENTION`): a TEMP file 24 hours, an EXPORT 7 days.
 DOCUMENT, ATTACHMENT and REPORT files have none - a report's file, an issued
-invoice's PDF among them, is kept (§A2-6). A document past its `expires_at`
-drops out of the list unless expired ones are asked for, and reading or
-downloading it answers `404` as for a missing one; it can still be deleted.
-`DocumentService.purge_expired` deletes lapsed rows and their files in bounded
-batches, but no scheduled task calls it yet, so a lapsed export stays on disk
-until someone deletes it. The maintenance sweep deletes the files under
-`storage/temp`, where TEMP documents are stored, once they are 24 hours old
-(§SWEEP-1).
+invoice's PDF among them, is kept (§A2-6) - and lapse only on a date their
+uploader chose, at most a year ahead. A document past its `expires_at` drops out
+of the list unless expired ones are asked for, and reading or downloading it
+answers `404` as for a missing one; it can still be deleted. Every night at
+21:30 UTC, 03:00 in India (`DOCUMENT_PURGE_HOUR_UTC`,
+`DOCUMENT_PURGE_MINUTE_UTC`), the beat entry `purge-expired-documents` sends
+`maintenance.purge_expired_documents`, which is dropped if no worker has started
+it within the hour. It finds every company holding a lapsed document - one that
+lapsed before the purge was scheduled included - and calls
+`DocumentService.purge_expired` for each, as the system actor and in a session
+of its own: `DOCUMENT_PURGE_BATCH` (100) rows a call, oldest expiry first, until
+a call comes back short or `MAX_PURGE_BATCHES` (40, the ceiling the other purges
+share) calls have run, so a company loses at most 4 000 a night and the rest of
+a backlog waits for the next. Each row's `DOCUMENT_DELETE` audit entry - reason
+"Retention period elapsed" (`PURGE_REASON`), actor "System" - and its delete
+commit in a transaction of their own, and only then is its file unlinked; a
+file already gone is not an error. A company whose purge fails is logged
+(`maintenance.document_purge_failed`) and counted in
+`atcraft_sweep_unit_failures_total`, keeps the rows already purged and is tried
+again the next night; the other companies go on. The maintenance sweep
+separately deletes the files under `storage/temp`, where TEMP documents are
+stored, once they are 24 hours old (§SWEEP-1).
 
 **Why.** A scratch file or an export is produced to be collected, and one
-nobody collects should not be served for ever. An uploaded business document is
-a record: silently deleting a supplier's QC certificate would be a data-loss
-bug, not housekeeping, so it lapses only when whoever stores it names a date.
+nobody collects should not be served for ever - nor kept on disk and in every
+backup once the upload dialog has promised to delete it. An uploaded business
+document is a record: silently deleting a supplier's QC certificate would be a
+data-loss bug, not housekeeping, so it lapses only when whoever stores it names
+a date. No hour was specified for the purge: a lapsed file already answers
+`404`, so the hour decides only when its row and bytes go, and the middle of the
+night in India keeps the deletes and their audit entries out of the working
+day, an hour after the nightly MRP run starts by default. The batch bounds the
+rows one call holds and the time between reading a row and deleting it, and no
+lock is held across a batch. Unlinking only after the commit means a failure in
+between leaves a file nothing points at, never a row whose bytes are gone.
 
 **Where.** `src/modules/documents/service.py` - `DEFAULT_RETENTION`,
-`default_expiry`, `DocumentService.purge_expired`;
-`src/modules/documents/repository.py` - `document_not_expired`;
-`src/workers/tasks/maintenance.py` - `purge_temp_files`.
+`default_expiry`, `DocumentService.purge_expired`, `PURGE_REASON`;
+`src/modules/documents/repository.py` - `document_not_expired`,
+`companies_with_expired_documents`, `DocumentRepository.list_expired`,
+`MAX_PURGE_BATCH`; `src/workers/tasks/maintenance.py` -
+`purge_expired_documents`, `sweep_expired_documents`, `DOCUMENT_PURGE_BATCH`,
+`purge_temp_files`; `src/workers/celery_app.py` - `DOCUMENT_PURGE_HOUR_UTC`,
+`DOCUMENT_PURGE_MINUTE_UTC` and the `purge-expired-documents` entry.
+`tests/unit/test_document_purge_task.py` pins the entry and the per-company
+loop; `TestNightlyPurge` in `tests/integration/test_documents_service.py` runs
+the sweep against PostgreSQL.
 
 **Impact if wrong.** A category's default is one entry in `DEFAULT_RETENTION`,
-and it applies to files stored after the change. Removing lapsed exports from
-disk needs a scheduled task that calls `DocumentService.purge_expired` for each
-company.
+and it applies to files stored after the change. The hour is
+`DOCUMENT_PURGE_HOUR_UTC` and `DOCUMENT_PURGE_MINUTE_UTC`; a night's bound is
+`DOCUMENT_PURGE_BATCH` times `MAX_PURGE_BATCHES`, and `DOCUMENT_PURGE_BATCH`
+must stay within the repository's `MAX_PURGE_BATCH` (500), which clamps a
+larger one. Removing the beat entry stops the deletion: lapsed files then stay
+hidden, on disk, until someone deletes them.
 
 ## §PROMO-1. A banner whose image has lapsed is not shown to dealers
 
@@ -5417,14 +5469,14 @@ company.
 image is one `GET /dealer-portal/images/{id}` serves: a JPEG, PNG or WebP
 document of this company's that has not passed its retention date
 (`document_not_expired`, the documents module's one statement of the rule). A
-banner whose image has lapsed, or whose image row the purge sweep or a person
-has removed, is withdrawn from every dealer, and the page's total counts only
-what is listed. Its status does not change: staff still list it as ACTIVE, and
-choosing a live image brings it back, since activating or editing a banner
-already refuses an image that is not live. The staff list and read
-(`GET /promotions/banners`, `GET /promotions/banners/{id}`) carry `image_live`,
-asked by the same predicate, so a banner dealers are no longer shown is
-visible as one rather than as an ordinary ACTIVE row.
+banner whose image has lapsed, or whose image row a person or the nightly purge
+of lapsed documents (§DOC-4) has since removed, is withdrawn from every dealer,
+and the page's total counts only what is listed. Its status does not change:
+staff still list it as ACTIVE, and choosing a live image brings it back, since
+activating or editing a banner already refuses an image that is not live. The
+staff list and read (`GET /promotions/banners`, `GET /promotions/banners/{id}`)
+carry `image_live`, asked by the same predicate, so a banner dealers are no
+longer shown is visible as one rather than as an ordinary ACTIVE row.
 
 **Why.** The image route reads the banner's image as a live document and
 answers 404 once its retention date passes, while the banner list went on
