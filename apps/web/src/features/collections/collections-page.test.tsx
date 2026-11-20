@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
 import { SEARCH_DEBOUNCE_MS } from '@/lib/constants'
@@ -412,6 +412,52 @@ describe('searching the worklist', () => {
     await user.type(table, 'east')
     await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('north east'))
     expect(table).toHaveValue('north east')
+  })
+
+  // The box followed every change of the URL, so a filter written while a
+  // search was still settling replaced the typed text with the URL's empty
+  // search - which then settled, and was never sent.
+  it('keeps what the phone box holds when a filter changes before its search settles', async () => {
+    const { user, reads } = renderWorklist()
+    const phone = await screen.findByRole('searchbox', { name: SEARCH })
+
+    await user.type(phone, 'nor')
+    // Synchronous, so it lands inside the debounce whatever the machine's speed.
+    fireEvent.change(screen.getAllByRole('spinbutton', { name: 'Minimum overdue days' })[0]!, {
+      target: { value: '30' },
+    })
+
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('nor'))
+    expect(phone).toHaveValue('nor')
+    expect(reads.at(-1)?.get('min_overdue_days')).toBe('30')
+  })
+
+  // The box's own write comes back through the router a few tasks after the
+  // debounce fires; a key typed in between was replaced by the echo.
+  it('keeps a key typed while its own settled search comes back through the URL', async () => {
+    const { reads } = renderWorklist()
+    const phone = await screen.findByRole('searchbox', { name: SEARCH })
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.change(phone, { target: { value: 'nor' } })
+      // The debounce fires: the box's write is scheduled and nothing has rendered it.
+      vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
+      // The next key arrives before the write has come back.
+      fireEvent.change(phone, { target: { value: 'nort' } })
+      await act(async () => {
+        vi.advanceTimersByTime(0)
+      })
+      expect(phone).toHaveValue('nort')
+
+      await act(async () => {
+        vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    await waitFor(() => expect(reads.at(-1)?.get('search')).toBe('nort'))
+    expect(phone).toHaveValue('nort')
   })
 
   it('keeps the space a phone search ends in', async () => {

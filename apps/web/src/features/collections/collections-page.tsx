@@ -98,15 +98,23 @@ export default function CollectionsPage() {
   const registerStatus = searchParams.get('followup_status') ?? ''
   const registerLiveOnly = searchParams.get('live_only') !== 'false'
   const registerAssignedToMe = searchParams.get('followup_assigned_to_me') === 'true'
+  const q = searchParams.get('q') ?? ''
   const settledMobileSearch = useDebouncedValue(mobileSearch)
+  /** The last settled search this box acted on: written to the URL, or found already there. */
+  const pushedMobileSearch = useRef(settledMobileSearch)
 
-  // The box follows the URL's search, but keeps its own text while that text
-  // already means the same search: the box's own write sends the trimmed value,
-  // and replacing what was typed with it ate the space before a second word.
+  // The box follows the URL's search when that search changes, and only then:
+  // a filter written while a search is still settling in the box must not
+  // replace what was typed. It is left alone when the URL's search is the one
+  // the box last settled on - the echo of its own write, which arrives after
+  // the person may have typed on - and it keeps its own text while that text
+  // already means the same search: the box's own write sends the trimmed
+  // value, and replacing what was typed with it ate the space before a second
+  // word.
   useEffect(() => {
-    const q = searchParams.get('q') ?? ''
+    if (q.trim() === pushedMobileSearch.current) return
     setMobileSearch((current) => (current.trim() === q.trim() ? current : q))
-  }, [searchParams])
+  }, [q])
 
   const worklist = useListQuery<WorklistRow>({
     path: '/collections/worklist',
@@ -157,13 +165,12 @@ export default function CollectionsPage() {
   // value is trimmed and the table writes what was typed, so the two are
   // compared trimmed: a table search ending in a space is the same search, and
   // writing the trimmed one back erased the space and anything typed after it.
-  const pushedMobileSearch = useRef(settledMobileSearch)
   useEffect(() => {
     if (settledMobileSearch === pushedMobileSearch.current) return
     pushedMobileSearch.current = settledMobileSearch
-    if (settledMobileSearch === (searchParams.get('q') ?? '').trim()) return
+    if (settledMobileSearch === q.trim()) return
     writeWorklist({ q: settledMobileSearch })
-  }, [searchParams, settledMobileSearch, writeWorklist])
+  }, [q, settledMobileSearch, writeWorklist])
 
   const openFollowUp = useMutation({
     mutationFn: (row: WorklistRow) =>
