@@ -45,40 +45,54 @@ than in a caller for a stated reason.
 ## Assumptions
 
 Each of these is a rule the contract did not fix. The conservative option was
-taken, named, and is changeable in one place.
+taken, named, and is changeable in one place. Each one cites the section of
+docs/assumptions.md that records it.
 
-* **``result`` is the dominant disposition, with ties broken towards severity**
-  (:data:`SEVERITY_ORDER`). A lot of 100 with 95 accepted and 5 rejected reads
-  ACCEPTED; a 50/50 split reads REJECTED. The vocabulary has no "PARTIAL"
-  member, and the rejection *rate* every report quotes is computed from the
-  quantities, never from this label - so the label is chosen to be useful on a
-  list screen rather than to carry arithmetic.
-* **A critical failure forbids accepting or reworking any part of the lot.** The
-  contract says a critical failure forces REJECTED "regardless of the others";
-  routing part of the lot to SCRAP instead is permitted because scrap is a
-  strictly harsher disposition than rejection, never a softer one.
-* **A non-critical deviation recommends REWORK, not ACCEPTED.** The
-  recommendation is advisory - the inspector decides - but defaulting a
-  deviating lot towards acceptance would make the check sheet decorative.
-* **A BOOLEAN parameter passes on ``true``.** There is no column to say which way
-  round a boolean check reads, and "conforms / does not conform" is how every
-  check sheet in the master rules is worded.
-* **A NUMERIC parameter with no minimum and no maximum is informational**, never
-  a failure. A target with no tolerance band cannot be met by a real measurement,
-  so treating a reading that missed it as a failure would reject every lot.
-* **No template resolves to 100% inspection.** An item nobody has written a check
-  sheet for is inspected in full rather than sampled, because a sample size
-  invented for an unknown specification is a guess presented as a statistic.
-* **Quantity still on QC hold keeps the document open**, whatever the verdict on
-  the goods (:func:`status_for`). A lot 60 released and 40 sent for rework has a
-  ``result`` of ACCEPTED and a ``status`` of REWORK, because those 40 pieces
-  still owe a second decision and a decided status would close their only way
-  out of the pool.
-* **``return_required`` is a flag, not a purchase return.** Rejected incoming
-  material owes the vendor a return or a replacement, but raising it is
-  procurement's decision, numbering series and approval. Quality states the
-  requirement, notifies the buyers and leaves the document to the module that
-  owns it.
+* ASSUMPTION (docs/assumptions.md §QC-1): **``result`` is the dominant
+  disposition, with ties broken towards severity** (:data:`SEVERITY_ORDER`). A
+  lot of 100 with 95 accepted and 5 rejected reads ACCEPTED; a 50/50 split reads
+  REJECTED. The vocabulary has no "PARTIAL" member, and the rejection *rate*
+  every report quotes is computed from the quantities, never from this label -
+  so the label is chosen to be useful on a list screen rather than to carry
+  arithmetic.
+
+* ASSUMPTION (docs/assumptions.md §QC-2): **A critical failure forbids accepting
+  or reworking any part of the lot.** The contract says a critical failure
+  forces REJECTED "regardless of the others"; routing part of the lot to SCRAP
+  instead is permitted because scrap is a strictly harsher disposition than
+  rejection, never a softer one.
+
+* ASSUMPTION (docs/assumptions.md §QC-2): **A non-critical deviation recommends
+  REWORK, not ACCEPTED.** The recommendation is advisory - the inspector
+  decides - but defaulting a deviating lot towards acceptance would make the
+  check sheet decorative.
+
+* ASSUMPTION (docs/assumptions.md §QC-1): **A BOOLEAN parameter passes on
+  ``true``.** There is no column to say which way round a boolean check reads,
+  and "conforms / does not conform" is how every check sheet in the master
+  rules is worded.
+
+* ASSUMPTION (docs/assumptions.md §QC-1): **A NUMERIC parameter with no minimum
+  and no maximum is informational**, never a failure. A target with no
+  tolerance band cannot be met by a real measurement, so treating a reading that
+  missed it as a failure would reject every lot.
+
+* ASSUMPTION (docs/assumptions.md §QC-1): **No template resolves to 100%
+  inspection.** An item nobody has written a check sheet for is inspected in
+  full rather than sampled, because a sample size invented for an unknown
+  specification is a guess presented as a statistic.
+
+* ASSUMPTION (docs/assumptions.md §QC-3): **Quantity still on QC hold keeps the
+  document open**, whatever the verdict on the goods (:func:`status_for`). A
+  lot 60 released and 40 sent for rework has a ``result`` of ACCEPTED and a
+  ``status`` of REWORK, because those 40 pieces still owe a second decision and
+  a decided status would close their only way out of the pool.
+
+* ASSUMPTION (docs/assumptions.md §QC-3): **``return_required`` is a flag, not a
+  purchase return.** Rejected incoming material owes the vendor a return or a
+  replacement, but raising it is procurement's decision, numbering series and
+  approval. Quality states the requirement, notifies the buyers and leaves the
+  document to the module that owns it.
 """
 
 from __future__ import annotations
