@@ -1,7 +1,7 @@
 """Mechanical guards on the sentences the API hands a person.
 
 ``core/messages.py``: a message reads as a clear sentence a user can act on and
-names no internals. Two shapes broke that and shipped past review:
+names no internals. These shapes broke that and shipped past review:
 
 * nine validators interpolated a list into their refusal - ``Duplicate line
   numbers: [3, 5]``, or a list of raw item UUIDs - which is Python's repr, not
@@ -15,7 +15,10 @@ names no internals. Two shapes broke that and shipped past review:
   floor by interpolating ``REASON_MIN_LENGTH``, as ``REASON_TOO_SHORT`` does;
 * ``NotFoundError`` takes an entity *label* and words the sentence itself, and
   the courier module handed it whole sentences - every 404 there read
-  "Courier account not found. not found".
+  "Courier account not found. not found";
+* a refusal named a database table - "Add a uom_conversions row before using
+  it." reached the item form verbatim. A sentence names what a person knows,
+  and an identifier stays in ``details``.
 
 Every rule is a function over source text, and each has a self-test that feeds
 it the violation it exists to catch.
@@ -29,6 +32,8 @@ import re
 import pytest
 
 from src.core.constants import REASON_MIN_LENGTH
+from src.core.models import Base
+from src.core.registry import import_all_models
 from tests.message_scan_support import _error_classes, _template
 from tests.source_scan_support import SRC, python_sources
 
@@ -253,15 +258,19 @@ _SENTENCE_END = re.compile(r"[.?!)]$")
 _VALIDATOR_DECORATORS = frozenset({"field_validator", "model_validator"})
 
 
-def misformatted_messages(source: str, *, message_classes: set[str], schemas: bool) -> list[str]:
-    """``line N: problem`` for each user-facing refusal outside the house format.
+def user_facing_texts(
+    source: str, *, error_classes: set[str], schemas: bool
+) -> list[tuple[int, str]]:
+    """``(line, text)`` for each raise in a function whose first argument a person reads.
 
-    User-facing: an AppError that takes its message first, or a ValueError a
+    User-facing: an application error in ``error_classes``, or a ValueError a
     pydantic validator raises (``core.validation`` hands its sentence to the
     client as a field error). ``schemas`` marks a schemas module, whose
-    ValueErrors are all validators'.
+    ValueErrors are all validators'. The text is the argument as ``_template``
+    reads it, each placeholder ``{}``; an argument that is not literal text is
+    left out.
     """
-    found: list[tuple[int, str]] = []
+    found: set[tuple[int, str]] = set()
     for function in ast.walk(ast.parse(source)):
         if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -280,18 +289,31 @@ def misformatted_messages(source: str, *, message_classes: set[str], schemas: bo
             ):
                 continue
             raised = node.exc.func.id
-            if raised not in message_classes and not (raised == "ValueError" and validator):
+            if raised not in error_classes and not (raised == "ValueError" and validator):
                 continue
             text = _template(node.exc.args[0])
-            if not text or not text.strip():
-                continue
-            text = text.strip()
-            if _SNAKE_CASE_START.match(text):
-                found.append((node.lineno, "opens with an identifier"))
-            elif not _SENTENCE_START.match(text):
-                found.append((node.lineno, "opens in lower case"))
-            if not text.endswith("{}") and not _SENTENCE_END.search(text):
-                found.append((node.lineno, "has no closing punctuation"))
+            if text is not None:
+                found.add((node.lineno, text))
+    return sorted(found)
+
+
+def misformatted_messages(source: str, *, message_classes: set[str], schemas: bool) -> list[str]:
+    """``line N: problem`` for each user-facing refusal outside the house format.
+
+    Read by :func:`user_facing_texts` over the AppErrors that take their
+    message first.
+    """
+    found: list[tuple[int, str]] = []
+    for line, text in user_facing_texts(source, error_classes=message_classes, schemas=schemas):
+        text = text.strip()
+        if not text:
+            continue
+        if _SNAKE_CASE_START.match(text):
+            found.append((line, "opens with an identifier"))
+        elif not _SENTENCE_START.match(text):
+            found.append((line, "opens in lower case"))
+        if not text.endswith("{}") and not _SENTENCE_END.search(text):
+            found.append((line, "has no closing punctuation"))
     return [f"line {line}: {problem}" for line, problem in sorted(set(found))]
 
 
@@ -347,6 +369,98 @@ def test_the_format_rule_flags_the_shapes_that_shipped() -> None:
         "line 5: opens in lower case",
         "line 6: has no closing punctuation",
         "line 10: opens with an identifier",
+    ]
+
+
+#: A word as a regular expression reads one - letters, digits and underscores -
+#: so ``uom_conversions`` is one word and the full stop after it is not part of it.
+_WORD = re.compile(r"\w+")
+
+
+def schema_table_names() -> frozenset[str]:
+    """Every table the models register whose name holds an underscore.
+
+    Read from ``Base.metadata`` once every module's models are imported, so a
+    table a module adds is checked without anybody listing it. ``items`` and
+    ``users`` are tables and also words a sentence may use; a name with an
+    underscore in it - ``uom_conversions``, ``stock_batches`` - is only ever the
+    schema's.
+    """
+    import_all_models()
+    return frozenset(name for name in Base.metadata.tables if "_" in name)
+
+
+def table_names_in_refusals(
+    source: str, *, error_classes: set[str], schemas: bool, tables: frozenset[str]
+) -> list[str]:
+    """``line N: table`` for each user-facing refusal whose text names a table.
+
+    The refusals are :func:`user_facing_texts`'s, and their text is matched word
+    by word against ``tables``.
+    """
+    return [
+        f"line {line}: {table}"
+        for line, text in user_facing_texts(source, error_classes=error_classes, schemas=schemas)
+        for table in sorted(tables.intersection(_WORD.findall(text)))
+    ]
+
+
+def test_no_refusal_names_a_database_table() -> None:
+    files = python_sources()
+    trees = [ast.parse(path.read_text(encoding="utf-8")) for path in files]
+    message_classes, label_classes = _error_classes(trees)
+    tables = schema_table_names()
+    failures = [
+        f"  {path.relative_to(SRC).as_posix()}: {hit}"
+        for path in files
+        for hit in table_names_in_refusals(
+            path.read_text(encoding="utf-8"),
+            error_classes=message_classes | label_classes,
+            schemas=path.name.endswith("schemas.py"),
+            tables=tables,
+        )
+    ]
+
+    assert not failures, (
+        f"{len(failures)} refusal(s) name a database table:\n"
+        + "\n".join(failures)
+        + "\n\nName what a person knows - 'Add a conversion between these two units "
+        "first.', not 'Add a uom_conversions row' - and keep identifiers in details."
+    )
+
+
+def test_the_table_rule_flags_a_table_named_in_a_refusal() -> None:
+    tables = schema_table_names()
+    source = "\n".join(
+        [
+            "def factor(pair, batch_id):",
+            "    raise BusinessRuleError('Add a uom_conversions row before using it.')",
+            "    raise NotFoundError('stock_batches', batch_id)",
+            "    raise ValidationError(f'{pair} has no row in uom_conversions.')",
+            "    raise BusinessRuleError('No items are left to pack.')",
+            "    raise BusinessRuleError('Convert first.', details={'table': 'uom_conversions'})",
+            "    raise ValueError('uom_conversions: not a validator, not a schemas module')",
+            "class ConversionIn:",
+            "    @field_validator('factor')",
+            "    def _positive(cls, value):",
+            "        raise ValueError('Enter a factor for the uom_conversions row.')",
+        ]
+    )
+    flagged = table_names_in_refusals(
+        source,
+        error_classes={"BusinessRuleError", "ValidationError", "NotFoundError"},
+        schemas=False,
+        tables=tables,
+    )
+
+    # The names come from the models, and a table that is also a word is left out.
+    assert {"uom_conversions", "stock_batches"} <= tables
+    assert "items" not in tables
+    assert flagged == [
+        "line 2: uom_conversions",
+        "line 3: stock_batches",
+        "line 4: uom_conversions",
+        "line 11: uom_conversions",
     ]
 
 
