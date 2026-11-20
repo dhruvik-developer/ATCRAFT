@@ -233,8 +233,8 @@ describe('what the lifecycle allows', () => {
   )
 
   it('offers nothing once the material is back, to the rights that moved it', async () => {
-    // `acceptsIssue` and `acceptsReceipt` are both false at RECEIVED. A
-    // storekeeper holding only those two rights has finished with this order.
+    // `acceptsIssue` and `acceptsReceipt` are both false at RECEIVED. An
+    // account holding only those two rights has finished with this order.
     renderOrders('RECEIVED', [P.JOB_WORK_ISSUE, P.JOB_WORK_RECEIVE])
 
     expect(await screen.findByText('JW-0001')).toBeVisible()

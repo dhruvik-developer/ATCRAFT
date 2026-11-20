@@ -111,8 +111,8 @@ export const REJECTION_ACTIONS = [
  *
  * Mirrors `EXCESS_RECEIPT_TOLERANCE_PERCENT` in
  * `apps/api/src/modules/job_work/service.py`: a vendor may return up to this
- * much more output than the order expected. Shown so a storekeeper keying a
- * slightly generous lot knows where the refusal comes from.
+ * much more output than the order expected. Shown so whoever keys a slightly
+ * generous lot knows where the refusal comes from.
  */
 export const EXCESS_RECEIPT_TOLERANCE_PERCENT = '2%'
 

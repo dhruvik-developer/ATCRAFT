@@ -17,8 +17,8 @@ export const receiveSchema = z
     vendor_challan_date: z.string(),
     /**
      * Acknowledge loss beyond the agreed allowance. Honoured only from a caller
-     * holding `job_work.close` - the excess debits the vendor ledger, so the
-     * storekeeper keying the lot cannot accept it alone.
+     * holding `job_work.close` - the excess debits the vendor ledger, so a
+     * caller keying the lot with `job_work.receive` alone cannot accept it.
      */
     approve_excess_loss: z.boolean(),
     lines: z.array(

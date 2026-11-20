@@ -620,8 +620,9 @@ export function JobWorkReceiveDialog({
 
   // Accepting loss beyond the agreed allowance debits the vendor, so the
   // approval is the senior `job_work.close` right - the same right that
-  // approves the order - not the storekeeper's `job_work.receive`. The API
-  // enforces this; the checkbox is simply not offered to anyone else.
+  // approves the order - not `job_work.receive`, the right that keys the
+  // receipt. The API enforces this; the checkbox is simply not offered to
+  // anyone else.
   const canApproveExcess = can(P.JOB_WORK_CLOSE)
 
   const {
