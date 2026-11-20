@@ -358,7 +358,8 @@ class BomStructure:
     ``is_phantom`` is carried because a phantom is blown through rather than
     planned as an item, and ``is_default`` because a ``MAKE_OR_BUY`` item with
     only a non-default structure is bought rather than built
-    (:func:`choose_suggestion_type`).
+    (:func:`choose_suggestion_type`), and so is not exploded either
+    (:func:`is_explodable`).
     """
 
     output_quantity: Decimal
@@ -919,6 +920,9 @@ def choose_suggestion_type(item: PlanningItem, *, has_default_bom: bool) -> MrpS
     genuinely made in-house, and defaulting such items to purchase would make
     their BOM pointless. The planner sees and can change every suggestion before
     converting it, so a wrong guess costs noise rather than a wrong transaction.
+    The answer also decides whether the item's structure is exploded
+    (:func:`is_explodable`): an item the run buys raises no demand for its parts
+    unless that structure is a phantom (docs/assumptions.md section 12).
 
     ASSUMPTION (docs/assumptions.md section 6): a ``MAKE`` item with no approved
     BOM is still suggested for manufacture. The item master says it is made
@@ -938,23 +942,31 @@ def choose_suggestion_type(item: PlanningItem, *, has_default_bom: bool) -> MrpS
     return MrpSuggestionType.MANUFACTURE if has_default_bom else MrpSuggestionType.PURCHASE
 
 
-def is_explodable(item: PlanningItem, *, has_bom: bool) -> bool:
+def is_explodable(item: PlanningItem, *, has_bom: bool, suggestion_type: MrpSuggestionType) -> bool:
     """Whether a shortfall of this item should be exploded into components.
 
-    Only items the company actually manufactures, and only when there is an
-    approved structure effective today to explode. A purchased part with a BOM on
-    file (kept for costing, or because it used to be made here) must not have
-    that structure turned into material demand.
+    Only when there is an approved structure effective today to explode, and
+    only for an item the run makes: a MANUFACTURE suggestion, or a JOB_WORK one
+    for an item also flagged manufacturable. A purchased part with a BOM on file
+    (kept for costing, or because it used to be made here) must not have that
+    structure turned into material demand.
+
+    ``suggestion_type`` is the run's settled answer for the item - the
+    :func:`choose_suggestion_type` result its suggestion is raised with - never
+    a second reading of the production type. Restating the types here is how a
+    ``MAKE_OR_BUY`` item whose structure in force is not its default came to be
+    exploded: the run suggested buying it and also planned everything it is made
+    from, so a planner converting both paid for the item twice.
     """
     if not has_bom:
         return False
-    production_type = ProductionType(item.production_type)
-    if production_type is ProductionType.BUY:
-        return False
-    return item.can_manufacture or production_type in (
-        ProductionType.MAKE,
-        ProductionType.MAKE_OR_BUY,
-    )
+    if suggestion_type is MrpSuggestionType.MANUFACTURE:
+        return True
+    # ASSUMPTION (docs/assumptions.md section 6): the explosion follows the
+    # suggestion. An item the run buys raises no demand for its parts, whatever
+    # its capability flags allow; a job-worked item's structure is exploded only
+    # when the item is also flagged manufacturable.
+    return suggestion_type is MrpSuggestionType.JOB_WORK and item.can_manufacture
 
 
 # -----------------------------------------------------------------------------
@@ -1248,9 +1260,10 @@ class MrpDataSource(Protocol):
 
         Absent means "nothing to explode": no approved structure is effective
         for that item on that date. A structure is returned even for an item the
-        engine may decide not to explode - the production facts and the phantom
-        flag are what :func:`is_explodable` decides on, and both live beside the
-        structure so the two are read from one answer.
+        engine may decide not to explode - the production facts and the default
+        and phantom flags are what the explosion is decided on
+        (:func:`is_explodable`), and the flags live on the structure so the
+        decision is read from one answer.
         """
         ...
 
@@ -1531,8 +1544,13 @@ async def _discover_levels(
     *,
     direct: Mapping[uuid.UUID, DemandBucket],
     as_of: date,
-) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, BomStructure], dict[uuid.UUID, PlanningItem]]:
-    """Low-level codes, single-level structures and the planning facts, by level.
+) -> tuple[
+    dict[uuid.UUID, int],
+    dict[uuid.UUID, BomStructure],
+    dict[uuid.UUID, PlanningItem],
+    dict[uuid.UUID, MrpSuggestionType],
+]:
+    """Low-level codes, single-level structures, planning facts and suggestion types.
 
     One iteration per level of the deepest structure in scope. Each iteration
     reads the planning facts and the effective structures of whatever the
@@ -1552,6 +1570,13 @@ async def _discover_levels(
     a purchased item's unused BOM never drags its parts into the plan's demand.
     Items the item master cannot answer for stop the branch and are reported by
     the caller.
+
+    Each item's suggestion type is settled here, once, the first time the item
+    is read - its planning facts and its structure in force are both final by
+    then - and returned. The descent below, the pass's explosion and the
+    suggestion the run raises all read that one answer, so the structure of an
+    item the run buys is never descended into unless it is a phantom, which is
+    blown through whatever the item's type.
     """
     levels: dict[uuid.UUID, int] = dict.fromkeys(direct, 0)
     structures: dict[uuid.UUID, BomStructure] = {}
@@ -1560,6 +1585,7 @@ async def _discover_levels(
     #: every time a deeper route re-queues it.
     asked: set[uuid.UUID] = set()
     items: dict[uuid.UUID, PlanningItem] = {}
+    suggestion_types: dict[uuid.UUID, MrpSuggestionType] = {}
     frontier = sorted(direct, key=str)
     level = 0
 
@@ -1582,10 +1608,17 @@ async def _discover_levels(
         candidate = level + 1
         for item_id in frontier:
             info = items.get(item_id)
-            structure = structures.get(item_id)
-            if info is None or structure is None:
+            if info is None:
                 continue
-            if not (structure.is_phantom or is_explodable(info, has_bom=True)):
+            structure = structures.get(item_id)
+            if item_id not in suggestion_types:
+                suggestion_types[item_id] = choose_suggestion_type(
+                    info, has_default_bom=structure is not None and structure.is_default
+                )
+            if structure is None or not (
+                structure.is_phantom
+                or is_explodable(info, has_bom=True, suggestion_type=suggestion_types[item_id])
+            ):
                 continue
             for line in structure.lines:
                 if levels.get(line.item_id, -1) < candidate:
@@ -1594,7 +1627,7 @@ async def _discover_levels(
         frontier = sorted(set(next_frontier), key=str)
         level += 1
 
-    return levels, structures, items
+    return levels, structures, items, suggestion_types
 
 
 #: How many items a "supply arrives too late" warning names before it summarises.
@@ -1745,7 +1778,9 @@ async def plan(
     # data cannot stop this run. Every item's level is final before the pass
     # below starts, which is what makes the processing order an answer rather
     # than a fixed point to settle.
-    levels, structures, items = await _discover_levels(source, direct=buckets, as_of=as_of)
+    levels, structures, items, suggestion_types = await _discover_levels(
+        source, direct=buckets, as_of=as_of
+    )
 
     unknown = [item_id for item_id in levels if item_id not in items]
     if unknown:
@@ -1885,14 +1920,16 @@ async def plan(
                     "the transfer suggestion was withheld until its lot or units can be named."
                 )
             structure = structures.get(item_id)
-            suggestion_type = choose_suggestion_type(
-                item, has_default_bom=bool(structure and structure.is_default)
-            )
+            # Settled by discovery, which decided on the same answer whether to
+            # descend into this structure: the explosion below and the
+            # suggestion raised for this item read one suggestion type.
+            suggestion_type = suggestion_types[item_id]
             # A phantom is a grouping on a drawing, not a stocked or built part:
             # the BOM engine blows through one, and the planner follows its
             # shortfall through the same way.
             explodable = structure is not None and (
-                structure.is_phantom or is_explodable(item, has_bom=True)
+                structure.is_phantom
+                or is_explodable(item, has_bom=True, suggestion_type=suggestion_type)
             )
             netted.append(
                 _NettedItem(
@@ -2165,9 +2202,7 @@ async def plan(
     unstructured: list[str] = []
     for requirement, item in shortages:
         structure = structures.get(requirement.item_id)
-        suggestion_type = choose_suggestion_type(
-            item, has_default_bom=bool(structure and structure.is_default)
-        )
+        suggestion_type = suggestion_types[requirement.item_id]
         # ASSUMPTION (docs/assumptions.md section 6): the missing-structure
         # warning is read off the suggestion, not the demand. Every item the run
         # suggests making with no approved structure is named, whether a sales

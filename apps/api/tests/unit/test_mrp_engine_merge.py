@@ -508,6 +508,94 @@ async def test_a_sub_assembly_with_no_structure_is_reported_and_a_bought_item_is
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("production_type", "default_structure", "can_manufacture", "suggested", "screws"),
+    [
+        (ProductionType.MAKE, True, True, MrpSuggestionType.MANUFACTURE, "15"),
+        (ProductionType.MAKE, False, True, MrpSuggestionType.MANUFACTURE, "15"),
+        (ProductionType.MAKE_OR_BUY, True, True, MrpSuggestionType.MANUFACTURE, "15"),
+        (ProductionType.MAKE_OR_BUY, False, True, MrpSuggestionType.PURCHASE, None),
+        (ProductionType.BUY, True, True, MrpSuggestionType.PURCHASE, None),
+        (ProductionType.BUY, False, True, MrpSuggestionType.PURCHASE, None),
+        (ProductionType.JOB_WORK, False, True, MrpSuggestionType.JOB_WORK, "15"),
+        (ProductionType.JOB_WORK, False, False, MrpSuggestionType.JOB_WORK, None),
+    ],
+)
+async def test_the_explosion_follows_the_suggestion_type(
+    production_type: str,
+    default_structure: bool,
+    can_manufacture: bool,
+    suggested: MrpSuggestionType,
+    screws: str | None,
+) -> None:
+    """docs/assumptions.md section 6: an item the run buys raises no demand for its parts.
+
+    PART has an approved structure in force - three screws a unit - and is
+    short by 5. A MAKE_OR_BUY item whose structure in force is not its default
+    is bought, and the run used to explode it anyway: it suggested buying the 5
+    PART *and* buying the 15 screws they are made from, so a planner converting
+    both paid for the item twice. An item the run makes explodes whatever
+    approved structure is in force, default or not; an item it buys never does,
+    whatever its capability flags allow; a job-worked item explodes exactly when
+    it is also flagged manufacturable, as it did before.
+    """
+    part = make_item("PART", production_type=production_type, can_manufacture=can_manufacture)
+    screw = make_item("SCREW-M4")
+    source = FakeSource(
+        items={part.id: part, screw.id: screw},
+        structure={part.id: [(screw, "3")]},
+        default_bom={part.id} if default_structure else set(),
+    )
+
+    plan = await run(source, [sales_line(part, "5", code="SO/0001")])
+
+    expected = {("PART", suggested, D("5"))}
+    if screws is not None:
+        expected.add(("SCREW-M4", MrpSuggestionType.PURCHASE, D(screws)))
+    assert {(s.item_code, s.suggestion_type, s.suggested_quantity) for s in plan.suggestions} == (
+        expected
+    )
+    assert {r.item_code for r in plan.requirements} == {code for code, _, _ in expected}
+    assert plan.stats["explosion_count"] == (0 if screws is None else 1)
+    # Discovery follows the pass: a structure the run will not explode is never
+    # descended into, so the parts under it are not even read.
+    assert source.batch_sizes["planning_items"] == ([1] if screws is None else [1, 1])
+
+
+@pytest.mark.asyncio
+async def test_a_bought_sub_assembly_adds_nothing_to_a_part_its_parent_also_uses() -> None:
+    """Section 6, one level down: a bought item's parts are neither levelled nor demanded.
+
+    KIT is made from one MOB and two SCREW-M4. MOB is MAKE_OR_BUY with only a
+    non-default structure in force - three screws a unit - so the run buys it.
+    The screws are planned for the kits alone: 10 kits need 20, planned at
+    level 1 beside MOB. The run used to descend into MOB as well, so the screws
+    were levelled under it and planned for 50 - 20 for the kits and 30 for the
+    10 MOB the same run was suggesting to buy.
+    """
+    kit = make_product("KIT")
+    mob = make_item("MOB", production_type=ProductionType.MAKE_OR_BUY, can_manufacture=True)
+    screw = make_item("SCREW-M4")
+    source = FakeSource(
+        items={part.id: part for part in (kit, mob, screw)},
+        structure={kit.id: [(mob, "1"), (screw, "2")], mob.id: [(screw, "3")]},
+        default_bom={kit.id},
+    )
+
+    plan = await run(source, [sales_line(kit, "10", code="SO/0001")])
+
+    assert {(s.item_code, s.suggestion_type, s.suggested_quantity) for s in plan.suggestions} == {
+        ("KIT", MrpSuggestionType.MANUFACTURE, D("10")),
+        ("MOB", MrpSuggestionType.PURCHASE, D("10")),
+        ("SCREW-M4", MrpSuggestionType.PURCHASE, D("20")),
+    }
+    screws = plan.requirement_for(screw.id)
+    assert screws is not None
+    assert (screws.low_level_code, screws.gross_requirement) == (1, D("20"))
+    assert plan.stats["explosion_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_a_make_item_with_no_structure_that_stock_covers_is_not_reported() -> None:
     """Section 6, like section 21: a caveat is raised only where it made a difference.
 

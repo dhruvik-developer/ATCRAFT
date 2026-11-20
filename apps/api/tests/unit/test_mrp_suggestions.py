@@ -117,22 +117,89 @@ def test_the_suggestion_type_does_not_depend_on_capability_flags_alone() -> None
 
 
 # -----------------------------------------------------------------------------
-# What gets exploded
+# What gets exploded: the suggestion type settled for the item decides
 # -----------------------------------------------------------------------------
+
+
+def explodes(planning_item: PlanningItem, *, has_bom: bool, has_default_bom: bool) -> bool:
+    """The engine's decision, composed as the run settles it.
+
+    Discovery settles the suggestion type once and the explosion reads it, so
+    these cases state each combination the way a run meets it.
+    """
+    return is_explodable(
+        planning_item,
+        has_bom=has_bom,
+        suggestion_type=choose_suggestion_type(planning_item, has_default_bom=has_default_bom),
+    )
 
 
 def test_a_purchased_part_with_a_bom_on_file_is_not_exploded() -> None:
     """A structure kept for costing must not become material demand."""
-    assert is_explodable(item(ProductionType.BUY), has_bom=True) is False
+    assert explodes(item(ProductionType.BUY), has_bom=True, has_default_bom=True) is False
 
 
 def test_a_make_item_without_a_structure_cannot_be_exploded() -> None:
-    assert is_explodable(item(ProductionType.MAKE), has_bom=False) is False
+    assert explodes(item(ProductionType.MAKE), has_bom=False, has_default_bom=False) is False
 
 
 @pytest.mark.parametrize("production_type", [ProductionType.MAKE, ProductionType.MAKE_OR_BUY])
 def test_manufactured_items_with_a_structure_are_exploded(production_type: str) -> None:
-    assert is_explodable(item(production_type), has_bom=True) is True
+    assert explodes(item(production_type), has_bom=True, has_default_bom=True) is True
+
+
+@pytest.mark.parametrize("can_manufacture", [True, False])
+def test_a_make_item_explodes_a_structure_in_force_that_is_not_its_default(
+    can_manufacture: bool,
+) -> None:
+    """A MAKE item is made, so whichever approved structure is in force is exploded."""
+    made = item(ProductionType.MAKE, can_manufacture=can_manufacture)
+    assert explodes(made, has_bom=True, has_default_bom=False) is True
+
+
+@pytest.mark.parametrize("can_manufacture", [True, False])
+def test_a_make_or_buy_item_the_run_buys_is_not_exploded(can_manufacture: bool) -> None:
+    """docs/assumptions.md section 6: the explosion reads the suggestion type.
+
+    With no default structure in force the item is bought, so exploding the
+    structure that is in force would plan its parts beside the purchase -
+    whatever the item's capability flags allow.
+    """
+    dual = item(ProductionType.MAKE_OR_BUY, can_manufacture=can_manufacture)
+    assert choose_suggestion_type(dual, has_default_bom=False) is MrpSuggestionType.PURCHASE
+    assert explodes(dual, has_bom=True, has_default_bom=False) is False
+
+
+@pytest.mark.parametrize(("can_manufacture", "exploded"), [(True, True), (False, False)])
+def test_a_job_worked_item_is_exploded_only_when_it_is_also_manufacturable(
+    can_manufacture: bool, exploded: bool
+) -> None:
+    """docs/assumptions.md section 6: the job-work rule is unchanged.
+
+    A JOB_WORK suggestion is not a purchase, and the item's structure is
+    exploded exactly when the item is also flagged manufacturable - the answer
+    the predicate gave before the suggestion type decided it.
+    """
+    worked = item(ProductionType.JOB_WORK, can_manufacture=can_manufacture)
+    assert explodes(worked, has_bom=True, has_default_bom=True) is exploded
+    assert explodes(worked, has_bom=True, has_default_bom=False) is exploded
+
+
+@pytest.mark.parametrize("production_type", list(ProductionType))
+def test_a_purchase_suggestion_is_never_exploded_whatever_the_production_type(
+    production_type: str,
+) -> None:
+    """The predicate reads the settled suggestion, never the production type again.
+
+    A second reading of the type is how a bought MAKE_OR_BUY item came to be
+    exploded; told the run buys the item, no production type may override it.
+    """
+    assert (
+        is_explodable(
+            item(production_type), has_bom=True, suggestion_type=MrpSuggestionType.PURCHASE
+        )
+        is False
+    )
 
 
 # -----------------------------------------------------------------------------
