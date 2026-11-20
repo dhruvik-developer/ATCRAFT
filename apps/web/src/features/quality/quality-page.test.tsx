@@ -29,6 +29,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
+import { Toaster } from '@/components/ui/toaster'
 import { assemblyKeys } from '@/features/assembly/assembly-model'
 import { financeKeys } from '@/features/finance/finance-types'
 import { jobWorkKeys } from '@/features/job-work/job-work-model'
@@ -824,6 +825,47 @@ describe('the inspection sheet', () => {
         expect(queryClient.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
       }
     })
+  })
+
+  it('says the vendor owes a return without sending the lot it just accepted back', async () => {
+    // `return_required` only rises (docs/assumptions.md §QC-3): a rework cycle
+    // sent back to the vendor raises it, and the decision accepting the
+    // vendor's replacement still carries it. The toast told the inspector that
+    // accepted lot "has to go back to the vendor".
+    const { user } = renderScreen(
+      <>
+        <QualityPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.QC_VIEW, P.QC_DECIDE],
+        routes: {
+          'GET /quality/pending': page([inspection({ return_required: true })]),
+          [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+            detail({ parameters: [], return_required: true }),
+          ),
+          [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok({
+            ...decisionResponse(),
+            return_required: true,
+          }),
+        },
+      },
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Inspect' }))
+    await user.type(await screen.findByLabelText('Accepted'), '100')
+    await user.type(screen.getByLabelText(/reason for this decision/i), 'Replacement lot passed')
+    await user.click(screen.getByRole('button', { name: /submit inspection/i }))
+
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(await within(toasts).findByText('QC-0001 decided as Accepted')).toBeVisible()
+    expect(
+      within(toasts).getByText(
+        '100 released, 0 scrapped, 0 still on hold. ' +
+          'The vendor owes a return or a replacement for this inspection.',
+      ),
+    ).toBeVisible()
+    expect(within(toasts).queryByText(/go back to the vendor/i)).toBeNull()
   })
 
   it('sends a decide-only account straight to the decision, never to the readings post', async () => {

@@ -643,9 +643,14 @@ export function InspectionDialog({
         `${formatQuantity(decision.scrapped_quantity)} scrapped`,
         `${formatQuantity(decision.still_on_hold_quantity)} still on hold`,
       ].join(', ')
+      // The flag only rises (docs/assumptions.md §QC-3), so a decision that
+      // accepts a returned rework's replacement still carries it: it says what
+      // the vendor owes for this inspection, not that this lot goes back.
       toast.success(
         `${code} decided as ${humanise(decision.inspection.result)}`,
-        decision.return_required ? `${moved}. This lot has to go back to the vendor.` : `${moved}.`,
+        decision.return_required
+          ? `${moved}. The vendor owes a return or a replacement for this inspection.`
+          : `${moved}.`,
       )
       onOpenChange(false)
     },
