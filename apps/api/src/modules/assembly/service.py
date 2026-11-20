@@ -57,30 +57,41 @@ can be exercised without standing up the reservation engine.
 ## Assumptions
 
 Each of these is a rule the contract did not fix. The conservative option was
-taken, named, and is changeable in one place.
+taken, named, and is changeable in one place. Each one cites the section of
+docs/assumptions.md that records it.
 
-* ``requires_qc`` is a **per-order flag**, not an item-master property. ``items``
-  carries no inspection policy and inventing one would put the rule in two
-  places that could disagree; ``goods_receipt_lines.requires_qc`` makes the same
-  choice.
-* **Tracked components and tracked output are supported.** A batch-tracked
-  component is reserved by one ACTIVE, unexpired lot at release - chosen FEFO and
-  recorded on the line, so the operator can see which lot was picked - and the
-  consumed lot is confirmed at completion. A serial-tracked component names the
-  exact units at completion. A tracked output names its lot and one serial per
-  assembled unit, because the inventory engine refuses every other shape of
-  movement.
-* **Rejected output produces no stock.** Only ``assembled_quantity`` is
-  received. A failed assembly is not a saleable unit, and receiving it would put
-  scrap into the finished-goods balance.
-* **Issued quantity may not exceed the requirement**, because the requirement is
-  what was reserved; anything beyond it would be unreserved stock on the bench
-  that another document could still be promised. A top-up only ever raises the
-  issued totals (docs/assumptions.md §E4-5).
-* **An order is built from an ASSEMBLY or a PRODUCTION structure**
-  (:data:`ASSEMBLABLE_BOM_TYPES`, docs/assumptions.md §E4-4).
-* **Component reservations carry the order's priority and its planned start**
-  as their required date, read as a UTC business date (§E4-7).
+* ASSUMPTION (docs/assumptions.md §QC-4): ``requires_qc`` is a **per-order
+  flag**, not an item-master property. The item master's inspection flags each
+  name another stage - ``requires_production_qc`` a production order,
+  ``requires_final_qc`` the packing bench - and neither is read here;
+  ``goods_receipt_lines.requires_qc`` makes the same per-document choice.
+
+* ASSUMPTION (docs/assumptions.md §E8b-1, §E8b-3): **Tracked components and
+  tracked output are supported.** A batch-tracked component is reserved by one
+  ACTIVE, unexpired lot at release - chosen FEFO and recorded on the line, so
+  the operator can see which lot was picked - and the consumed lot is confirmed
+  at completion. A serial-tracked component names the exact units at
+  completion. A tracked output names its lot and one serial per assembled unit,
+  because the inventory engine refuses every other shape of movement.
+
+* ASSUMPTION (docs/assumptions.md §ASSEMBLY-1): **Rejected output produces no
+  stock.** Only ``assembled_quantity`` is received. A failed assembly is not a
+  saleable unit, and receiving it would put scrap into the finished-goods
+  balance. Output held for inspection is the exception: all of it was received
+  on hold, and the share a verdict refuses is moved out of the hold by that
+  verdict.
+
+* ASSUMPTION (docs/assumptions.md §E4-5): **Issued quantity may not exceed the
+  requirement**, because the requirement is what was reserved; anything beyond
+  it would be unreserved stock on the bench that another document could still
+  be promised. A top-up only ever raises the issued totals.
+
+* ASSUMPTION (docs/assumptions.md §E4-4): **An order is built from an ASSEMBLY
+  or a PRODUCTION structure** (:data:`ASSEMBLABLE_BOM_TYPES`).
+
+* ASSUMPTION (docs/assumptions.md §E4-7): **Component reservations carry the
+  order's priority and its planned start** as their required date, read as a
+  UTC business date.
 """
 
 from __future__ import annotations

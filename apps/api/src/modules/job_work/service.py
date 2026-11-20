@@ -38,9 +38,9 @@ and why each lives here rather than in a caller:
    ``expected_loss_percentage`` posts the shortfall as ``SCRAP`` with a reason.
    Beyond it, the receipt is refused until somebody with authority approves the
    excess, and the value of the material lost is debited to the vendor at the
-   position's own moving-average cost. A quantity that simply never comes back
-   and is never written off would sit in the job-work pool forever, and the
-   stock report would keep counting material that no longer exists.
+   unit cost the ledger recorded for that scrap. A quantity that simply never
+   comes back and is never written off would sit in the job-work pool forever,
+   and the stock report would keep counting material that no longer exists.
 
 5. **An over-receipt is refused, not clamped.** Getting back more than went out
    is either a mis-keyed quantity or somebody else's goods; both need a person,
@@ -79,62 +79,82 @@ can be exercised without standing up the reservation engine.
 ## Assumptions
 
 Each of these is a rule the contract did not fix. The conservative option was
-taken, named, and is changeable in one place.
+taken, named, and is changeable in one place. Each one cites the section of
+docs/assumptions.md that records it.
 
-* **Approval is gated on ``JOB_WORK_CLOSE``.** The permission vocabulary has no
-  ``JOB_WORK_APPROVE``. ``JOB_WORK_CLOSE`` is the module's senior permission -
-  the plant manager holds it and the planner who raises and issues orders does
-  not - so gating approval on it keeps raising and approving separate duties.
-* **Accepting loss beyond the agreed allowance is gated on ``JOB_WORK_CLOSE``
-  too.** ``approve_excess_loss`` is a flag on the receipt payload, and the route
-  that carries it needs only ``JOB_WORK_RECEIVE`` - the storekeeper's right. The
-  excess debits the vendor ledger, so the flag is honoured only from a caller
-  who holds the same senior right that approves the order, and the receipt
-  records that caller as the approver. A storekeeper keying the lot still gets
-  ``ApprovalRequiredError`` and hands it up (:func:`assert_excess_loss_authorised`).
-* **A job work order is 1:1 in the line's unit of measure unless told
-  otherwise.** ``expected_output_quantity`` defaults to ``quantity_to_issue``,
-  which is true of polishing, coating, PVD, laser marking and machining. A yield
-  that is not 1:1 is expressed by setting it, and the ratio is frozen on the
-  line so a later edit cannot restate what an issued order was supposed to
-  return.
-* **Charges accrue on good output received**, at the agreed rate, on the receipt
-  date. A vendor is paid for good pieces delivered, so a short or rejected
-  delivery costs less without anybody raising a credit note. A ``LOT`` rate is
-  accrued once, on the first receipt that returns any output.
-* **The vendor debit is the value of company material lost beyond the
-  allowance**, priced at the material's own moving-average cost from the scrap
-  movement. It is not a penalty and not a re-charge of the processing fee -
-  those would both be numbers this module invented.
-* **Processed output is received at its capitalised cost** (:func:`capitalised_output_cost`):
-  the input the good output consumed, valued at the frozen challan issue cost -
-  the ledger's FIFO draw captured on the challan line when the material left -
-  plus the receipt charge the line accrued, per good unit. Returned rejects
-  carry their proportional share of that input value without a processing
-  charge; their material is not also folded into the good units. The price is read
-  from challans before posting, so it is exact rather than a second read of
-  layers the posting itself consumes. Process loss within the allowance is
-  expensed as scrap (as before) rather than absorbed into the good units, and
-  the later invoice price variance is expensed too. docs/assumptions.md §E7b-2.
-* **Batch identity is preserved for same-item job work, and converted one-to-one
-  for batch-only SKU changes.** One batch is selected for each order line on the
-  draft, reserved at that stock grain and carried through every challan, receipt
-  and ledger movement; a second batch needs a separate line. A different
-  batch-tracked output SKU (neither side serial) requires
-  ``expected_output_quantity == quantity_to_issue``; receipt mints an output lot
-  that reuses the source batch number and joins both via
-  ``stock_batch_conversions`` (§JW-batch-1). Mixed tracking stays refused.
-  Serial issues name every physical unit, and receipts name disjoint units for
-  output, rejection, unprocessed return and scrap. Vendor-held rework remains
-  eligible for a later receipt. Serial-only SKU conversion is one-to-one: the
-  physical label is retained in a new SKU-scoped serial row, joined to the input
-  by an immutable conversion record. Historical ledger identities are never
-  rewritten. Batch SKU conversion and mixed tracking still need a lineage
-  policy and are refused.
-* **``requires_qc`` is a per-order flag**, not an item-master property. ``items``
-  carries no inspection policy and inventing one would put the rule in two
-  places that could disagree; ``goods_receipt_lines.requires_qc`` and
-  ``assembly_orders.requires_qc`` make the same choice.
+* ASSUMPTION (docs/assumptions.md §JW-2): **Approval is gated on
+  ``JOB_WORK_CLOSE``.** The permission vocabulary has no ``JOB_WORK_APPROVE``.
+  ``JOB_WORK_CLOSE`` is the module's senior permission - the plant manager
+  holds it and the production supervisor who raises, issues and receives
+  orders does not - so gating approval on it keeps the floor's raising and
+  issuing apart from approving. The separation is by role, not by person: a
+  plant manager may approve an order they raised themselves.
+
+* ASSUMPTION (docs/assumptions.md §4): **Accepting loss beyond the agreed
+  allowance is gated on ``JOB_WORK_CLOSE`` too.** ``approve_excess_loss`` is a
+  flag on the receipt payload, and the route that carries it needs only
+  ``JOB_WORK_RECEIVE``. The excess debits the vendor ledger, so the flag is
+  honoured only from a caller who holds the same senior right that approves
+  the order, and the receipt records that caller as the approver. Whoever keys
+  the lot without that right still gets ``ApprovalRequiredError`` and hands it
+  up, and setting the flag themselves is refused
+  (:func:`assert_excess_loss_authorised`).
+
+* ASSUMPTION (docs/assumptions.md §JW-3): **A job work order is 1:1 in the
+  line's unit of measure unless told otherwise.** ``expected_output_quantity``
+  defaults to ``quantity_to_issue``, which is true of polishing, coating, PVD
+  and laser marking, and of most machining. A yield that is not 1:1 is
+  expressed by setting it, and the ratio is frozen on the line so a later edit
+  cannot restate what an issued order was supposed to return.
+
+* ASSUMPTION (docs/assumptions.md §JW-4): **Charges accrue on good output
+  received**, at the agreed rate, on the receipt date. A vendor is paid for
+  good pieces delivered, so a short or rejected delivery costs less without
+  anybody raising a credit note. A ``LOT`` rate is accrued once, on the first
+  receipt that returns any good output.
+
+* ASSUMPTION (docs/assumptions.md §4): **The vendor debit is the value of
+  company material lost beyond the allowance**, priced at the unit cost the
+  ledger recorded on that line's process-loss scrap movement. It is not a
+  penalty and not a re-charge of the processing fee - those would both be
+  numbers this module invented.
+
+* ASSUMPTION (docs/assumptions.md §E7b-2): **Processed output is received at
+  its capitalised cost** (:func:`capitalised_output_cost`): the input the good
+  output consumed, valued at the frozen challan issue cost - the ledger's FIFO
+  draw captured on the challan line when the material left - plus the receipt
+  charge the line accrued, per good unit. Returned rejects carry their
+  proportional share of that input value without a processing charge; their
+  material is not also folded into the good units. The price is read from
+  challans before posting, so it is exact rather than a second read of layers
+  the posting itself consumes. Process loss within the allowance is expensed as
+  scrap (as before) rather than absorbed into the good units, and the later
+  invoice price variance is expensed too.
+
+* ASSUMPTION (docs/assumptions.md §E7b-5, §JW-batch-1): **Batch identity is
+  preserved for same-item job work, and converted one-to-one for batch-only SKU
+  changes.** One batch is selected for each order line on the draft, reserved
+  at that stock grain and carried through every challan, receipt and ledger
+  movement; a second batch needs a separate line. A different batch-tracked
+  output SKU (neither side serial) requires
+  ``expected_output_quantity == quantity_to_issue``; receipt mints an output
+  lot that reuses the source batch number and joins both via
+  ``stock_batch_conversions``. Serial issues name every physical unit, and
+  receipts name disjoint units for output, rejection, unprocessed return and
+  scrap. Vendor-held rework remains eligible for a later receipt. Serial-only
+  SKU conversion is one-to-one: the physical label is retained in a new
+  SKU-scoped serial row, joined to the input by an immutable conversion record.
+  Historical ledger identities are never rewritten. Any other SKU change that
+  involves a tracked item - mixed tracking, an item tracked both ways, or a
+  tracked item becoming an untracked one or the reverse - still needs a
+  lineage policy and is refused.
+
+* ASSUMPTION (docs/assumptions.md §QC-4): **``requires_qc`` is a per-order
+  flag**, not an item-master property. The item master's inspection flags each
+  name another stage - ``requires_production_qc`` a production order,
+  ``requires_final_qc`` the packing bench - and neither is read here;
+  ``goods_receipt_lines.requires_qc`` and ``assembly_orders.requires_qc`` make
+  the same per-document choice.
 """
 
 from __future__ import annotations
@@ -2950,7 +2970,7 @@ def assert_excess_loss_authorised(
         )
     # ASSUMPTION: accepting loss beyond the agreed allowance debits the vendor
     # ledger, so it is the senior JOB_WORK_CLOSE right - the same right that
-    # approves the order - not the storekeeper's JOB_WORK_RECEIVE. The receive
+    # approves the order - not the receiver's JOB_WORK_RECEIVE. The receive
     # route is gated on the latter alone, so the flag is checked here rather
     # than trusted. See the module's Assumptions and docs/assumptions.md §4.
     principal.require(Permission.JOB_WORK_CLOSE)
