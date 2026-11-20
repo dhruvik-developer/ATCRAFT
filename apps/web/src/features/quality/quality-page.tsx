@@ -461,14 +461,17 @@ function InspectionsTab({
         ),
       },
       {
-        // Rejected material that has to go back to the vendor is a debit note
-        // and a return challan waiting to be raised, not just a number.
+        // A rejection, or a rework cycle completed as RETURNED, found the vendor
+        // owes a return or a replacement for this inspection. The flag only
+        // rises (docs/assumptions.md §QC-3), so it stays after the return is
+        // raised or a replacement accepted: it says a return was owed, not
+        // that this lot goes back.
         id: 'return_required',
         header: 'Return',
         enableSorting: false,
         cell: ({ row }) =>
           row.original.return_required ? (
-            <Badge variant="warning">To vendor</Badge>
+            <Badge variant="warning">Owed</Badge>
           ) : (
             <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),

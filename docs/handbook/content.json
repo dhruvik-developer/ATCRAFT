@@ -3537,7 +3537,7 @@
             {
               "action": "Search the whole history",
               "how": "All inspections tab",
-              "note": "Search by inspection, item or reference, sort, and filter by stage and outcome. Accepted, rejected, rework and scrapped quantities are all columns, and rejected material owed back to a vendor is flagged \"To vendor\"."
+              "note": "Search by inspection, item or reference, sort, and filter by stage and outcome. Accepted, rejected, rework and scrapped quantities are all columns, and the Return column shows \"Owed\" once a rejection, or a rework cycle completed as Returned, finds the vendor owes a return or a replacement. The mark stays after the return is raised or the replacement accepted."
             },
             {
               "action": "Re-decide a lot on hold or in rework",

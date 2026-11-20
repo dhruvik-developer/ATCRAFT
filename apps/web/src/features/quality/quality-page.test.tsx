@@ -297,6 +297,37 @@ describe('the inspection history', () => {
     expect(row).not.toBeNull()
     expect(within(row!).getByText('Rejected')).toBeVisible()
   })
+
+  it('marks a return the vendor owed without saying the lot goes to the vendor', async () => {
+    // `return_required` only rises (docs/assumptions.md §QC-3): a rework cycle
+    // completed as RETURNED raises it as a rejection does, and the re-decision
+    // accepting the vendor's replacement keeps it. The column said "To vendor"
+    // on that accepted lot.
+    await openHistory(
+      [
+        inspection({
+          code: 'QC-0200',
+          status: 'ACCEPTED',
+          result: 'ACCEPTED',
+          return_required: true,
+          inspected_at: '2026-08-30T09:00:00Z',
+        }),
+        inspection({
+          id: '01a00000-0000-7000-8000-0000000000q2',
+          code: 'QC-0201',
+          status: 'ACCEPTED',
+          result: 'ACCEPTED',
+          inspected_at: '2026-08-30T09:00:00Z',
+        }),
+      ],
+      [P.QC_VIEW],
+    )
+
+    const flagged = (await screen.findByText('QC-0200')).closest('tr')!
+    expect(within(flagged).getByText('Owed')).toBeVisible()
+    expect(within(flagged).queryByText(/to vendor/i)).toBeNull()
+    expect(within(screen.getByText('QC-0201').closest('tr')!).queryByText('Owed')).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------- dialog ----
