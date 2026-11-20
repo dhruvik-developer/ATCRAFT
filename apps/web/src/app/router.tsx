@@ -44,8 +44,12 @@ const DealerInvoicePage = lazy(routeLoaders['/dealer/invoices/:invoiceId'])
 const DealerReturnsPage = lazy(routeLoaders['/dealer/returns'])
 const DealerAccountPage = lazy(routeLoaders['/dealer/account'])
 const PromotionsPage = lazy(routeLoaders['/promotions'])
-// The import functions live in route-loaders.ts so the sidebar can warm a
-// chunk on hover through the same promise `lazy` will resolve on click.
+// The import functions live in route-loaders.ts so the sidebar's hover warm-up
+// and `lazy` call the same loader. They share the function, not a promise: each
+// call is its own import, and one made after a warm-up resolves from the module
+// the browser already holds. A failed warm-up is recorded as a background
+// failure, so the import `lazy` makes on click is the one the stale-bundle
+// recovery may reload for (lib/stale-bundle.ts).
 const DashboardPage = lazy(routeLoaders['/'])
 const ItemsPage = lazy(routeLoaders['/items'])
 const ItemDetailPage = lazy(routeLoaders['/items/:itemId'])

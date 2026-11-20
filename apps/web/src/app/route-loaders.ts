@@ -2,9 +2,12 @@
  * One loader per lazily-loaded screen, keyed by route path.
  *
  * `React.lazy` in the route table and the sidebar's hover prefetch share these
- * functions, so a chunk that was warmed on hover is the very same import
- * `lazy` resolves when the link is clicked - the browser hands back the module
- * it already has, and the page paints without a spinner.
+ * functions - the function, not the promise it returns. Each calls it and gets
+ * an import of its own; after a warm-up the browser hands `lazy`'s import the
+ * module it already has, and the page paints without a spinner. Keeping the
+ * promises apart is what lets a failed warm-up stay a background failure while
+ * the import made on click can still reload for a stale bundle
+ * (lib/stale-bundle.ts).
  *
  * Kept in its own module, without JSX, so the login page can warm the
  * dashboard chunk while the user types their password without importing the
