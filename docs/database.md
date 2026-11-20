@@ -222,10 +222,12 @@ can_be_assembly_component, can_be_spare, can_job_work, can_return, can_scrap
 ```
 
 Two further flags drive quality holds rather than capabilities:
-`requires_production_qc` (good output of this item is booked into QC hold with
-an in-process inspection) and `requires_final_qc` (packing a line of this
+`requires_production_qc` (a production order for this item books its good
+output into QC hold with an in-process inspection unless the order opts out,
+`docs/assumptions.md` §E5-1) and `requires_final_qc` (packing a line of this
 item raises a FINAL inspection). They default off and are edited on the item
-form.
+form. Assembly and job-work orders read neither: each holds its output when its
+own `requires_qc` says so (`docs/assumptions.md` §QC-4).
 
 `item_group` (`RAW_MATERIAL | COMPONENT | SEMI_FINISHED | FINISHED_GOOD |
 CONSUMABLE | PACKING_MATERIAL | SPARE | SCRAP | SERVICE`) is a **reporting and

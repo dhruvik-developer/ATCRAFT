@@ -246,9 +246,10 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
 
     # --- quality -------------------------------------------------------------
     #: Whether the finished assembly must be inspected before it is saleable.
-    #: A per-document flag, exactly as ``goods_receipt_lines.requires_qc`` is:
-    #: the item master carries no inspection policy, and inventing one here
-    #: would put a rule in two places that could disagree.
+    #: A per-document flag, exactly as ``goods_receipt_lines.requires_qc`` is.
+    #: The item master's inspection flags each name another stage -
+    #: ``requires_production_qc`` a production order, ``requires_final_qc`` the
+    #: packing bench - and neither is read here (docs/assumptions.md §QC-4).
     requires_qc: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )

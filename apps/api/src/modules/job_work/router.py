@@ -10,9 +10,12 @@ declared after a path parameter of the same shape would be captured by it and
 rejected as a malformed UUID.
 
 Permission note: the vocabulary has no ``JOB_WORK_APPROVE``. Approving an order
-and completing one are gated on ``JOB_WORK_CLOSE``, the module's senior right -
-held by the plant manager and not by the planner who raises and issues orders -
-so raising and approving stay separate duties. See the service's Assumptions.
+and closing one are gated on ``JOB_WORK_CLOSE``, the module's senior right. Of
+the role presets the plant manager and both administrator roles hold it, and the
+production supervisor, who raises, issues and receives orders, does not. That
+separates roles, not people: approval does not compare the approver with whoever
+raised the order, so a plant manager may approve one they raised
+(docs/assumptions.md §JW-2).
 """
 
 from __future__ import annotations
@@ -554,10 +557,10 @@ async def issue_order(
         "Posts the processed output as its own item, draws the input it consumed out of the "
         "job-work pool, returns anything handed back untouched, and writes process loss off "
         "as scrap with a reason - all in one transaction. Loss beyond the line's agreed "
-        "allowance is refused until `approve_excess_loss` is set, and its value is then "
-        "debited to the vendor at the material's own moving-average cost. Approving the "
-        "excess requires `job_work.close`. Receiving more output than the order expected "
-        "is refused rather than clamped."
+        "allowance is refused until `approve_excess_loss` is set, and is then debited to "
+        "the vendor: the excess quantity at the unit cost the ledger recorded on the line's "
+        "process-loss scrap movement. Approving the excess requires `job_work.close`. "
+        "Receiving more output than the order expected is refused rather than clamped."
     ),
     dependencies=[require_permission(Permission.JOB_WORK_RECEIVE)],
 )

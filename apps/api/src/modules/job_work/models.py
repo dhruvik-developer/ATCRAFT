@@ -303,9 +303,11 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
     total_charges: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
-    #: Value of company material the vendor lost beyond the agreed allowance,
-    #: at the material's own moving-average cost. Accrued by receipts and netted
-    #: off the charge when the vendor is paid.
+    #: Value of company material the vendor lost beyond the agreed allowance:
+    #: the sum of the receipts' debits, each line's excess priced at the unit
+    #: cost the ledger recorded on its process-loss scrap movement
+    #: (docs/assumptions.md §4). Accrued by receipts and netted off the charge
+    #: when the vendor is paid.
     vendor_debit_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -347,10 +349,11 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
 
     # --- quality -------------------------------------------------------------
     #: Whether returned output must be inspected before it becomes usable.
-    #: A per-document flag: ``items`` carries no inspection policy and inventing
-    #: one would put the rule in two places that could disagree. The same choice
-    #: ``goods_receipt_lines.requires_qc`` and ``assembly_orders.requires_qc``
-    #: make.
+    #: A per-document flag, the same choice ``goods_receipt_lines.requires_qc``
+    #: and ``assembly_orders.requires_qc`` make. The item master's inspection
+    #: flags each name another stage - ``requires_production_qc`` a production
+    #: order, ``requires_final_qc`` the packing bench - and neither is read here
+    #: (docs/assumptions.md §QC-4).
     requires_qc: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
@@ -666,9 +669,10 @@ class JobWorkChallanLine(TenantEntity):
     serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
     )
-    #: The position's moving-average cost at the moment of issue, captured from
-    #: the ledger row the issue wrote. Frozen: the declared value of goods that
-    #: have already left cannot be restated by a later re-average.
+    #: What one unit cost at issue, captured from the ledger rows the issue
+    #: wrote: their value over this line's quantity, which is what the FIFO
+    #: layers the issue consumed cost (docs/assumptions.md §31). Frozen: the
+    #: declared value of goods that have already left is never restated.
     unit_value: Mapped[Decimal] = mapped_column(
         UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -755,9 +759,10 @@ class JobWorkReceipt(TenantEntity):
     total_charges: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
-    #: Value of company material lost beyond the agreed allowance, priced at the
-    #: material's own moving-average cost from the scrap movement this receipt
-    #: posted. Netted off what the vendor is paid.
+    #: Value of company material lost beyond the agreed allowance: the sum of
+    #: the lines' debits, each priced at the unit cost the ledger recorded on the
+    #: process-loss scrap movement this receipt posted for that line
+    #: (docs/assumptions.md §4). Netted off what the vendor is paid.
     vendor_debit_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -941,8 +946,9 @@ class JobWorkReceiptLine(TenantEntity):
     charges: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
-    #: Value of the excess loss, at the material's moving-average cost taken
-    #: from the scrap movement this line posted.
+    #: Value of the excess loss: ``excess_loss_quantity`` at the unit cost the
+    #: ledger recorded on the process-loss scrap movement this line posted
+    #: (docs/assumptions.md §4).
     vendor_debit_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )

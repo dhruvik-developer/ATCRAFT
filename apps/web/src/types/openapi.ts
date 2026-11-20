@@ -4460,7 +4460,7 @@ export interface paths {
         put?: never;
         /**
          * Record one lot returning from the vendor
-         * @description Posts the processed output as its own item, draws the input it consumed out of the job-work pool, returns anything handed back untouched, and writes process loss off as scrap with a reason - all in one transaction. Loss beyond the line's agreed allowance is refused until `approve_excess_loss` is set, and its value is then debited to the vendor at the material's own moving-average cost. Approving the excess requires `job_work.close`. Receiving more output than the order expected is refused rather than clamped.
+         * @description Posts the processed output as its own item, draws the input it consumed out of the job-work pool, returns anything handed back untouched, and writes process loss off as scrap with a reason - all in one transaction. Loss beyond the line's agreed allowance is refused until `approve_excess_loss` is set, and is then debited to the vendor: the excess quantity at the unit cost the ledger recorded on the line's process-loss scrap movement. Approving the excess requires `job_work.close`. Receiving more output than the order expected is refused rather than clamped.
          */
         post: operations["receive_lot_api_v1_job_work__order_id__receive_post"];
         delete?: never;
