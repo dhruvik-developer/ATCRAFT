@@ -5844,7 +5844,7 @@ and `plan_line_receipt`.
 draft - which takes a hard reservation for every line it will send out - needs
 `job_work.close`, the module's senior right, as do closing an order and
 accepting loss beyond the allowance (section 4). Of the role presets the Plant
-Manager holds it, as the administrators hold every right; the Production
+Manager holds it, and so do both administrator roles; the Production
 Supervisor, who raises, issues and receives orders, does not. The approver is
 not compared with the person who raised the order: job-work approval is not one
 of section 2's self-approval refusals, so a Plant Manager, who may raise orders
