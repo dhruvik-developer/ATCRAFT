@@ -294,6 +294,11 @@ class ItemLookupRepository(BaseRepository[Item]):
         default-behaviour role database.md section 3 permits. Nothing downstream
         reads it to decide whether a seal may proceed.
 
+        An item tracked by lot or by unit is left out: the seal posts one
+        untracked issue for the box, so opening a carton on one is refused
+        (``service._resolve_packing_material``, docs/assumptions.md §PACK-2), and
+        the list offers only what that check accepts.
+
         The availability is aggregated in the same statement rather than read per
         row, and it is never cached (section 34) - a packer choosing a box needs
         to know there are boxes.
@@ -321,6 +326,8 @@ class ItemLookupRepository(BaseRepository[Item]):
                 Item.deleted_at.is_(None),
                 Item.is_active.is_(True),
                 Item.item_group == ItemGroup.PACKING_MATERIAL,
+                Item.is_serial_tracked.is_(False),
+                Item.is_batch_tracked.is_(False),
             )
             .group_by(Item.id)
             .order_by(Item.code.asc())

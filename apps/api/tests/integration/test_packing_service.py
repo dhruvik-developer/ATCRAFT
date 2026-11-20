@@ -875,7 +875,7 @@ async def test_each_carton_gets_a_sequential_number_and_a_verifiable_barcode(
     assert service.verify_barcode(second.barcode)
 
 
-async def test_a_removed_cartons_number_is_not_reused(
+async def test_a_removed_cartons_number_is_left_as_a_gap(
     ctx: tuple[AsyncSession, TenantContext], bench: Bench
 ) -> None:
     session, tenant = ctx
@@ -1145,6 +1145,51 @@ async def test_the_packing_material_pick_list_shows_live_availability(
     assert offered.get(bench.box_item_id) == Decimal("500.0000")
     # Finished goods are not offered as boxes: item_group selects the list.
     assert bench.goods_item_id not in offered
+
+
+async def test_the_pick_list_offers_no_packing_material_a_carton_refuses(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    session, tenant = ctx
+    tracked = [
+        await seed_item(
+            session,
+            tenant.company_id,
+            bench.uom_id,
+            code=_code("BOX"),
+            group="PACKING_MATERIAL",
+            serial_tracked=True,
+        ),
+        await seed_item(
+            session,
+            tenant.company_id,
+            bench.uom_id,
+            code=_code("BOX"),
+            group="PACKING_MATERIAL",
+            batch_tracked=True,
+        ),
+    ]
+    await session.flush()
+    order_id = (await started_order(session, tenant, bench)).id
+
+    # Opening a carton refuses a lot- or unit-tracked box: the seal posts one
+    # untracked issue for it.
+    for item_id in tracked:
+        payload = bench.carton_payload()
+        payload.packing_material_item_id = item_id
+        with pytest.raises(BusinessRuleError, match="cannot be used as packing material"):
+            await service.add_carton(session, tenant, order_id, payload)
+
+    rows, _ = await service.list_packing_materials(
+        session,
+        tenant,
+        warehouse_id=bench.warehouse_id,
+        params=PageParams(page=1, limit=50),
+    )
+    offered = {row.item_id for row in rows}
+    # So the list does not offer one: a choice the form then refuses is no choice.
+    assert bench.box_item_id in offered
+    assert offered.isdisjoint(tracked)
 
 
 async def test_item_packing_specs_are_validated_audited_and_defaulted_safely(

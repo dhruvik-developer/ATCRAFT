@@ -2026,9 +2026,10 @@ async def add_carton(
 
         number = await carton_repo.next_carton_number(order.id)
         if number > MAX_CARTONS_PER_ORDER:
-            # The bound is on the *sequence*, not on the live carton count: a
-            # removed carton's number is never reused, so an order that has
-            # churned through the range is as full as one holding every box.
+            # The bound is on the number, not on the live carton count: a new
+            # carton takes the highest number still on the order plus one
+            # (docs/assumptions.md §PACK-5), so an order that still holds a
+            # carton numbered at the limit is full however few boxes it holds.
             raise BusinessRuleError(
                 f"{order.code} has used all {MAX_CARTONS_PER_ORDER} carton numbers; split "
                 "the shipment across another packing order.",
@@ -2526,8 +2527,11 @@ async def remove_carton(
 
     Only an unsealed carton. A sealed one has consumed packing material and has a
     printed label in the world; removing it would need a reversing movement this
-    module deliberately does not have - see the Assumptions. Its number is not
-    reused either, for the same reason.
+    module deliberately does not have - see the Assumptions. Removing one
+    renumbers nothing, because the later cartons' labels may already be printed;
+    but a new carton takes the highest number still on the order plus one, so
+    removing the highest-numbered carton gives its number - and its barcode - to
+    the next carton opened (docs/assumptions.md §PACK-5).
     """
     repo = PackingOrderRepository(session, tenant)
     carton_repo = CartonRepository(session, tenant)
