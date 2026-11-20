@@ -328,6 +328,25 @@ describe('the inspection history', () => {
     expect(within(flagged).queryByText(/to vendor/i)).toBeNull()
     expect(within(screen.getByText('QC-0201').closest('tr')!).queryByText('Owed')).toBeNull()
   })
+
+  it('marks the same owed return on the inspection detail, not a green Return', async () => {
+    // The detail drew the flag as the RETURN status badge - "Return", in the
+    // colour of a settled outcome - beside an accepted verdict.
+    const { user } = renderScreen(<QualityPage />, {
+      permissions: [P.QC_VIEW],
+      routes: {
+        'GET /quality/pending': page([inspection({ return_required: true })]),
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+          detail({ status: 'ACCEPTED', result: 'ACCEPTED', return_required: true }),
+        ),
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'QC-0001' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Inspection QC-0001', busy: false })
+    expect(await within(dialog).findByText('Return owed')).toBeVisible()
+    expect(within(dialog).queryByText('Return')).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------- dialog ----
@@ -858,11 +877,12 @@ describe('the inspection sheet', () => {
     })
   })
 
-  it('says the vendor owes a return without sending the lot it just accepted back', async () => {
-    // `return_required` only rises (docs/assumptions.md §QC-3): a rework cycle
-    // sent back to the vendor raises it, and the decision accepting the
-    // vendor's replacement still carries it. The toast told the inspector that
-    // accepted lot "has to go back to the vendor".
+  /** Decide the queued inspection from the sheet, with a toaster to read the outcome from. */
+  async function decideWithToasts(
+    returnWasOwed: boolean,
+    decided: Record<string, unknown>,
+    split: { label: 'Accepted' | 'Rejected'; reason: string },
+  ) {
     const { user } = renderScreen(
       <>
         <QualityPage />
@@ -871,32 +891,77 @@ describe('the inspection sheet', () => {
       {
         permissions: [P.QC_VIEW, P.QC_DECIDE],
         routes: {
-          'GET /quality/pending': page([inspection({ return_required: true })]),
+          'GET /quality/pending': page([inspection({ return_required: returnWasOwed })]),
           [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
-            detail({ parameters: [], return_required: true }),
+            detail({ parameters: [], return_required: returnWasOwed }),
           ),
           [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok({
             ...decisionResponse(),
-            return_required: true,
+            ...decided,
           }),
         },
       },
     )
 
     await user.click(await screen.findByRole('button', { name: 'Inspect' }))
-    await user.type(await screen.findByLabelText('Accepted'), '100')
-    await user.type(screen.getByLabelText(/reason for this decision/i), 'Replacement lot passed')
+    await user.type(await screen.findByLabelText(split.label), '100')
+    if (split.label === 'Rejected') {
+      await user.type(screen.getByLabelText('Inspection remarks'), 'Threads stripped')
+    }
+    await user.type(screen.getByLabelText(/reason for this decision/i), split.reason)
     await user.click(screen.getByRole('button', { name: /submit inspection/i }))
+    return screen.getByRole('region', { name: 'Notifications' })
+  }
 
-    const toasts = screen.getByRole('region', { name: 'Notifications' })
+  it('says nothing is owed on the decision that accepts the vendor replacement', async () => {
+    // `return_required` only rises (docs/assumptions.md §QC-3): a rework cycle
+    // sent back to the vendor raises it, and the decision accepting the
+    // vendor's replacement still carries it. The toast first told the inspector
+    // that accepted lot "has to go back to the vendor", then that the vendor
+    // "owes a return or a replacement" - on the very decision that settles it.
+    const toasts = await decideWithToasts(
+      true,
+      { return_required: true },
+      { label: 'Accepted', reason: 'Replacement lot passed' },
+    )
+
     expect(await within(toasts).findByText('QC-0001 decided as Accepted')).toBeVisible()
+    expect(within(toasts).getByText('100 released, 0 scrapped, 0 still on hold.')).toBeVisible()
+    expect(within(toasts).queryByText(/vendor owes/i)).toBeNull()
+    expect(within(toasts).queryByText(/go back to the vendor/i)).toBeNull()
+  })
+
+  it('says the vendor owes a return on the decision that raises the flag', async () => {
+    const toasts = await decideWithToasts(
+      false,
+      {
+        inspection: { ...detail(), status: 'REJECTED', result: 'REJECTED' },
+        released_quantity: '0.0000',
+        damaged_quantity: '100.0000',
+        return_required: true,
+      },
+      { label: 'Rejected', reason: 'Threads out of gauge' },
+    )
+
+    expect(await within(toasts).findByText('QC-0001 decided as Rejected')).toBeVisible()
     expect(
       within(toasts).getByText(
-        '100 released, 0 scrapped, 0 still on hold. ' +
-          'The vendor owes a return or a replacement for this inspection.',
+        /\. The vendor owes a return or a replacement for this inspection\.$/,
       ),
     ).toBeVisible()
-    expect(within(toasts).queryByText(/go back to the vendor/i)).toBeNull()
+  })
+
+  it('says rejected quantity becomes damaged stock, not that it goes back to the vendor', async () => {
+    // Quality moves a rejection to DAMAGED and flags the return; the purchase
+    // return is procurement's to raise (docs/assumptions.md §QC-3).
+    await openInspection(
+      { [`GET /quality/inspections/${INSPECTION_ID}`]: ok(detail({ parameters: [] })) },
+      [P.QC_VIEW, P.QC_DECIDE],
+    )
+
+    expect(await screen.findByLabelText('Rejected')).toHaveAccessibleDescription(
+      'Becomes damaged stock. Purchasing raises any vendor return',
+    )
   })
 
   it('sends a decide-only account straight to the decision, never to the readings post', async () => {

@@ -28,7 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Skeleton } from '@/components/ui/primitives'
+import { Badge, Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { EMPTY_VALUE, formatDateTime, formatQuantity, humanise, itemLabel } from '@/lib/format'
@@ -103,7 +103,10 @@ export function InspectionDetailDialog({
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={row.qc_stage} />
                 <StatusBadge status={inspectionBadgeStatus(row)} />
-                {row.return_required && <StatusBadge status="RETURN" />}
+                {/* As the history's Return column marks it: the flag only rises
+                    (docs/assumptions.md §QC-3), so it says a return was owed,
+                    not that this lot is going back. */}
+                {row.return_required && <Badge variant="warning">Return owed</Badge>}
                 {isInspectable(row.status) && canAny(P.QC_INSPECT, P.QC_DECIDE) && (
                   <Button
                     variant="outline"

@@ -297,7 +297,14 @@ const BOOLEAN_ANSWERS = [
 
 const DISPOSITION_FIELDS = [
   { name: 'accepted_quantity', label: 'Accepted', hint: 'Becomes free stock' },
-  { name: 'rejected_quantity', label: 'Rejected', hint: 'Returned to the vendor' },
+  // Quality moves it to DAMAGED and, on an inspection against a named vendor,
+  // flags that a return or a replacement is owed; the purchase return itself is
+  // procurement's to raise (docs/assumptions.md §QC-3).
+  {
+    name: 'rejected_quantity',
+    label: 'Rejected',
+    hint: 'Becomes damaged stock. Purchasing raises any vendor return',
+  },
   { name: 'rework_quantity', label: 'Rework', hint: 'Goes back for correction' },
   { name: 'hold_quantity', label: 'Hold', hint: 'Stays in QC hold' },
   { name: 'scrap_quantity', label: 'Scrap', hint: 'Written off' },
@@ -570,6 +577,10 @@ export function InspectionDialog({
         }
       }
 
+      // Read before deciding: whether the vendor already owed a return is what
+      // tells this decision's toast whether it raised the flag.
+      const returnWasOwed = detail.data?.return_required === true
+
       // No `result` on the wire: the API derives the verdict from how the
       // quantity was split, and `reason` is mandatory.
       const decision = await api.post<QcDecisionResponse>(
@@ -587,7 +598,12 @@ export function InspectionDialog({
           remarks: asText(values.remarks),
         },
       )
-      return { decided: true as const, code: decision.inspection.code, decision }
+      return {
+        decided: true as const,
+        code: decision.inspection.code,
+        decision,
+        returnWasOwed,
+      }
     },
     onSuccess: (outcome) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
@@ -635,7 +651,7 @@ export function InspectionDialog({
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.dealerPortal.all })
 
-      const { decision, code } = outcome
+      const { decision, code, returnWasOwed } = outcome
       // What actually moved, which is not the same as what was typed: this is
       // the line the inspector needs to reconcile against the floor.
       const moved = [
@@ -643,12 +659,14 @@ export function InspectionDialog({
         `${formatQuantity(decision.scrapped_quantity)} scrapped`,
         `${formatQuantity(decision.still_on_hold_quantity)} still on hold`,
       ].join(', ')
-      // The flag only rises (docs/assumptions.md §QC-3), so a decision that
-      // accepts a returned rework's replacement still carries it: it says what
-      // the vendor owes for this inspection, not that this lot goes back.
+      // The flag only rises (docs/assumptions.md §QC-3): it records that a
+      // return was owed, and every decision after the one that raised it still
+      // carries it - the one accepting a returned rework's replacement
+      // included. So only the decision that raised it says the vendor owes a
+      // return, which is also the only decision the buyers are told about.
       toast.success(
         `${code} decided as ${humanise(decision.inspection.result)}`,
-        decision.return_required
+        decision.return_required && !returnWasOwed
           ? `${moved}. The vendor owes a return or a replacement for this inspection.`
           : `${moved}.`,
       )
@@ -1158,9 +1176,7 @@ export function InspectionDialog({
                         id={`qc-${entry.name}-hint`}
                         className="mt-1 text-xs text-muted-foreground"
                       >
-                        {entry.name === 'rejected_quantity'
-                          ? 'Becomes damaged stock, pending return or correction'
-                          : entry.hint}
+                        {entry.hint}
                       </p>
                       <FieldError message={errors[entry.name]?.message} />
                     </div>
