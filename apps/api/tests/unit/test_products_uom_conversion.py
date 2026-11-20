@@ -124,6 +124,24 @@ def test_undefined_pair_inside_one_category_raises_rather_than_assuming_one_to_o
     assert excinfo.value.details["from_uom_id"] == str(UNKNOWN)
 
 
+def test_an_undefined_pair_is_refused_with_an_action_a_person_can_take() -> None:
+    """The refusal reaches a person - behind the item form's "The purchase unit
+    BOX does not convert to the stock unit NOS." and in the conversion check -
+    so it says what to add, never the table it is stored in."""
+    graph = UomGraph(
+        category_by_uom={LITRE: "VOLUME", UNKNOWN: "VOLUME"},
+        base_by_category={"VOLUME": LITRE},
+        factors={},
+    )
+    with pytest.raises(BusinessRuleError) as excinfo:
+        graph.factor(UNKNOWN, LITRE)
+
+    assert excinfo.value.message == (
+        "No unit conversion is defined for this pair, directly or through the base "
+        "unit. Add a conversion between these two units first."
+    )
+
+
 def test_missing_base_unit_for_the_category_is_reported_clearly() -> None:
     graph = UomGraph(
         category_by_uom={LITRE: "VOLUME", UNKNOWN: "VOLUME"},

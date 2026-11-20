@@ -550,7 +550,7 @@ class UomGraph:
         if from_base is None or to_base is None or to_base == 0:
             raise BusinessRuleError(
                 "No unit conversion is defined for this pair, directly or through "
-                "the base unit. Add a uom_conversions row before using it.",
+                "the base unit. Add a conversion between these two units first.",
                 details={
                     "from_uom_id": str(from_uom_id),
                     "to_uom_id": str(to_uom_id),
