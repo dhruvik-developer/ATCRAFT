@@ -1,6 +1,17 @@
-import { act, renderHook } from '@testing-library/react'
-import { useForm } from 'react-hook-form'
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { Controller, useForm, type UseFormSetError } from 'react-hook-form'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { FieldError } from '@/components/field-error'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { CostCentreSelect } from '@/features/admin/cost-centre-select'
+import { renderScreen } from '@/test/harness'
 
 import { ApiError } from './api-client'
 import {
@@ -171,8 +182,13 @@ describe('applyFieldErrors', () => {
     expect(setError).not.toHaveBeenCalled()
   })
 
-  it('focuses the first refused control and no other, and never the root', () => {
-    const setError = vi.fn()
+  it('stops asking for the focus once a refused control has it, and never focuses the root', () => {
+    const input = document.createElement('input')
+    document.body.append(input)
+    // What react-hook-form does for a field whose registration holds an element.
+    const setError = vi.fn((name: string, _error: unknown, options?: { shouldFocus?: boolean }) => {
+      if (name === 'employee_code' && options?.shouldFocus) input.focus()
+    })
 
     applyFieldErrors(
       validationError({
@@ -187,6 +203,21 @@ describe('applyFieldErrors', () => {
       ['employee_code', { type: 'server', message: 'Already in use' }, { shouldFocus: true }],
       ['phone', { type: 'server', message: 'Not a phone number' }, { shouldFocus: false }],
       ['root', { type: 'server', message: 'Check the form' }],
+    ])
+    input.remove()
+  })
+
+  it('asks every refused control in turn while none of them takes the focus', () => {
+    const setError = vi.fn()
+
+    applyFieldErrors(
+      validationError({ employee_code: ['Already in use'], phone: ['Not a phone number'] }),
+      setError,
+    )
+
+    expect(setError.mock.calls).toEqual([
+      ['employee_code', { type: 'server', message: 'Already in use' }, { shouldFocus: true }],
+      ['phone', { type: 'server', message: 'Not a phone number' }, { shouldFocus: true }],
     ])
   })
 
@@ -208,6 +239,146 @@ describe('applyFieldErrors', () => {
 
     expect(document.activeElement).toBe(inputs[1])
     for (const input of inputs) input.remove()
+  })
+})
+
+/**
+ * Where the focus goes on a real form, laid out the way the screens lay one out:
+ * a label, the control and the `FieldError` under it.
+ *
+ * react-hook-form focuses a refused field only through the element its
+ * registration holds. A `Controller` whose render does not hand `field.ref` to
+ * an element holds none - 233 of the 234 in this app did not - so asking it for
+ * the focus did nothing, and only the first refused field was ever asked: the
+ * message sat under a select scrolled out of sight, as before the focus existed.
+ */
+describe('applyFieldErrors on a rendered form', () => {
+  interface Values {
+    cost_centre_id: string
+    code: string
+  }
+
+  const CENTRE_REFUSED = 'Choose an active cost centre.'
+  const CODE_REFUSED = 'Choose a code not already in use.'
+
+  /** The cost centre is a Controller-driven Radix select that never receives `field.ref`. */
+  function RefusableForm({
+    form,
+    codeDisabled = false,
+  }: {
+    form: { setError?: UseFormSetError<Values> }
+    codeDisabled?: boolean
+  }) {
+    const {
+      control,
+      register,
+      setError,
+      formState: { errors },
+    } = useForm<Values>({ defaultValues: { cost_centre_id: '', code: '' } })
+    form.setError = setError
+    return (
+      <form>
+        <div>
+          <label htmlFor="cost-centre">Cost centre</label>
+          <Controller
+            control={control}
+            name="cost_centre_id"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger id="cost-centre">
+                  <SelectValue placeholder="Unallocated" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cc-plate">CC-PLATE - Plating</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          />
+          <FieldError message={errors.cost_centre_id?.message} />
+        </div>
+        <div>
+          <label htmlFor="code">Code</label>
+          <input id="code" disabled={codeDisabled} {...register('code')} />
+          <FieldError message={errors.code?.message} />
+        </div>
+        <button type="submit">Save</button>
+      </form>
+    )
+  }
+
+  function refuse(form: { setError?: UseFormSetError<Values> }, fields: Record<string, string[]>) {
+    act(() => applyFieldErrors(validationError(fields), form.setError!))
+  }
+
+  it('focuses a select whose Controller holds no element, once its error has rendered', async () => {
+    const form: { setError?: UseFormSetError<Values> } = {}
+    render(<RefusableForm form={form} />)
+    const save = screen.getByRole('button', { name: 'Save' })
+    save.focus()
+
+    refuse(form, { cost_centre_id: [CENTRE_REFUSED] })
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Cost centre' })).toHaveFocus())
+    expect(screen.getByText(CENTRE_REFUSED)).toBeVisible()
+  })
+
+  it('asks the next refused field when the first cannot take the focus', () => {
+    const form: { setError?: UseFormSetError<Values> } = {}
+    render(<RefusableForm form={form} />)
+    screen.getByRole('button', { name: 'Save' }).focus()
+
+    refuse(form, { cost_centre_id: [CENTRE_REFUSED], code: [CODE_REFUSED] })
+
+    expect(screen.getByRole('textbox', { name: 'Code' })).toHaveFocus()
+  })
+
+  it('brings the error into view when no refused control can take the focus', async () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+    const form: { setError?: UseFormSetError<Values> } = {}
+    render(<RefusableForm form={form} codeDisabled />)
+    const save = screen.getByRole('button', { name: 'Save' })
+    save.focus()
+
+    refuse(form, { code: [CODE_REFUSED] })
+
+    const message = screen.getByText(CODE_REFUSED)
+    await waitFor(() => expect(scroll.mock.contexts).toContain(message))
+    expect(scroll).toHaveBeenCalledWith({ block: 'center' })
+    expect(save).toHaveFocus()
+  })
+
+  it('focuses a cost-centre picker through the ref its Controller hands it', () => {
+    const form: { setError?: UseFormSetError<Values> } = {}
+    function CostCentreForm() {
+      const {
+        control,
+        setError,
+        formState: { errors },
+      } = useForm<Values>({ defaultValues: { cost_centre_id: '', code: '' } })
+      form.setError = setError
+      return (
+        <Controller
+          control={control}
+          name="cost_centre_id"
+          render={({ field }) => (
+            <CostCentreSelect
+              ref={field.ref}
+              id="cost-centre"
+              value={field.value || null}
+              onChange={(next) => field.onChange(next ?? '')}
+              enabled={false}
+              error={errors.cost_centre_id?.message}
+            />
+          )}
+        />
+      )
+    }
+    renderScreen(<CostCentreForm />)
+
+    refuse(form, { cost_centre_id: [CENTRE_REFUSED] })
+
+    // At once, through react-hook-form - not a frame later, through the error.
+    expect(screen.getByRole('combobox', { name: 'Cost centre' })).toHaveFocus()
   })
 })
 

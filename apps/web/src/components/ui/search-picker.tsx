@@ -43,7 +43,7 @@
 
 import { useQuery, type QueryKey } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, Loader2, Search, X } from 'lucide-react'
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 
 import { FieldError } from '@/components/field-error'
 import { Button } from '@/components/ui/button'
@@ -122,6 +122,11 @@ export interface SearchPickerProps<T> {
   onTermChange?: (term: string) => void
   /** Drawn under the list, for a caller that pages its read itself. */
   footer?: (page: { hasNext: boolean; fetching: boolean }) => ReactNode
+  /**
+   * The closed field's button - the element a form focuses to show a refusal,
+   * which is where a `Controller` hands its `field.ref`.
+   */
+  triggerRef?: Ref<HTMLButtonElement>
 }
 
 export function SearchPicker<T>({
@@ -151,6 +156,7 @@ export function SearchPicker<T>({
   clear,
   onTermChange,
   footer,
+  triggerRef,
 }: SearchPickerProps<T>) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
@@ -188,6 +194,7 @@ export function SearchPicker<T>({
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
+              ref={triggerRef}
               id={id}
               type="button"
               variant="outline"

@@ -54,11 +54,19 @@ export function partitionFieldErrors(error: ApiError): PartitionedFieldErrors {
 /**
  * Put each field error on its control, and the orphans on `root`.
  *
- * The first control the API refused takes the focus, which also scrolls it
- * into view. A server error otherwise changed nothing a person could see: a
- * long form is submitted from its footer, the mutation cache keeps the toast
- * back for an error the form shows inline, and the message landed under a
- * field scrolled out of sight at the top of the dialog body.
+ * The first refused control that can take the focus takes it, which also
+ * scrolls it into view. A server error otherwise changed nothing a person could
+ * see: a long form is submitted from its footer, the mutation cache keeps the
+ * toast back for an error the form shows inline, and the message landed under
+ * a field scrolled out of sight at the top of the dialog body.
+ *
+ * Which control can take it is found by trying, in the API's order, until the
+ * focus moves. react-hook-form focuses a field only through the element its
+ * registration holds, and a `Controller` whose render never hands `field.ref`
+ * to an element holds none, so `shouldFocus` does nothing for it - nor for a
+ * disabled or hidden control. When no refused control takes the focus, the
+ * first error the refusal renders is brought into view, and the control it
+ * sits under is focused when it has one (`revealFirstFieldError`).
  *
  * `mapPath` rewrites the API's path before it is looked up on the form, for a
  * form whose payload is not shaped exactly like its fields - see
@@ -71,19 +79,112 @@ export function applyFieldErrors<T extends FieldValues>(
 ): void {
   if (!(error instanceof ApiError)) return
   const { fields, orphans } = partitionFieldErrors(error)
-  Object.entries(fields).forEach(([field, messages], index) => {
+  const before = focusedElement()
+  let focused = false
+  const messages: string[] = []
+  for (const [field, fieldMessages] of Object.entries(fields)) {
     // The API sends dotted paths such as `lines.0.quantity`, which is exactly
     // how react-hook-form addresses a field array entry.
     const path = mapPath ? mapPath(field) : field
-    setError(
-      path as FieldPath<T>,
-      { type: 'server', message: joinValidationMessages(messages) },
-      { shouldFocus: index === 0 },
-    )
-  })
+    const message = joinValidationMessages(fieldMessages)
+    messages.push(message)
+    setError(path as FieldPath<T>, { type: 'server', message }, { shouldFocus: !focused })
+    focused ||= tookFocus(before, path)
+  }
   if (orphans.length > 0) {
     setError('root', { type: 'server', message: joinValidationMessages(orphans) })
   }
+  if (!focused && messages.length > 0) revealFirstFieldError(messages)
+}
+
+function focusedElement(): Element | null {
+  return typeof document === 'undefined' ? null : document.activeElement
+}
+
+/**
+ * Whether a refused control holds the focus now: it moved, or it was already
+ * on the control registered under `path` - a field submitted with Enter.
+ */
+function tookFocus(before: Element | null, path: string): boolean {
+  const now = focusedElement()
+  return now !== before || (now !== null && now.getAttribute('name') === path)
+}
+
+/**
+ * How many frames to look for a refusal's errors before giving up. React
+ * renders them in the task after `setError`, which is almost always before the
+ * first frame; the rest allow for a busy main thread.
+ */
+const REVEAL_FRAMES = 10
+
+/** What a person can move the focus to. */
+const FOCUSABLE = 'input, select, textarea, button, [tabindex]'
+
+/**
+ * Bring the first error a refusal rendered into view, and focus the control it
+ * sits under when it has one - for a refusal none of whose controls could take
+ * the focus itself.
+ *
+ * The error is the first alert in the document that carries one of the
+ * refusal's own messages, which is what `FieldError` renders, outside anything
+ * a modal dialog has hidden from the person.
+ */
+function revealFirstFieldError(messages: readonly string[]): void {
+  if (typeof requestAnimationFrame !== 'function') return
+  const wanted = messages.map((message) => message.trim())
+  let frames = REVEAL_FRAMES
+  const look = () => {
+    const shown = [...document.querySelectorAll<HTMLElement>('[role="alert"]')].find(
+      (alert) =>
+        wanted.includes(alert.textContent?.trim() ?? '') &&
+        !alert.closest('[aria-hidden="true"], [inert]'),
+    )
+    if (shown) {
+      reveal(shown)
+      return
+    }
+    frames -= 1
+    if (frames > 0) requestAnimationFrame(look)
+  }
+  requestAnimationFrame(look)
+}
+
+function reveal(error: HTMLElement): void {
+  const control = controlOf(error)
+  control?.focus()
+  // Focusing scrolls the control into view; the line under it may still be
+  // just out of sight. Without a control, the line is centred so the field
+  // above it shows as well.
+  error.scrollIntoView({ block: control ? 'nearest' : 'center' })
+}
+
+/**
+ * The control a field error is about, inside the error's own parent - the
+ * label, the control and the error are how every form here lays out a field.
+ * The last label before the error names it when there is one; otherwise it is
+ * the nearest control before the error. Null when that is nothing a person can
+ * focus.
+ */
+function controlOf(error: HTMLElement): HTMLElement | null {
+  let labelled: HTMLElement | null | undefined
+  let nearest: HTMLElement | null = null
+  const candidates = error.parentElement?.querySelectorAll<HTMLElement>(`label[for], ${FOCUSABLE}`)
+  for (const element of candidates ?? []) {
+    if (!(element.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING)) break
+    if (element instanceof HTMLLabelElement) labelled = document.getElementById(element.htmlFor)
+    else if (canFocus(element)) nearest = element
+  }
+  if (labelled === undefined) return nearest
+  return labelled && canFocus(labelled) ? labelled : null
+}
+
+function canFocus(element: HTMLElement): boolean {
+  return (
+    element.tabIndex >= 0 &&
+    !(element as HTMLButtonElement).disabled &&
+    element.getAttribute('type') !== 'hidden' &&
+    !element.closest('[aria-hidden="true"], [inert]')
+  )
 }
 
 /**

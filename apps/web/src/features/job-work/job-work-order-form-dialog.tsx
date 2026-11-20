@@ -720,6 +720,7 @@ export function JobWorkOrderFormDialog({
                           name="warehouse_id"
                           render={({ field }) => (
                             <WarehouseSelect
+                              ref={field.ref}
                               id="job-work-warehouse"
                               label="Issue from"
                               value={field.value}
@@ -764,6 +765,9 @@ export function JobWorkOrderFormDialog({
                       name="cost_centre_id"
                       render={({ field }) => (
                         <CostCentreSelect
+                          // A centre deactivated since the list was read is
+                          // refused on save; its trigger takes the focus.
+                          ref={field.ref}
                           id="job-work-cost-centre"
                           value={field.value || null}
                           onChange={(next) => field.onChange(next ?? '')}
@@ -894,6 +898,7 @@ export function JobWorkOrderFormDialog({
                               name={`lines.${index}.item_id`}
                               render={({ field: itemField }) => (
                                 <ItemPicker
+                                  ref={itemField.ref}
                                   id={`job-work-line-item-${index}`}
                                   label={`Line ${index + 1} material`}
                                   value={itemField.value || null}

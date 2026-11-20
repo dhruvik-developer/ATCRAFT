@@ -1,3 +1,5 @@
+import { forwardRef } from 'react'
+
 import {
   Select,
   SelectContent,
@@ -8,19 +10,20 @@ import {
 import { shiftLabel, useShiftOptions } from '@/hooks/use-shift-options'
 import { SELECT_NONE } from '@/lib/constants'
 
-export function ShiftSelect({
-  id,
-  value,
-  onChange,
-  enabled = true,
-  legacy,
-}: {
-  id: string
-  value: string | null
-  onChange: (value: string | null) => void
-  enabled?: boolean
-  legacy?: string | null
-}) {
+/**
+ * The ref reaches the select's trigger, so a `Controller` that passes its
+ * `field.ref` lets a refused shift take the focus.
+ */
+export const ShiftSelect = forwardRef<
+  HTMLButtonElement,
+  {
+    id: string
+    value: string | null
+    onChange: (value: string | null) => void
+    enabled?: boolean
+    legacy?: string | null
+  }
+>(function ShiftSelect({ id, value, onChange, enabled = true, legacy }, ref) {
   const shifts = useShiftOptions(enabled)
   return (
     <>
@@ -28,7 +31,7 @@ export function ShiftSelect({
         value={value ?? SELECT_NONE}
         onValueChange={(next) => onChange(next === SELECT_NONE ? null : next)}
       >
-        <SelectTrigger id={id}>
+        <SelectTrigger ref={ref} id={id}>
           <SelectValue placeholder="Choose a shift" />
         </SelectTrigger>
         <SelectContent>
@@ -46,4 +49,4 @@ export function ShiftSelect({
       {!value && legacy && <p className="text-xs text-muted-foreground">Legacy shift: {legacy}</p>}
     </>
   )
-}
+})

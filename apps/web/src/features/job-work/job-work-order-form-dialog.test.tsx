@@ -180,6 +180,38 @@ describe('job-work order form', () => {
     expect(body.cost_centre_id).toBe('cc-plate')
   })
 
+  it('takes the focus to a cost centre the API refuses on save', async () => {
+    // A centre deactivated after the list was read is refused with a 422 on
+    // `cost_centre_id`, which the mutation cache leaves to the form. The picker
+    // never received its Controller's `field.ref`, so nothing took the focus:
+    // Save stopped spinning and the message sat under a select out of sight.
+    const refused = 'Cost centre CC-PLATE is inactive and cannot be assigned.'
+    const { user } = renderScreen(
+      <JobWorkOrderFormDialog open onOpenChange={() => {}} order={ROW} />,
+      {
+        permissions: [P.JOB_WORK_CREATE, P.WAREHOUSE_VIEW, P.COST_CENTRE_VIEW],
+        routes: {
+          ...routes,
+          'GET /organization/cost-centres': page(CENTRES),
+          'PATCH /job-work/jw-1': fail(422, 'VALIDATION_ERROR', refused, {
+            fields: { cost_centre_id: [refused] },
+            cost_centre_id: 'cc-plate',
+          }),
+        },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const centre = await within(dialog).findByRole('combobox', { name: 'Cost centre' })
+    await user.click(centre)
+    await user.click(await screen.findByRole('option', { name: 'CC-PLATE - Plating and PVD' }))
+    const save = within(dialog).getByRole('button', { name: /save draft/i })
+    await user.click(save)
+
+    expect(await within(dialog).findByText(refused)).toBeVisible()
+    await waitFor(() => expect(centre).toHaveFocus())
+  })
+
   it('sends back the centre the order carries from an account shown no picker', async () => {
     const { user, fetch } = renderScreen(
       <JobWorkOrderFormDialog open onOpenChange={() => {}} order={ROW} />,

@@ -7,7 +7,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { forwardRef, useState } from 'react'
 
 import {
   Select,
@@ -32,32 +32,42 @@ const ALL = '__all__'
 
 // ------------------------------------------------------- WarehouseSelect ----
 
-export function WarehouseSelect({
-  id,
-  label,
-  value,
-  onChange,
-  hideLabel = false,
-  includeAll = false,
-  allLabel = 'All warehouses',
-  placeholder = 'Select a warehouse',
-  invalid = false,
-  disabled = false,
-  className,
-}: {
-  id: string
-  label: string
-  /** Empty string means "no warehouse chosen". */
-  value: string
-  onChange: (warehouseId: string) => void
-  hideLabel?: boolean
-  includeAll?: boolean
-  allLabel?: string
-  placeholder?: string
-  invalid?: boolean
-  disabled?: boolean
-  className?: string
-}) {
+/**
+ * The ref reaches the select's trigger, so a `Controller` that passes its
+ * `field.ref` lets a refused warehouse take the focus.
+ */
+export const WarehouseSelect = forwardRef<
+  HTMLButtonElement,
+  {
+    id: string
+    label: string
+    /** Empty string means "no warehouse chosen". */
+    value: string
+    onChange: (warehouseId: string) => void
+    hideLabel?: boolean
+    includeAll?: boolean
+    allLabel?: string
+    placeholder?: string
+    invalid?: boolean
+    disabled?: boolean
+    className?: string
+  }
+>(function WarehouseSelect(
+  {
+    id,
+    label,
+    value,
+    onChange,
+    hideLabel = false,
+    includeAll = false,
+    allLabel = 'All warehouses',
+    placeholder = 'Select a warehouse',
+    invalid = false,
+    disabled = false,
+    className,
+  },
+  ref,
+) {
   const warehouses = useWarehouseLookup()
 
   const rows = warehouses.data?.data ?? []
@@ -76,6 +86,7 @@ export function WarehouseSelect({
         disabled={disabled}
       >
         <SelectTrigger
+          ref={ref}
           id={id}
           aria-label={label}
           aria-invalid={invalid}
@@ -94,50 +105,60 @@ export function WarehouseSelect({
       </Select>
     </div>
   )
-}
+})
 
 // ------------------------------------------------------------ ItemPicker ----
 
-export function ItemPicker({
-  id,
-  label,
-  value,
-  onChange,
-  hideLabel = false,
-  placeholder = 'Any item',
-  invalid = false,
-  disabled = false,
-  className,
-  filters,
-  emptyMessage,
-  seed,
-}: {
-  id: string
-  label: string
-  value: string | null
-  onChange: (itemId: string | null, item?: ItemOption | null) => void
-  hideLabel?: boolean
-  placeholder?: string
-  invalid?: boolean
-  disabled?: boolean
-  className?: string
-  /**
-   * Extra query parameters for `GET /products/items`, for a caller that must
-   * not offer items the endpoint it posts to would refuse - a stock transfer
-   * and a serial-tracked item, say. The narrowing is done by the API, because
-   * downloading the master and filtering it here is the thing master rules 31
-   * forbids and would silently drop matches past the first page.
-   */
-  filters?: Record<string, unknown>
-  /** Shown when a search returns nothing, in place of the generic line. */
-  emptyMessage?: string
-  /**
-   * The chosen item's code and name when the caller already holds them - a
-   * saved document line reads with both (`itemSeeds`). Used while `value` is
-   * that item, so the field is named without reading the item again.
-   */
-  seed?: ItemSeed | null
-}) {
+/**
+ * The ref reaches the closed field's button, so a `Controller` that passes its
+ * `field.ref` lets a refused item take the focus.
+ */
+export const ItemPicker = forwardRef<
+  HTMLButtonElement,
+  {
+    id: string
+    label: string
+    value: string | null
+    onChange: (itemId: string | null, item?: ItemOption | null) => void
+    hideLabel?: boolean
+    placeholder?: string
+    invalid?: boolean
+    disabled?: boolean
+    className?: string
+    /**
+     * Extra query parameters for `GET /products/items`, for a caller that must
+     * not offer items the endpoint it posts to would refuse - a stock transfer
+     * and a serial-tracked item, say. The narrowing is done by the API, because
+     * downloading the master and filtering it here is the thing master rules 31
+     * forbids and would silently drop matches past the first page.
+     */
+    filters?: Record<string, unknown>
+    /** Shown when a search returns nothing, in place of the generic line. */
+    emptyMessage?: string
+    /**
+     * The chosen item's code and name when the caller already holds them - a
+     * saved document line reads with both (`itemSeeds`). Used while `value` is
+     * that item, so the field is named without reading the item again.
+     */
+    seed?: ItemSeed | null
+  }
+>(function ItemPicker(
+  {
+    id,
+    label,
+    value,
+    onChange,
+    hideLabel = false,
+    placeholder = 'Any item',
+    invalid = false,
+    disabled = false,
+    className,
+    filters,
+    emptyMessage,
+    seed,
+  },
+  ref,
+) {
   const [picked, setPicked] = useState<ItemOption | null>(null)
   const seeded = seed && seed.id === value ? seed : null
 
@@ -155,6 +176,7 @@ export function ItemPicker({
 
   return (
     <SearchPicker<ItemOption>
+      triggerRef={ref}
       id={id}
       label={label}
       labelDisplay={hideLabel ? 'sr-only' : 'visible'}
@@ -210,4 +232,4 @@ export function ItemPicker({
       }
     />
   )
-}
+})

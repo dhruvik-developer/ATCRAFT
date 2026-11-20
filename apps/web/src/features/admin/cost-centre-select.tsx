@@ -23,7 +23,7 @@
  * list is fetched only while a dialog is actually open.
  */
 
-import { useMemo } from 'react'
+import { forwardRef, useMemo } from 'react'
 
 import { FieldError } from '@/components/shared'
 import {
@@ -51,35 +51,45 @@ const ITEM_INSET_REM = 2
 /** How far each level of the tree steps in. */
 const LEVEL_INDENT_REM = 0.75
 
-export function CostCentreSelect({
-  id,
-  label = 'Cost centre',
-  value,
-  onChange,
-  enabled = true,
-  noneLabel = 'Unallocated',
-  hint,
-  error,
-  exclude,
-  disabled = false,
-  className,
-}: {
-  id: string
-  label?: string
-  /** The chosen centre, or null for none. */
-  value: string | null
-  onChange: (costCentreId: string | null) => void
-  /** Whether the list may be fetched - false while the dialog is closed. */
-  enabled?: boolean
-  /** What "no centre" means on this form. */
-  noneLabel?: string
-  hint?: string
-  error?: string
-  /** Centres that may not be chosen here - a centre's own subtree, as its parent. */
-  exclude?: ReadonlySet<string>
-  disabled?: boolean
-  className?: string
-}) {
+/**
+ * The ref reaches the select's trigger, so a `Controller` that passes its
+ * `field.ref` lets a refused centre take the focus.
+ */
+export const CostCentreSelect = forwardRef<
+  HTMLButtonElement,
+  {
+    id: string
+    label?: string
+    /** The chosen centre, or null for none. */
+    value: string | null
+    onChange: (costCentreId: string | null) => void
+    /** Whether the list may be fetched - false while the dialog is closed. */
+    enabled?: boolean
+    /** What "no centre" means on this form. */
+    noneLabel?: string
+    hint?: string
+    error?: string
+    /** Centres that may not be chosen here - a centre's own subtree, as its parent. */
+    exclude?: ReadonlySet<string>
+    disabled?: boolean
+    className?: string
+  }
+>(function CostCentreSelect(
+  {
+    id,
+    label = 'Cost centre',
+    value,
+    onChange,
+    enabled = true,
+    noneLabel = 'Unallocated',
+    hint,
+    error,
+    exclude,
+    disabled = false,
+    className,
+  },
+  ref,
+) {
   const options = useCostCentreOptions(enabled)
   const entries = useMemo(
     () => pickableCostCentres(options.data ?? [], value, exclude),
@@ -101,6 +111,7 @@ export function CostCentreSelect({
         disabled={disabled}
       >
         <SelectTrigger
+          ref={ref}
           id={id}
           aria-label={label}
           aria-invalid={Boolean(error)}
@@ -134,7 +145,7 @@ export function CostCentreSelect({
       <FieldError message={error} />
     </div>
   )
-}
+})
 
 /**
  * One cost centre as a person reads it - "CC-MACH - Machining" - for a detail
