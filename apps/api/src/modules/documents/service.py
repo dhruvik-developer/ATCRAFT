@@ -948,9 +948,16 @@ class DocumentService:
     async def purge_expired(self, *, limit: int = MAX_PURGE_BATCH) -> int:
         """Delete one batch of lapsed documents. Returns how many were removed.
 
-        Written for a scheduled sweep rather than a request: the batch is bounded
-        so no single transaction grows long, and the caller loops until it
-        returns 0.
+        Written for the nightly ``maintenance.purge_expired_documents`` sweep,
+        which calls it for each company holding one until a batch comes back
+        short. Only rows past ``expires_at`` are read, oldest first, and each
+        goes through :meth:`_delete`: its audit row and its delete commit in a
+        transaction of their own, and only then is its file unlinked - a file
+        already gone is not an error. It must be called outside any business
+        transaction, or the commit would be the caller's and the files would go
+        before it. A failure part-way keeps the rows already purged and leaves
+        the rest, file and all, for the next run; a second run finds nothing to
+        do (docs/assumptions.md §DOC-4).
         """
         expired = await self.repo.list_expired(utcnow(), limit=limit)
         for document in expired:

@@ -271,7 +271,9 @@ function UploadDialog({
       if (Number.isNaN(moment.getTime())) next.expires = 'Enter a valid date and time'
       else if (days <= 0) next.expires = 'A retention date must be in the future'
       else if (days > MAX_RETENTION_DAYS) {
-        next.expires = `At most ${MAX_RETENTION_DAYS} days ahead - leave it empty to keep the file for good`
+        // Not "leave it empty to keep it": an empty date keeps an export or a
+        // temporary file only until the date the server gives it (§DOC-4).
+        next.expires = `At most ${MAX_RETENTION_DAYS} days ahead - choose an earlier date or leave it empty`
       }
     }
     return next
@@ -408,8 +410,12 @@ function UploadDialog({
               aria-invalid={Boolean(errors.expires)}
               onChange={(event) => setExpiresAt(event.target.value)}
             />
+            {/* The nightly purge deletes the row and the file once the date has
+                passed (docs/assumptions.md §DOC-4); until then it is hidden. */}
             <p className="mt-1 text-xs text-muted-foreground">
-              Leave empty to keep it indefinitely. At most {MAX_RETENTION_DAYS} days ahead.
+              Past this date the file is hidden, then deleted overnight. Leave empty to keep it
+              indefinitely - except an export or a temporary file, which is given a date
+              automatically. At most {MAX_RETENTION_DAYS} days ahead.
             </p>
             <FieldError message={errors.expires} />
           </div>

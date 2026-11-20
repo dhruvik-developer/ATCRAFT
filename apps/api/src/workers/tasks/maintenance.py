@@ -1,9 +1,10 @@
 """Scheduled housekeeping (master rules sections 25, 33, 35, 43).
 
-Five beat jobs live here, and they are the five the schedule in
-``src.workers.celery_app`` names. Each is an *adapter*: the rules belong to the
-module that owns the data, and this file finds the tenants and hands each one to
-that module's service.
+Every ``maintenance.*`` job the beat schedule in ``src.workers.celery_app``
+names lives here; ``notify_job_work_overdue`` is the one task here beat does not
+send - the overdue scan sends it per order. Each is an *adapter*: the rules
+belong to the module that owns the data, and this file finds the tenants and
+hands each one to that module's service.
 
 ``maintenance.refresh_summary_views``
     Rebuilds ``inventory_summary`` so dashboards read a pre-aggregated position
@@ -27,6 +28,10 @@ that module's service.
     Clears the scratch directory and the lapsed report snapshots that point at
     artefacts nobody will fetch again, and fails the report jobs a dead worker
     left QUEUED or RUNNING.
+
+``maintenance.purge_expired_documents``
+    Deletes the stored files past their retention date - row, audit entry and
+    bytes - through ``DocumentService.purge_expired``, nightly at a fixed hour.
 
 ``maintenance.reconcile_quality_owners``
     Re-tells every document still waiting on a quality verdict the verdict its
@@ -85,6 +90,8 @@ from src.modules.allocation.models import (
 )
 from src.modules.courier_tracking import service as courier_tracking_service
 from src.modules.courier_tracking.models import CourierAccount, CourierProvider
+from src.modules.documents.repository import companies_with_expired_documents
+from src.modules.documents.service import DocumentService
 from src.modules.inventory.repository import companies_with_expiring_batches
 from src.modules.inventory.service import BATCH_EXPIRY_WARN_DAYS, TraceabilityService
 from src.modules.job_work.models import (
@@ -131,6 +138,16 @@ PURGE_BATCH = 500
 #: Ceiling on the loop, so a pathological backlog cannot turn one scheduled tick
 #: into an unbounded job that overruns the next one.
 MAX_PURGE_BATCHES = 40
+
+#: Expired documents one call of ``DocumentService.purge_expired`` reads and
+#: deletes. ASSUMPTION (docs/assumptions.md §DOC-4): each one's audit row and
+#: delete commit on their own and its file is unlinked after, so the batch bounds
+#: the rows held in memory and the time between reading a row and deleting it,
+#: not a lock; with ``MAX_PURGE_BATCHES`` a company's purge takes at most 4 000
+#: documents a night and leaves the rest of a backlog to the next run. It stays
+#: within the repository's ``MAX_PURGE_BATCH``: a larger one would be clamped,
+#: and every full batch would then read as the last.
+DOCUMENT_PURGE_BATCH = 100
 
 #: The scratch directory, from the storage tree section 43 defines.
 TEMP_SUBDIRECTORY = "temp"
@@ -660,6 +677,65 @@ async def purge_temp_files(request_id: str | None = None, **_: Any) -> dict[str,
 
 
 # -----------------------------------------------------------------------------
+# Expired documents
+# -----------------------------------------------------------------------------
+
+
+@async_task(name="maintenance.purge_expired_documents", queue="default")
+async def purge_expired_documents(request_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Delete the stored files whose retention date has passed, company by company.
+
+    The Celery entry point; the work is :func:`sweep_expired_documents`.
+    """
+    return await sweep_expired_documents()
+
+
+async def sweep_expired_documents() -> dict[str, Any]:
+    """One night's purge of expired documents, over every company holding one.
+
+    What is deleted, and how, is ``DocumentService.purge_expired``'s: only a row
+    past its ``expires_at``, audited and deleted in a transaction of its own, its
+    file unlinked once that has committed, and a file already gone is not an
+    error. This finds the companies holding one and gives each its own session
+    as the system actor, taking ``DOCUMENT_PURGE_BATCH`` rows a call until a call
+    comes back short, for at most ``MAX_PURGE_BATCHES`` calls; a larger backlog
+    is finished by the next night's run. Idempotent: a purged row is gone, so
+    running it again deletes nothing and audits nothing.
+    """
+    async with session_scope() as session:
+        companies = await companies_with_expired_documents(session, utcnow())
+
+    removed = 0
+    failed = 0
+    for company_id in companies:
+        try:
+            async with session_scope() as session:
+                documents = DocumentService(session, _system_tenant(company_id))
+                for _batch in range(MAX_PURGE_BATCHES):
+                    purged = await documents.purge_expired(limit=DOCUMENT_PURGE_BATCH)
+                    removed += purged
+                    if purged < DOCUMENT_PURGE_BATCH:
+                        break
+        except Exception as exc:
+            failed += 1
+            count_sweep_failure("maintenance.purge_expired_documents")
+            log.error(
+                "maintenance.document_purge_failed",
+                company_id=str(company_id),
+                error=str(exc),
+                exc_info=exc,
+            )
+
+    log.info(
+        "maintenance.expired_documents_purged",
+        companies=len(companies),
+        removed=removed,
+        failed=failed,
+    )
+    return {"companies": len(companies), "removed": removed, "failed": failed}
+
+
+# -----------------------------------------------------------------------------
 # Quality owners
 # -----------------------------------------------------------------------------
 
@@ -921,6 +997,7 @@ async def notify_job_work_overdue(
 
 
 __all__ = [
+    "DOCUMENT_PURGE_BATCH",
     "MAX_OVERDUE_JOB_WORK_ORDERS",
     "MAX_PURGE_BATCHES",
     "MAX_TOPUP_ORDERS",
@@ -933,6 +1010,7 @@ __all__ = [
     "expire_batches",
     "notify_job_work_overdue",
     "poll_courier_tracking",
+    "purge_expired_documents",
     "purge_expired_sessions",
     "purge_read_notifications",
     "purge_temp_files",
@@ -940,5 +1018,6 @@ __all__ = [
     "refresh_summary_views",
     "release_stale_reservations",
     "scan_job_work_overdue",
+    "sweep_expired_documents",
     "top_up_short_orders",
 ]

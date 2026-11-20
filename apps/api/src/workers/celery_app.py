@@ -55,6 +55,15 @@ MRP_SCHEDULED_RUN_TASK = "mrp.scheduled_run"
 MRP_SCHEDULED_RUN_ENTRY = "mrp-scheduled-run"
 WORKER_METRICS_PORT = 9100
 
+#: When the nightly purge of expired documents runs, in Celery's UTC: 21:30 UTC
+#: is 03:00 in India. ASSUMPTION (docs/assumptions.md §DOC-4): no hour was
+#: specified. A file past its retention date already answers 404, so the hour
+#: decides only when its row and bytes go; the middle of the night keeps the
+#: deletes and their audit rows out of the working day, an hour after the
+#: nightly MRP run starts by default (``MRP_SCHEDULE_CRON``, 20:30 UTC).
+DOCUMENT_PURGE_HOUR_UTC = 21
+DOCUMENT_PURGE_MINUTE_UTC = 30
+
 
 def _mrp_schedule() -> crontab:
     """Build the configured five-field cron schedule in Celery's UTC timezone."""
@@ -203,6 +212,16 @@ celery_app.conf.update(
             "task": "maintenance.purge_temp_files",
             "schedule": 86400.0,
             "options": {"queue": "default"},
+        },
+        # A document past its retention date reads as absent from that moment;
+        # this deletes its row and its file, as the upload dialog promises. A
+        # run not started within the hour is dropped rather than run into the
+        # day: the next night's run takes the same rows, and runs queued while
+        # the workers were down cannot overlap and audit one deletion twice.
+        "purge-expired-documents": {
+            "task": "maintenance.purge_expired_documents",
+            "schedule": crontab(minute=DOCUMENT_PURGE_MINUTE_UTC, hour=DOCUMENT_PURGE_HOUR_UTC),
+            "options": {"queue": "default", "expires": 3600},
         },
         # Password-reset rows are a durable encrypted outbox. This sweep
         # recovers an after-commit publish that happened while Redis was down.
@@ -534,6 +553,8 @@ def _on_task_failure(
 
 __all__ = [
     "CELERY_TRACE_LOGGER",
+    "DOCUMENT_PURGE_HOUR_UTC",
+    "DOCUMENT_PURGE_MINUTE_UTC",
     "MAIL_EXCEPTION_WITHHELD",
     "MAIL_TASKS",
     "RECONCILE_QUALITY_OWNERS_ENTRY",

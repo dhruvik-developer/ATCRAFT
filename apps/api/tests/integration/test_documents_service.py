@@ -19,15 +19,17 @@ import asyncio
 import hashlib
 import io
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from datetime import timedelta
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers, UploadFile
 
+from src.core.actors import SYSTEM_ACTOR_LABEL
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
@@ -45,7 +47,13 @@ from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.documents import service as documents_service
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.schemas import DocumentFilters, DocumentUploadRequest
-from src.modules.documents.service import DocumentService, stream_file
+from src.modules.documents.service import (
+    PURGE_REASON,
+    DocumentService,
+    resolve_storage_path,
+    stream_file,
+)
+from src.workers.tasks import maintenance
 
 pytestmark = pytest.mark.integration
 
@@ -502,3 +510,185 @@ class TestDeletion:
         await service.delete_document(document.id, reason="First removal")
         with pytest.raises(NotFoundError):
             await service.delete_document(document.id, reason="Second removal")
+
+
+# -----------------------------------------------------------------------------
+# The nightly purge
+# -----------------------------------------------------------------------------
+
+
+def run_in(session: AsyncSession) -> Callable[[], AbstractAsyncContextManager[AsyncSession]]:
+    """``session_scope`` for the sweep: every session it opens is the test's own."""
+
+    @asynccontextmanager
+    async def scope() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    return scope
+
+
+async def stored(
+    service: DocumentService,
+    file_name: str,
+    category: DocumentCategory = DocumentCategory.EXPORT,
+    *,
+    expires_at: datetime | None = None,
+    lapsed_minutes_ago: int | None = None,
+) -> tuple[uuid.UUID, Path]:
+    """Upload a CSV and return its id and its file; ``lapsed_minutes_ago`` expires it."""
+    document = await service.upload(
+        upload_file(CSV, file_name=file_name, content_type="text/csv"),
+        DocumentUploadRequest(category=category, expires_at=expires_at),
+    )
+    row = (
+        await service.session.execute(select(Document).where(Document.id == document.id))
+    ).scalar_one()
+    if lapsed_minutes_ago is not None:
+        # The schema refuses a past expires_at, so the passage of time is done
+        # on the row.
+        row.expires_at = utcnow() - timedelta(minutes=lapsed_minutes_ago)
+        await service.session.flush()
+    return document.id, resolve_storage_path(row.storage_key)
+
+
+async def purge_audits(session: AsyncSession, ids: list[uuid.UUID]) -> list[AuditLog]:
+    stmt = select(AuditLog).where(
+        AuditLog.action == AuditAction.DOCUMENT_DELETE, AuditLog.entity_id.in_(ids)
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def surviving(session: AsyncSession, ids: list[uuid.UUID]) -> set[uuid.UUID]:
+    stmt = select(Document.id).where(Document.id.in_(ids))
+    return set((await session.execute(stmt)).scalars().all())
+
+
+class TestNightlyPurge:
+    """``maintenance.sweep_expired_documents``, the work of the nightly beat entry."""
+
+    async def test_every_company_loses_its_lapsed_files_and_keeps_everything_else(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        other_company,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ours = DocumentService(session, tenant)
+        theirs = DocumentService(
+            session, TenantContext(company_id=other_company.id, user_id=tenant.user_id)
+        )
+        lapsed = {
+            # An export whose default retention has run out ...
+            await stored(ours, "stock.csv", lapsed_minutes_ago=5): tenant.company_id,
+            # ... a business document whose uploader chose a date ...
+            await stored(
+                ours,
+                "drawing.csv",
+                DocumentCategory.DOCUMENT,
+                expires_at=utcnow() + timedelta(days=1),
+                lapsed_minutes_ago=4,
+            ): tenant.company_id,
+            # ... a scratch file whose bytes the temp sweep took first ...
+            await stored(
+                ours, "scratch.csv", DocumentCategory.TEMP, lapsed_minutes_ago=3
+            ): tenant.company_id,
+            # ... and another company's lapsed export.
+            await stored(theirs, "their-stock.csv", lapsed_minutes_ago=2): other_company.id,
+        }
+        kept = [
+            await stored(ours, "fresh-export.csv"),
+            await stored(ours, "contract.csv", DocumentCategory.DOCUMENT),
+            await stored(ours, "certificate.csv", DocumentCategory.ATTACHMENT),
+            await stored(ours, "report.csv", DocumentCategory.REPORT),
+            await stored(theirs, "their-contract.csv", DocumentCategory.DOCUMENT),
+        ]
+        lapsed_ids = [document_id for document_id, _ in lapsed]
+        kept_ids = [document_id for document_id, _ in kept]
+        scratch_file = list(lapsed)[2][1]
+        scratch_file.unlink()
+        monkeypatch.setattr(maintenance, "session_scope", run_in(session))
+
+        result = await maintenance.sweep_expired_documents()
+
+        assert result == {"companies": 2, "removed": 4, "failed": 0}
+        assert await surviving(session, lapsed_ids + kept_ids) == set(kept_ids)
+        assert [path.exists() for _, path in lapsed] == [False] * 4
+        assert [path.exists() for _, path in kept] == [True] * 5
+
+        # One deletion each, recorded in its own company, by the system and
+        # with the sweep's reason - the only record left of what went.
+        audits = await purge_audits(session, lapsed_ids + kept_ids)
+        assert sorted((a.entity_id, a.company_id) for a in audits) == sorted(
+            (document_id, company_id) for (document_id, _), company_id in lapsed.items()
+        )
+        for audit in audits:
+            assert audit.context["reason"] == PURGE_REASON
+            assert audit.created_by_id is None
+            assert audit.actor_label == SYSTEM_ACTOR_LABEL
+            assert audit.old_values["status"] == "EXPIRED"
+
+        # The next night finds nothing: no row goes and no deletion is audited.
+        assert await maintenance.sweep_expired_documents() == {
+            "companies": 0,
+            "removed": 0,
+            "failed": 0,
+        }
+        assert len(await purge_audits(session, lapsed_ids + kept_ids)) == 4
+        assert await surviving(session, kept_ids) == set(kept_ids)
+
+    async def test_a_file_goes_only_once_the_delete_of_its_row_has_committed(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Unlinking first would leave, on a failed commit, a row whose bytes are
+        gone - which nothing can repair; the other way round leaves a stray file."""
+        service = DocumentService(session, tenant)
+        for name in ("first.csv", "second.csv"):
+            await stored(service, name, lapsed_minutes_ago=1)
+        events: list[str] = []
+        commit, discard = session.commit, documents_service._discard
+
+        async def recorded_commit() -> None:
+            await commit()
+            events.append("commit")
+
+        async def recorded_discard(path: Path) -> None:
+            events.append("unlink")
+            await discard(path)
+
+        monkeypatch.setattr(session, "commit", recorded_commit)
+        monkeypatch.setattr(documents_service, "_discard", recorded_discard)
+        monkeypatch.setattr(maintenance, "session_scope", run_in(session))
+
+        assert (await maintenance.sweep_expired_documents())["removed"] == 2
+        assert events == ["commit", "unlink", "commit", "unlink"]
+
+    async def test_a_backlog_goes_in_bounded_batches_oldest_first_over_several_nights(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        service = DocumentService(session, tenant)
+        backlog = [
+            await stored(service, f"export-{age}.csv", lapsed_minutes_ago=age)
+            for age in (5, 4, 3, 2, 1)
+        ]
+        ids = [document_id for document_id, _ in backlog]
+        monkeypatch.setattr(maintenance, "DOCUMENT_PURGE_BATCH", 2)
+        monkeypatch.setattr(maintenance, "MAX_PURGE_BATCHES", 2)
+        monkeypatch.setattr(maintenance, "session_scope", run_in(session))
+
+        # Two batches of two: the four that lapsed first, and no more.
+        assert (await maintenance.sweep_expired_documents())["removed"] == 4
+        assert await surviving(session, ids) == {ids[-1]}
+        assert [path.exists() for _, path in backlog] == [False, False, False, False, True]
+
+        assert (await maintenance.sweep_expired_documents())["removed"] == 1
+        assert await surviving(session, ids) == set()
+        assert not backlog[-1][1].exists()

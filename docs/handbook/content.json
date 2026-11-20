@@ -5144,7 +5144,7 @@
             {
               "action": "Set a file to be removed automatically",
               "how": "Documents \u2192 Upload a file \u2192 \"Delete automatically after\"",
-              "note": "Up to a year ahead. Leave it empty to keep the file indefinitely."
+              "note": "Up to a year ahead. Past the date the file is hidden, then deleted overnight. Leave it empty to keep the file indefinitely \u2014 except an export or a temporary file, which is given a date automatically."
             },
             {
               "action": "Mark a file as not confidential within the company",
@@ -5195,7 +5195,7 @@
             "Click a row to read its details, or press the download icon to open the file.",
             "To clear something out, press the bin icon, give a reason, and confirm."
           ],
-          "notes": "The clean route to attaching a certificate is from the QC inspection screen, which uploads the file already filed against the inspection. Uploading from this screen and filing it against a record requires pasting the record's internal id by hand, which is realistic for an administrator and awkward for anyone else \u2014 worth stating in the deck rather than glossing over. The record types the system files documents under today are QC inspections, packing orders and generated reports; any other record type can be typed in and will be accepted. Files past their retention date are still listed if you tick \"Include expired\", but they can no longer be downloaded \u2014 only deleted, which is how you clear a lapsed export. The details dialog shows a checksum; that is the only thing that can prove a restored backup copy is the file that was originally uploaded, and it is worth a sentence.",
+          "notes": "The clean route to attaching a certificate is from the QC inspection screen, which uploads the file already filed against the inspection. Uploading from this screen and filing it against a record requires pasting the record's internal id by hand, which is realistic for an administrator and awkward for anyone else \u2014 worth stating in the deck rather than glossing over. The record types the system files documents under today are QC inspections, packing orders and generated reports; any other record type can be typed in and will be accepted. Files past their retention date are still listed if you tick \"Include expired\" until the nightly clean-up deletes them, but they can no longer be downloaded \u2014 only deleted, which is how you clear a lapsed export sooner. The details dialog shows a checksum; that is the only thing that can prove a restored backup copy is the file that was originally uploaded, and it is worth a sentence.",
           "permission": "Viewing the list, reading a file's details and downloading it all need the right to view documents. Uploading needs the right to upload documents. Deleting needs the separate right to delete documents.",
           "rules": [
             "The system checks the actual content of an uploaded file against the type it claims to be, and refuses it if they disagree. An extension can be renamed; the file's own leading bytes cannot.",
@@ -5203,6 +5203,7 @@
             "Deleting a file removes both the record and the file itself, together, and requires a written reason. There is no undelete: a record whose file was gone would advertise a document that cannot be opened, which is worse than an honest absence. The audit trail is what remembers the deletion.",
             "A file is filed against a record with both its type and its id, or with neither. Half a reference points at nothing any search can find.",
             "A retention date must be in the future and at most a year ahead. Beyond that, keep the file indefinitely and delete it deliberately when it is no longer needed.",
+            "A file past its retention date is deleted overnight, its record and the file together, and the audit trail records each deletion as made by the system.",
             "Files marked as not confidential are still only visible to people signed in to your company. Nothing here is ever public on the internet."
           ]
         },

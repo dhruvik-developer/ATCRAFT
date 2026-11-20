@@ -121,8 +121,10 @@ class Document(TenantEntity):
         Boolean, nullable=False, default=False, server_default=text("false")
     )
 
-    #: Retention horizon for generated artefacts (exports, temp files). Past it
-    #: the document reads as absent, and the purge sweep removes row and file.
+    #: Retention horizon: the date the uploader chose, or the default an export
+    #: or a temp file is given. Past it the document reads as absent, and the
+    #: nightly purge sweep (``maintenance.purge_expired_documents``) removes row
+    #: and file.
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (

@@ -19,7 +19,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, or_
+from sqlalchemy import ColumnElement, Select, and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.document_access import document_read_predicates
@@ -44,6 +45,23 @@ def document_not_expired(now: datetime) -> ColumnElement[bool]:
     404 for, between the retention date passing and the purge sweep removing it.
     """
     return or_(Document.expires_at.is_(None), Document.expires_at > now)
+
+
+def _expired(now: datetime) -> ColumnElement[bool]:
+    """Past its retention date: the rows the purge deletes. ``ix_documents_expiring`` serves it."""
+    return and_(Document.expires_at.is_not(None), Document.expires_at <= now)
+
+
+async def companies_with_expired_documents(session: AsyncSession, now: datetime) -> list[uuid.UUID]:
+    """Every company holding a document past its retention date at ``now``.
+
+    Unscoped by necessity: the nightly purge sweep finds the companies it has work
+    for before it opens one session per company, and each then reads its own
+    rows through :meth:`DocumentRepository.list_expired`, on the same predicate -
+    so a company is visited exactly when its purge will find a row.
+    """
+    stmt = select(Document.company_id).where(_expired(now)).distinct()
+    return list((await session.execute(stmt)).scalars().all())
 
 
 class DocumentRepository(BaseRepository[Document]):
@@ -151,11 +169,16 @@ class DocumentRepository(BaseRepository[Document]):
         """
         stmt = (
             self._scoped()
-            .where(Document.expires_at.is_not(None), Document.expires_at <= now)
+            .where(_expired(now))
             .order_by(Document.expires_at.asc(), Document.id.asc())
             .limit(min(limit, MAX_PURGE_BATCH))
         )
         return list((await self.session.execute(stmt)).scalars().unique().all())
 
 
-__all__ = ["MAX_PURGE_BATCH", "DocumentRepository", "document_not_expired"]
+__all__ = [
+    "MAX_PURGE_BATCH",
+    "DocumentRepository",
+    "companies_with_expired_documents",
+    "document_not_expired",
+]
