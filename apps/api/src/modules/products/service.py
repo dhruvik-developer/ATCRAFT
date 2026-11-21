@@ -1073,24 +1073,43 @@ async def create_conversion(
                     details={"from_uom_id": str(pair[0]), "to_uom_id": str(pair[1])},
                 )
 
-        conversion = UomConversion(
-            from_uom_id=payload.from_uom_id,
-            to_uom_id=payload.to_uom_id,
-            factor=payload.factor,
+        # Removing a conversion only sets deleted_at, and the unique key on
+        # (company_id, from_uom_id, to_uom_id) still covers that row - so the
+        # same direction entered again revives it with the new factor. The
+        # masters screen corrects a factor exactly this way: remove, re-enter.
+        conversion = await repo.get_pair(
+            payload.from_uom_id, payload.to_uom_id, include_deleted=True
         )
-        repo.add(conversion)
+        audited = ["factor", "is_active", "deleted_at"]
+        before = snapshot(conversion, audited) if conversion is not None else None
+        if conversion is None:
+            conversion = UomConversion(
+                from_uom_id=payload.from_uom_id,
+                to_uom_id=payload.to_uom_id,
+                factor=payload.factor,
+            )
+            repo.add(conversion)
+        else:
+            conversion.factor = payload.factor
+            conversion.is_active = True
+            conversion.deleted_at = None
+            repo.touch(conversion)
         await session.flush()
 
+        summary = f"1 {from_uom.code} = {payload.factor} {to_uom.code}"
         await record_audit(
             session,
             company_id=tenant.company_id,
-            action=AuditAction.CREATE,
+            action=AuditAction.UPDATE if before is not None else AuditAction.CREATE,
             entity_type=AUDIT_UOM_CONVERSION,
             entity_id=conversion.id,
             entity_code=f"{from_uom.code}->{to_uom.code}",
-            summary=f"1 {from_uom.code} = {payload.factor} {to_uom.code}",
+            summary=f"Restored unit conversion: {summary}" if before is not None else summary,
             user_id=tenant.user_id,
-            new_values={"factor": payload.factor},
+            old_values=before,
+            new_values=(
+                snapshot(conversion, audited) if before is not None else {"factor": payload.factor}
+            ),
         )
 
     await _invalidate_uom_graph(tenant)
@@ -2983,6 +3002,11 @@ async def unlink_vendor(session: AsyncSession, tenant: TenantContext, link_id: u
 
     async with transaction(session):
         link = await repo.get_or_404(link_id)
+        # A removed link stops being the preferred vendor now, by this user:
+        # clearing the flag here dates that in this DELETE row, where leaving it
+        # set would let a later promotion appear to have taken it.
+        was_preferred = link.is_preferred
+        link.is_preferred = False
         await repo.soft_delete(link)
         await record_audit(
             session,
@@ -2992,7 +3016,12 @@ async def unlink_vendor(session: AsyncSession, tenant: TenantContext, link_id: u
             entity_id=link.id,
             summary="Removed item-vendor link",
             user_id=tenant.user_id,
-            old_values={"vendor_id": link.vendor_id},
+            old_values=(
+                {"vendor_id": link.vendor_id, "is_preferred": True}
+                if was_preferred
+                else {"vendor_id": link.vendor_id}
+            ),
+            new_values={"is_preferred": False} if was_preferred else None,
         )
 
 

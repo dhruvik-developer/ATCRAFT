@@ -628,8 +628,16 @@ class UomConversionRepository(BaseRepository[UomConversion]):
         stmt = self._scoped().where(UomConversion.is_active.is_(True))
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def get_pair(self, from_uom_id: uuid.UUID, to_uom_id: uuid.UUID) -> UomConversion | None:
-        stmt = self._scoped().where(
+    async def get_pair(
+        self, from_uom_id: uuid.UUID, to_uom_id: uuid.UUID, *, include_deleted: bool = False
+    ) -> UomConversion | None:
+        """The conversion stored in this direction, if any.
+
+        ``include_deleted`` also finds a removed one: the unique key on
+        ``(company_id, from_uom_id, to_uom_id)`` still covers a soft-deleted
+        row, so re-entering a removed pair has to revive that row.
+        """
+        stmt = self._scoped(include_deleted=include_deleted).where(
             UomConversion.from_uom_id == from_uom_id,
             UomConversion.to_uom_id == to_uom_id,
         )
@@ -1065,6 +1073,9 @@ class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
                 ItemVendorLink.company_id == self.tenant.company_id,
                 ItemVendorLink.item_id == item_id,
                 ItemVendorLink.is_preferred.is_(True),
+                # A removed link is not a preferred vendor to take the flag
+                # from: unlink_vendor clears and audits it at removal.
+                ItemVendorLink.deleted_at.is_(None),
             )
             .values(is_preferred=False, updated_by_id=self.tenant.user_id)
             .returning(ItemVendorLink.id, ItemVendorLink.vendor_id)

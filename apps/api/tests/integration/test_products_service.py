@@ -780,6 +780,74 @@ async def test_reverse_conversion_row_is_rejected_as_a_duplicate(
         )
 
 
+async def test_a_removed_conversion_can_be_entered_again_in_either_direction(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """F3-02: removing and re-entering is how the masters screen corrects a
+    factor. The unique key still covers the removed row, so the same direction
+    revives it - audited as an update - and the inverse direction is a new row.
+    """
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    packet = await service.create_uom(
+        session, tenant, UomCreate(code="PKT", name="Packet", uom_category=UomCategory.COUNT)
+    )
+    packet_id, nos_id = packet.id, units["NOS"]
+    wrong = await service.create_conversion(
+        session,
+        tenant,
+        UomConversionCreate(from_uom_id=packet_id, to_uom_id=nos_id, factor=Decimal("100")),
+    )
+    wrong_id = wrong.id
+    await service.delete_conversion(session, tenant, wrong_id)
+
+    corrected = await service.create_conversion(
+        session,
+        tenant,
+        UomConversionCreate(from_uom_id=packet_id, to_uom_id=nos_id, factor=Decimal("10")),
+    )
+
+    assert corrected.id == wrong_id
+    assert corrected.factor == Decimal("10")
+    assert corrected.is_active
+    result = await service.convert_quantity(
+        session, tenant, quantity=Decimal("3"), from_uom_id=packet_id, to_uom_id=nos_id
+    )
+    assert result.converted_quantity == Decimal("30")
+    audits = (
+        (
+            await session.execute(
+                select(AuditLog)
+                .where(AuditLog.entity_id == wrong_id)
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [audit.action for audit in audits] == ["CREATE", "DELETE", "UPDATE"]
+    assert Decimal(str(audits[-1].old_values["factor"])) == Decimal("100")
+    assert audits[-1].old_values["deleted_at"] is not None
+    assert Decimal(str(audits[-1].new_values["factor"])) == Decimal("10")
+    assert audits[-1].new_values["deleted_at"] is None
+
+    # The other direction after a removal is a row of its own, and the removed
+    # one still cannot come back beside it.
+    await service.delete_conversion(session, tenant, wrong_id)
+    inverse = await service.create_conversion(
+        session,
+        tenant,
+        UomConversionCreate(from_uom_id=nos_id, to_uom_id=packet_id, factor=Decimal("0.1")),
+    )
+    assert inverse.id != wrong_id
+    with pytest.raises(DuplicateError):
+        await service.create_conversion(
+            session,
+            tenant,
+            UomConversionCreate(from_uom_id=packet_id, to_uom_id=nos_id, factor=Decimal("10")),
+        )
+
+
 async def test_the_reported_factor_is_the_stored_ratio_at_the_column_s_own_scale(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
@@ -1105,6 +1173,49 @@ async def test_relink_restores_terms_without_losing_purchase_history(
     # terms on an active source through the create endpoint.
     with pytest.raises(DuplicateError):
         await service.link_vendor(session, tenant, item_id, VendorLinkCreate(vendor_id=vendor_id))
+
+
+async def test_an_unlinked_preferred_vendor_loses_the_flag_at_the_unlink(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """F4-03: the trail dates the loss of the flag to the unlink that caused it,
+    not to a later, unrelated promotion of another vendor."""
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(
+        session, tenant, item_payload("UNLINK-PREF", units["NOS"], can_purchase=True)
+    )
+    vendor_a = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+    vendor_b = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+    item_id, vendor_a_id, vendor_b_id = item.id, vendor_a.id, vendor_b.id
+    removed = await service.link_vendor(
+        session, tenant, item_id, VendorLinkCreate(vendor_id=vendor_a_id, is_preferred=True)
+    )
+    removed_id = removed.id
+    await service.unlink_vendor(session, tenant, removed_id)
+    await service.link_vendor(
+        session, tenant, item_id, VendorLinkCreate(vendor_id=vendor_b_id, is_preferred=True)
+    )
+
+    audits = (
+        (
+            await session.execute(
+                select(AuditLog)
+                .where(AuditLog.entity_id == removed_id)
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [audit.action for audit in audits] == ["CREATE", "DELETE"]
+    assert audits[-1].old_values == {"vendor_id": str(vendor_a_id), "is_preferred": True}
+    # A DELETE row's diff names each removed value against nothing, as before.
+    assert audits[-1].new_values == {"vendor_id": None, "is_preferred": False}
+    stored = await session.scalar(
+        select(ItemVendorLink.is_preferred).where(ItemVendorLink.id == removed_id)
+    )
+    assert stored is False
 
 
 @pytest.mark.parametrize("other_preferred", [False, True])
