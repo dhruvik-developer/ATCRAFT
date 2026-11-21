@@ -48543,7 +48543,7 @@
         "type": "object"
       },
       "PendingAtVendorRow": {
-        "description": "Company material currently at one vendor, for one item.\n\nEvery quantity here is stock the company still owns and still values; it is\nsimply not available to promise. The ageing is measured from the despatch,\nwhich is why an order that has been open for six months shows up even if its\nexpected return date was quietly pushed back.",
+        "description": "Company material currently at one vendor, for one item.\n\nEvery quantity here is stock the company still owns; it is simply not\navailable to promise, and its value is frozen on the challan lines, outside\nthe inventory valuation (docs/assumptions.md §JW-5). The ageing is measured from the despatch,\nwhich is why an order that has been open for six months shows up even if its\nexpected return date was quietly pushed back.",
         "properties": {
           "ageing_days": {
             "title": "Ageing Days",

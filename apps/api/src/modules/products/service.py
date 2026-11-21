@@ -995,8 +995,8 @@ async def update_uom(
                     )
             else:
                 # Removing the base leaves every conversion in the family
-                # unresolvable, so it is refused rather than silently breaking
-                # conversions at the next goods receipt.
+                # unresolvable for the item saves and the Check a conversion
+                # dialog that read them, so it is refused.
                 raise BusinessRuleError(
                     "A measurement category must keep a base unit. Promote another "
                     "unit to base instead of clearing this one.",
@@ -1190,9 +1190,11 @@ async def _validate_item_units(
     """Every unit exists, and the trading units convert to the stocking unit.
 
     ASSUMPTION (docs/assumptions.md §ITEM-2): a purchase or sale unit that
-    cannot be converted to the base unit is rejected at save time. The
-    alternative is discovering it at the goods receipt that cannot post, with
-    the vendor's lorry at the gate.
+    cannot be converted to the base unit is rejected at save time. No document
+    converts a unit yet - every document line is in the stock unit
+    (docs/assumptions.md §UOM-1) - so the conversion is read only here and by
+    ``convert_quantity``; checking it when the unit is set keeps it sound for
+    the day documents convert units.
 
     A trading unit passed as ``None`` is not checked: the caller passes only
     the units its save assigns (:func:`update_item`).

@@ -541,9 +541,10 @@ def receipt_charge(
     """What one lot accrued.
 
     See the module's Assumptions: the vendor is paid for good output delivered,
-    so rejected pieces and process loss earn nothing and a short delivery costs
-    less without anybody raising a credit note. A ``LOT`` rate is earned once, on
-    the first lot that actually returns something.
+    so pieces rejected at the receipt and process loss earn nothing and a short
+    delivery costs less without anybody raising a credit note. Output an
+    inspection rejects later stays charged, and a ``LOT`` rate is earned once, on
+    the first lot that actually returns something (docs/assumptions.md §JW-4).
     """
     rate = Decimal(rate_per_unit)
     good = to_quantity(output_quantity)
@@ -1728,8 +1729,10 @@ async def pending_at_vendor(
     """Company material currently at a vendor, by vendor and item, with ageing.
 
     The feed this module exists to make possible. Every row is stock the company
-    still owns, still values and can still be asked to account for by an auditor
-    - it is simply at somebody else's premises and not available to promise.
+    still owns and can still be asked to account for by an auditor - it is simply
+    at somebody else's premises and not available to promise. Its value is frozen
+    on the challan lines and is outside the inventory valuation
+    (docs/assumptions.md §JW-5).
 
     ``limit`` is capped rather than trusted: this returns a plain list, so the
     bound has to live here (section 31).
@@ -2396,8 +2399,10 @@ async def issue_order(
 
     **The movement type is the whole point of this function.** ``JOB_WORK_ISSUE``
     moves the quantity from ``on_hand_quantity`` into ``job_work_quantity``: the
-    company still owns it, still values it and can still be asked to account for
-    it. Anything that removed it from the books would be wrong.
+    company still owns it and can still be asked to account for it; its value is
+    frozen on the challan line and is outside the inventory valuation
+    (docs/assumptions.md §JW-5). Anything that removed it from the books would be
+    wrong.
     """
     port = _allocation(allocation)
     repo = JobWorkOrderRepository(session, tenant)

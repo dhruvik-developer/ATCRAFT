@@ -843,6 +843,8 @@ async def test_an_inspection_still_holding_rework_cannot_be_closed(
         "BUSINESS_RULE_VIOLATION",
     )
     decimal_equal(error["details"]["still_held_quantity"], "40")
+    # The sentence states the quantity as a person writes it, not at the stored scale.
+    assert "still has 40 on QC hold" in error["message"], error["message"]
     stored = await session.get(QcInspection, inspection_id)
     assert stored is not None and stored.closed_at is None
 

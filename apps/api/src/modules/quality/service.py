@@ -2526,8 +2526,9 @@ async def _close(
     validate_disposition(Decimal(inspection.inspected_quantity), disposition)
     if disposition.still_held > ZERO:
         raise BusinessRuleError(
-            f"{inspection.code} still has {disposition.still_held} on QC hold for rework or a "
-            "further decision; it cannot be closed until that quantity is dispositioned.",
+            f"{inspection.code} still has {_plain_quantity(disposition.still_held)} on QC hold "
+            "for rework or a further decision; it cannot be closed until that quantity is "
+            "dispositioned.",
             details={"still_held_quantity": str(disposition.still_held)},
         )
 

@@ -620,8 +620,9 @@ class ReceiptResult(BaseModel):
 class PendingAtVendorRow(BaseModel):
     """Company material currently at one vendor, for one item.
 
-    Every quantity here is stock the company still owns and still values; it is
-    simply not available to promise. The ageing is measured from the despatch,
+    Every quantity here is stock the company still owns; it is simply not
+    available to promise, and its value is frozen on the challan lines, outside
+    the inventory valuation (docs/assumptions.md §JW-5). The ageing is measured from the despatch,
     which is why an order that has been open for six months shows up even if its
     expected return date was quietly pushed back.
     """
