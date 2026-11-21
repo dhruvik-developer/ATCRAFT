@@ -1,4 +1,4 @@
-# Application standards pass — 8–18 November 2026
+# Application standards pass — 8–22 November 2026
 
 This pass applied the shared [development standards](../development-standards.md)
 across the existing FastAPI and React application, after the
@@ -84,30 +84,74 @@ An independent review read the last commits again before release:
   warehouse scope, locks, ordering, money rounding, approvals, status changes or
   audit rows.
 
+## Reviews and fixes, 19–22 November
+
+- **Eager loading (`9da0056c`).** After sign-in every screen and form downloads
+  in the background. A failed background download never reloads the page
+  (`lib/stale-bundle.ts`, `lib/preload.ts`); only a download the person is
+  waiting on does.
+- **Recheck rounds (19–20 November).** Four rounds of review and fix closed the
+  open items of the first pass. Every `ASSUMPTION` paragraph now cites a recorded
+  section, and `tests/unit/test_assumption_references.py` refuses one that does
+  not. Warehouse checks share `require_active_warehouses` and
+  `require_warehouse_in_scope` in `warehouses.service`. The second
+  `exists_in_tenant` is gone. `report_snapshots.document_id` has a partial index
+  (migration `20261129_0100`). Integration tests build their schemas through
+  `tests/private_schema_support.py`. The same rounds also brought:
+  - edge rate limits sized for a plant behind one address;
+  - MRP no longer planning an item twice;
+  - a nightly purge of lapsed documents;
+  - an audit row for every demoted default.
+- **Final independent review (20 November).** The fix commits were reviewed in
+  five slices, and an adversarial verifier checked every finding: 16 were
+  confirmed. The owner decided two of them on 20 November:
+  - document lines use the item's stock unit only, until documents convert units
+    (`docs/assumptions.md` §UOM-1);
+  - job-work output that an inspection rejects stays charged, and the bill is
+    adjusted by hand (§JW-4).
+
+  All 16, and the follow-ups the reviews collected, were fixed between
+  `7639b88e` and `6875b519`.
+- **Last review (22 November).** Two reviewers read those commits again and
+  confirmed six gaps, fixed in `e8eda19b` and `ccd3cf3a`:
+  - a line saved in another unit before the rule gets a refusal the person can
+    act on, and is never relabelled to the stock unit;
+  - a sales order with such an open line ships nothing until it is raised again
+    in the stock unit;
+  - MRP plans nothing from a packing recipe whose material is lot- or
+    unit-tracked, and tracking cannot be turned on for a recipe's material.
+
+  `ONE-BOX-RUNBOOK.md` has a one-off check to run before deploying the
+  stock-unit release.
+
 ## Verification
 
 CI ran green on `713cb953` (backend quality with dependency audit, backend
 integration, frontend with bundle budgets, the production-stack e2e journeys and
-release configuration). The pre-push hook and CI gate every later commit.
+release configuration). In the 19–22 November batches:
+
+- each lane ran the unit and integration tests of the modules it changed;
+- every commit passed the pre-commit hooks;
+- the production web build met every bundle budget at `6875b519` (first load
+  201.5 of 210 KB).
+
+The pre-push hook and CI gate every later commit.
 
 ## Open items
 
-- About 94 ASSUMPTION comments under `apps/api/src` cite no
-  `docs/assumptions.md` section and need entries of their own before a guard can
-  require a citation.
-- `SQL_OUTSIDE_REPOSITORIES` in `tests/unit/test_layering_guards.py` still names
-  17 files that build statements outside a repository; the guard refuses any new
+- `SQL_OUTSIDE_REPOSITORIES` in `tests/unit/test_layering_guards.py` still lists
+  the files that build statements outside a repository; the guard refuses any new
   one.
-- Warehouse checks are still written separately in assembly, job work, packing
-  and quality, and the scoped `exists_in_tenant` statement twice (procurement and
-  production).
-- Test support: the private-schema fixture pattern is repeated across several
-  integration modules.
-- `report_snapshots.document_id` has no index, and generic document reads now
-  consult it per row; measure before adding one.
 - Quality still announces an inspection once per line (`BE4-06`): batching it
   changes the "N times" badge, a product decision.
-- Owner decisions: the two documented PATCH-null conventions (`docs/api.md`),
-  the notes length bound, unscaled quantities in allocation and inventory, and
-  the business-date policy (the server's "today" is UTC while screens use the
-  local date).
+- Documents do not convert units yet (§UOM-1); conversion at posting is a
+  separate change. A sales order already partly dispatched with an open line
+  saved in another unit cannot be completed. Closing it needs a new feature,
+  which is an owner decision; the pre-release check lists such orders.
+- Owner decisions on job work: reducing the vendor charge automatically when an
+  inspection rejects output (§JW-4). Stock at a job-work vendor carries no book
+  value, and an unprocessed return comes back at standard cost (§JW-5).
+- Owner decisions carried over: the two documented PATCH-null conventions
+  (`docs/api.md`), the notes length bound, unscaled quantities in allocation and
+  inventory, and the business-date policy (the server's "today" is UTC while
+  screens use the local date).
