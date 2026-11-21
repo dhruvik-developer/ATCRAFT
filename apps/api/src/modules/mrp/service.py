@@ -958,6 +958,32 @@ def _suggestion_rows(
     ]
 
 
+#: How many default packing specifications the unusable-material warning names
+#: before it summarises the rest as a count.
+_UNUSABLE_SPEC_NAMES = 10
+
+
+def _unusable_packing_spec_warning(named: Sequence[tuple[str, str]], total: int) -> str:
+    """Name the default packing specifications MRP planned nothing from (§E3b-6).
+
+    Each is written "item (material)", as the planner finds it on the item's
+    packing tab, and the sentence says what to change there.
+    """
+    listed = ", ".join(f"{item} ({material})" for item, material in named)
+    more = f" (and {total - len(named)} more)" if total > len(named) else ""
+    if total == 1:
+        return (
+            "A default packing specification uses a material tracked by lot or by unit, "
+            f"which no carton can use, so no packing material was planned for it: {listed}. "
+            "Change its material to an untracked item, or delete it."
+        )
+    return (
+        "Default packing specifications use materials tracked by lot or by unit, which no "
+        f"carton can use, so no packing material was planned for them: {listed}{more}. "
+        "Change each one's material to an untracked item, or delete it."
+    )
+
+
 async def execute_run(
     session: AsyncSession, tenant: TenantContext, *, run_id: uuid.UUID
 ) -> MrpRunRead:
@@ -1068,6 +1094,12 @@ async def execute_run(
             respect_safety_stock=respect_safety_stock,
             reallocation_provider=reallocation_provider,
         )
+        named, total = await PackingDemandRepository(session, tenant).unusable_default_specs(
+            limit=_UNUSABLE_SPEC_NAMES
+        )
+        warnings = [*plan.warnings]
+        if total:
+            warnings.append(_unusable_packing_spec_warning(named, total))
 
     async with transaction(session):
         # Re-locked and re-read: the calculation above can take minutes, the row
@@ -1101,7 +1133,7 @@ async def execute_run(
         run.completed_at = utcnow()
         _observe_run_outcome(run)
         run.suggestion_count = len(plan.suggestions)
-        run.result_summary = {**plan.stats, "warnings": list(plan.warnings)}
+        run.result_summary = {**plan.stats, "warnings": warnings}
         repository.touch(run)
 
         await record_status_change(
@@ -1128,7 +1160,7 @@ async def execute_run(
             ),
             user_id=tenant.user_id,
             new_values=dict(plan.stats),
-            context={"warnings": list(plan.warnings)} if plan.warnings else None,
+            context={"warnings": warnings} if warnings else None,
         )
         from src.core.permissions import Permission
         from src.modules.notifications.models import NotificationSeverity, NotificationType

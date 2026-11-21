@@ -1,4 +1,4 @@
-"""What may be packing material, and the three places that must agree on it.
+"""What may be packing material, and the places that must agree on it.
 
 The carton form's pick-list, opening a carton and saving a packing specification
 each read "usable as packing material". The seal posts one untracked issue for
@@ -7,6 +7,8 @@ the box, so an item tracked by unit or by lot is none of those
 ``PACKING_MATERIAL_EXCLUDED_TRACKING``; these tests pin that every flag there is
 refused by ``_require_untracked_material``, and that a packing specification -
 which MRP turns into demand for its material (§E3b-6) - is refused on one too.
+MRP's recipe demand filters on the same flags and warns about each recipe it
+skips, and the item master refuses turning one of them on under a recipe.
 """
 
 from __future__ import annotations
@@ -67,3 +69,23 @@ async def test_a_packing_spec_accepts_an_untracked_material() -> None:
         material.id,
     )
     assert accepted is material
+
+
+def test_the_item_master_refuses_turning_on_every_excluded_flag() -> None:
+    """Turning tracking on is refused under a packing specification for exactly
+    the flags packing excludes (§PACK-2): the item master names its own list,
+    because it sits above packing and cannot import it."""
+    from src.modules.products.service import TRACKING_FIELDS
+
+    assert {flag.key for flag in PACKING_MATERIAL_EXCLUDED_TRACKING} == set(TRACKING_FIELDS)
+
+
+def test_mrp_names_each_unusable_spec_and_summarises_the_rest() -> None:
+    from src.modules.mrp.service import _unusable_packing_spec_warning
+
+    one = _unusable_packing_spec_warning([("HANDLE-1", "BOX-1")], 1)
+    assert "HANDLE-1 (BOX-1)" in one
+    assert "Change its material to an untracked item, or delete it." in one
+
+    many = _unusable_packing_spec_warning([("HANDLE-1", "BOX-1"), ("HANDLE-2", "BOX-2")], 12)
+    assert "HANDLE-1 (BOX-1), HANDLE-2 (BOX-2) (and 10 more)" in many

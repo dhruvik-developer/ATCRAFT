@@ -170,7 +170,11 @@ warehouse-scoped run only nets assignments at included packing warehouses.
 Alternative non-default recipes are not counted together, and existing carton
 records never determine a future recipe. A recipe's material must be one packing
 can use: saving a specification on a material tracked by lot or by unit is
-refused, as opening a carton on it is (§PACK-2).
+refused, as opening a carton on it is (§PACK-2). A default recipe already on
+such a material - saved before that refusal - plans nothing: both packing
+demand reads filter on the same rule (`usable_as_packing_material`), and every
+run's warnings name each skipped recipe as "item (material)", the first ten
+and then a count, with what to change.
 
 **Why.** Reorder replenishment belongs in the same engine as sales and manual
 demand, so it nets against stock and dated supply rather than producing a
@@ -6750,21 +6754,46 @@ the stock unit. A line naming any other unit is refused, with a message naming
 the line, the item, its stock unit and the unit given, and saying documents do
 not convert units yet; a unit of another company is "not found". A line written
 in another unit before this rule is refused wherever it would be acted on, and
-never posted unconverted:
+never posted unconverted - nor relabelled: an edit form resends each saved
+line's own unit (the vendor quotation's revision included), because a line
+sent with no unit is written in the stock unit and would keep its number and
+price in a unit it was never keyed in. Each refusal names where the line came
+from and a way out that works on the screen the person is on:
 
+- editing a draft requisition, RFQ, vendor quotation or purchase order, or
+  amending an order: the forms have no unit control, so the line is added again
+  as a new line in the stock unit and the saved one removed;
+- raising an RFQ from a requisition: the refusal names the requisition line;
+  the lines to quote are keyed on the RFQ by hand and that one raised again on
+  a new requisition, because an approved requisition cannot be edited;
 - converting a requisition into purchase orders lists the line as unresolved,
   with that sentence as its reason, to be left out (§51); an order line drawing
   on such a requisition line is refused: leave the link out; either way the
   demand is raised again in the stock unit;
-- receiving against a purchase order line: amend the line to the stock unit
-  first; posting a draft receipt: cancel it and raise a new purchase order,
-  because a draft receipt is history no amendment may rewrite (§D1-2);
+- receiving against a purchase order line: on an order with no receipt
+  history, amend it as above; once a receipt of any status exists the order
+  cannot be amended (§D1-2), so a partly received order is closed short and
+  the line ordered again, and one with only a draft or cancelled receipt is
+  cancelled, or its other lines received and the order closed short; posting
+  a draft receipt: cancel it and raise a new purchase order;
 - returning goods to the vendor from a receipt line in another unit, or raising
   or receiving a customer return of goods shipped against a sales order line in
   another unit: refused, because neither source line can be changed any more;
-- confirming a sales order: edit the draft line; planning or sending a
-  consignment against a confirmed line, whose unit is frozen: reduce the line to
-  what has shipped, or cancel the order, and raise the rest on a new order.
+- confirming a sales order: edit the draft line, whose dialog has a unit
+  control; a confirmed order's line unit and price are frozen, so the only way
+  out is cancelling the order and raising it again, which the lifecycle allows
+  only until something ships. The first consignment of an order is therefore
+  refused while any open line of it is in another unit - not only the lines
+  on that consignment - naming that line and saying to cancel and re-raise;
+- a consignment against a line in another unit on an order that is already
+  partly dispatched: refused, saying plainly that the line cannot be closed on
+  this order and its goods are raised on a new order. Such an order can be
+  neither edited nor cancelled and stays partly dispatched, with the line's
+  reservation held, until the owner decides how such an order is closed out:
+  no endpoint or lifecycle edge exists for it, and none is assumed here. The
+  release procedure's unit check (`ONE-BOX-RUNBOOK.md`) lists these orders
+  before deploying, so open ones are cancelled and raised again while that is
+  still possible.
 
 Bills of materials follow the same rule (§BOM-3), and production, assembly and
 job-work lines take the stock unit from the structure or the item. MRP still
@@ -6790,11 +6819,15 @@ requisition, RFQ, quotation and purchase-order write (and on an amendment, in
 `create_requisition_from_mrp` naming the stock unit, and
 `purchase_order_sources.assert_source_units` for the requisition lines an order
 line draws on, while `_plan_conversion` gives the sentence as an unresolved
-line's reason; `src/modules/sales/service.py` -
-`_build_pricing_context` and `confirm_order`;
+line's reason; the remedies are `_readd_in_stock_unit`,
+`_quote_without_requisition_line` and `_receipt_unit_remedy` there;
+`src/modules/sales/service.py` - `_build_pricing_context` and `confirm_order`;
 `src/modules/dispatch/service.py` - `_validate_lines` and
-`dispatch_consignment`; `src/modules/sales_returns/service.py` -
-`create_return` and `transition_return`.
+`dispatch_consignment`, with `_assert_unshipped_order_in_stock_units` on every
+consignment of an order nothing has shipped from;
+`src/modules/sales_returns/service.py` - `create_return` and
+`transition_return`. The web forms that resend a saved line's unit are
+`requisition-form-dialog.tsx`, `rfq-dialogs.tsx` and `quotation-dialogs.tsx`.
 
 **Impact if wrong.** Full conversion at posting is a separate, later change:
 load the unit graph once per document, post each line's quantity converted to
@@ -6903,14 +6936,22 @@ the group is almost always a mis-picked box, which is why it is logged. A
 tracked item is refused because the seal posts one `MATERIAL_ISSUE` for the box,
 with no lot or unit to name. The list leaves tracked items out so it never offers
 a box the open refuses. The two tracking flags are named once, in
-`PACKING_MATERIAL_EXCLUDED_TRACKING`, which the list filters on and whose
-refusal opening a carton and saving a specification share, so the three cannot
-drift apart.
+`PACKING_MATERIAL_EXCLUDED_TRACKING`, which the list and MRP's recipe demand
+filter on (`usable_as_packing_material`) and whose refusal opening a carton and
+saving a specification share, so they cannot drift apart. For the same reason
+the item master refuses turning lot or unit tracking on for an item while any
+packing specification names it as material, naming the item it packs; the
+item master sits above packing, so it reads the specification with raw SQL and
+names the two flags itself, and a unit test fails if its list and packing's
+part.
 
 **Where.** `src/modules/packing/service.py` - `_resolve_packing_material`,
 `_require_untracked_material`, `_validate_packing_spec_items`, `add_carton`,
 `list_packing_materials`; `src/modules/packing/repository.py` -
-`PACKING_MATERIAL_EXCLUDED_TRACKING`, `ItemLookupRepository.packing_materials`.
+`PACKING_MATERIAL_EXCLUDED_TRACKING`, `usable_as_packing_material`,
+`ItemLookupRepository.packing_materials`; `src/modules/mrp/repository.py` -
+`PackingDemandRepository`; `src/modules/products/service.py` -
+`_assert_tracking_change_is_safe`.
 
 **Impact if wrong.** If only packing material may be used as a box, that needs a
 capability flag on the item, as `can_job_work` is for job work - never a branch

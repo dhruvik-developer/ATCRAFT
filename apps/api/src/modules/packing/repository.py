@@ -33,7 +33,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, delete, func, select
+from sqlalchemy import ColumnElement, Select, and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -246,16 +246,26 @@ class CartonTotals:
 
 
 #: The tracking that rules an item out as packing material, stated once for its
-#: three readers: the carton form's pick-list leaves these items out
-#: (``ItemLookupRepository.packing_materials``), and opening a carton and saving
-#: a packing specification refuse them (``service._require_untracked_material``).
-#: The seal posts one untracked issue for the box, so it has no unit or lot to
-#: name, and a recipe on such a material would plan boxes packing cannot use
-#: (docs/assumptions.md §PACK-2).
+#: readers: the carton form's pick-list and MRP's packing-recipe demand leave
+#: these items out (``usable_as_packing_material``), and opening a carton and
+#: saving a packing specification refuse them
+#: (``service._require_untracked_material``). The seal posts one untracked issue
+#: for the box, so it has no unit or lot to name, and a recipe on such a material
+#: would plan boxes packing cannot use (docs/assumptions.md §PACK-2).
 PACKING_MATERIAL_EXCLUDED_TRACKING: tuple[InstrumentedAttribute[bool], ...] = (
     Item.is_serial_tracked,
     Item.is_batch_tracked,
 )
+
+
+def usable_as_packing_material() -> ColumnElement[bool]:
+    """``Item`` is tracked by none of ``PACKING_MATERIAL_EXCLUDED_TRACKING``.
+
+    The predicate form of the rule, for a statement that joins ``Item`` as the
+    material: the pick-list here, and MRP's packing-recipe demand, which must
+    not plan a box no carton can use (docs/assumptions.md §E3b-6).
+    """
+    return and_(*(flag.is_(False) for flag in PACKING_MATERIAL_EXCLUDED_TRACKING))
 
 
 class ItemLookupRepository(BaseRepository[Item]):
@@ -339,7 +349,7 @@ class ItemLookupRepository(BaseRepository[Item]):
                 Item.deleted_at.is_(None),
                 Item.is_active.is_(True),
                 Item.item_group == ItemGroup.PACKING_MATERIAL,
-                *(flag.is_(False) for flag in PACKING_MATERIAL_EXCLUDED_TRACKING),
+                usable_as_packing_material(),
             )
             .group_by(Item.id)
             .order_by(Item.code.asc())

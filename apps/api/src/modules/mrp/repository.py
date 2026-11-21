@@ -64,9 +64,9 @@ from datetime import date, timedelta
 from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, case, func, or_, select, update
+from sqlalchemy import ColumnElement, Select, and_, case, func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.orm import InstrumentedAttribute, aliased
 
 from src.common.repository import BaseRepository
 from src.core.deps import TenantContext
@@ -259,6 +259,14 @@ def packing_material_quantity(
     raise ValueError("A packing specification must define exactly one quantity rule.")
 
 
+def _material_of(spec: Any) -> ColumnElement[bool]:
+    """Join condition: ``Item`` is the packing material of ``spec``, same company."""
+    return and_(
+        Item.id == spec.packing_material_item_id,
+        Item.company_id == spec.company_id,
+    )
+
+
 class PackingDemandRepository:
     """Default material demand generated from sales and unfinished packing lines."""
 
@@ -280,6 +288,7 @@ class PackingDemandRepository:
             PackingOrderLine,
             PackingOrderStatus,
         )
+        from src.modules.packing.repository import usable_as_packing_material
 
         if not lines:
             return []
@@ -347,10 +356,14 @@ class PackingDemandRepository:
                     ItemPackingSpec.quantity_per_unit,
                     ItemPackingSpec.units_per_carton,
                 )
+                .join(Item, _material_of(ItemPackingSpec))
                 .where(
                     ItemPackingSpec.company_id == self.tenant.company_id,
                     ItemPackingSpec.item_id.in_(item_ids),
                     ItemPackingSpec.is_default.is_(True),
+                    # A recipe on a material no carton can use plans nothing;
+                    # run warnings name it (unusable_default_specs).
+                    usable_as_packing_material(),
                 )
                 .order_by(
                     ItemPackingSpec.item_id,
@@ -425,6 +438,7 @@ class PackingDemandRepository:
             PackingOrderLine,
             PackingOrderStatus,
         )
+        from src.modules.packing.repository import usable_as_packing_material
 
         stmt = (
             select(
@@ -439,6 +453,7 @@ class PackingDemandRepository:
                 PackingOrder.planned_date,
                 PackingOrder.warehouse_id,
             )
+            .join(Item, _material_of(ItemPackingSpec))
             .join(
                 PackingOrderLine,
                 and_(
@@ -456,6 +471,7 @@ class PackingDemandRepository:
             .where(
                 ItemPackingSpec.company_id == self.tenant.company_id,
                 ItemPackingSpec.is_default.is_(True),
+                usable_as_packing_material(),
                 PackingOrderLine.company_id == self.tenant.company_id,
                 PackingOrder.company_id == self.tenant.company_id,
                 PackingOrder.status.in_((PackingOrderStatus.DRAFT, PackingOrderStatus.IN_PROGRESS)),
@@ -491,6 +507,47 @@ class PackingDemandRepository:
             )
             for row in rows
         ]
+
+    async def unusable_default_specs(self, *, limit: int) -> tuple[list[tuple[str, str]], int]:
+        """Default recipes whose material no carton can use, as (item, material) codes.
+
+        Both demand reads above leave such a recipe out (§E3b-6): a material
+        tracked by lot or by unit cannot be sealed into a carton (§PACK-2). A
+        recipe saved before that rule, or whose material started being tracked
+        later, is still on file, so the run names the first ``limit`` of them
+        with the total, rather than planning less in silence. One statement.
+        """
+        from src.modules.packing.models import ItemPackingSpec
+        from src.modules.packing.repository import usable_as_packing_material
+
+        product = aliased(Item)
+        rows = (
+            await self.session.execute(
+                select(
+                    product.code.label("item_code"),
+                    Item.code.label("material_code"),
+                    func.count().over().label("total"),
+                )
+                .select_from(ItemPackingSpec)
+                .join(Item, _material_of(ItemPackingSpec))
+                .join(
+                    product,
+                    and_(
+                        product.id == ItemPackingSpec.item_id,
+                        product.company_id == ItemPackingSpec.company_id,
+                    ),
+                )
+                .where(
+                    ItemPackingSpec.company_id == self.tenant.company_id,
+                    ItemPackingSpec.is_default.is_(True),
+                    not_(usable_as_packing_material()),
+                )
+                .order_by(product.code, Item.code, ItemPackingSpec.id)
+                .limit(limit)
+            )
+        ).all()
+        total = int(rows[0].total) if rows else 0
+        return [(row.item_code, row.material_code) for row in rows], total
 
 
 class ReorderDemandRepository(BaseRepository[Item]):

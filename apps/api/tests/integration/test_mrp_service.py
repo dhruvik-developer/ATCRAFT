@@ -606,6 +606,100 @@ async def test_cancelled_packing_order_does_not_reduce_sales_packing_demand(ctx:
 
 
 @pytest.mark.asyncio
+async def test_a_default_spec_on_a_tracked_material_plans_nothing_and_says_so(
+    ctx: Ctx,
+) -> None:
+    """A recipe whose material is tracked by lot - saved before the spec refused
+    one, or whose material started being tracked later - plans no boxes from
+    either demand read, because no carton can use them (§E3b-6, §PACK-2). The
+    run names it rather than planning less in silence; the untracked recipe
+    beside it is planned as before."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    usable = _item(
+        ctx,
+        f"BOX-OK-{suffix}",
+        item_group=ItemGroup.PACKING_MATERIAL,
+        can_sell=False,
+        can_manufacture=False,
+    )
+    tracked = _item(
+        ctx,
+        f"BOX-LOT-{suffix}",
+        item_group=ItemGroup.PACKING_MATERIAL,
+        can_sell=False,
+        can_manufacture=False,
+        is_batch_tracked=True,
+    )
+    ctx.session.add_all([usable, tracked])
+    await ctx.session.flush()
+    ctx.session.add_all(
+        [
+            ItemPackingSpec(
+                company_id=ctx.tenant.company_id,
+                item_id=ctx.handle.id,
+                packing_material_item_id=material.id,
+                units_per_carton=6,
+                is_default=True,
+            )
+            for material in (usable, tracked)
+        ]
+    )
+    await ctx.session.flush()
+    await add_sales_order(ctx, code=f"SO/{suffix}", lines=[(ctx.handle, "13")])
+    packing_order = PackingOrder(
+        company_id=ctx.tenant.company_id,
+        code=f"PK/{suffix}",
+        customer_id=ctx.customer.id,
+        warehouse_id=ctx.main_warehouse.id,
+        planned_date=today() + timedelta(days=10),
+        status=PackingOrderStatus.DRAFT,
+    )
+    ctx.session.add(packing_order)
+    await ctx.session.flush()
+    ctx.session.add(
+        PackingOrderLine(
+            company_id=ctx.tenant.company_id,
+            packing_order_id=packing_order.id,
+            line_number=1,
+            item_id=ctx.handle.id,
+            quantity_to_pack=D("6"),
+            packed_quantity=D("0"),
+            uom_id=ctx.uom.id,
+        )
+    )
+    await ctx.session.flush()
+
+    run = await run_plan(ctx)
+
+    planned = (
+        (
+            await ctx.session.execute(
+                select(MrpDemand.item_id, MrpDemand.demand_source).where(
+                    MrpDemand.run_id == run.id,
+                    MrpDemand.item_id.in_([usable.id, tracked.id]),
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    assert sorted(source for item_id, source in planned if item_id == usable.id) == sorted(
+        [MrpDemandSource.SALES_ORDER, MrpDemandSource.PACKING_ORDER]
+    )
+    assert [item_id for item_id, _ in planned if item_id == tracked.id] == []
+    assert await requirement_for(ctx, run.id, tracked) is None
+
+    detail = await service.get_run(ctx.session, ctx.tenant, run.id)
+    skipped = [w for w in detail.warnings if "no packing material was planned" in w]
+    assert skipped == [
+        "A default packing specification uses a material tracked by lot or by unit, "
+        "which no carton can use, so no packing material was planned for it: "
+        f"{ctx.handle.code} ({tracked.code}). "
+        "Change its material to an untracked item, or delete it."
+    ]
+
+
+@pytest.mark.asyncio
 async def test_two_orders_for_one_product_merge_into_one_screw_requirement(ctx: Ctx) -> None:
     """The database enforces it: UNIQUE (run_id, item_id) on mrp_requirements.
 

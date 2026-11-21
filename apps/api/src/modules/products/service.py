@@ -1506,6 +1506,13 @@ async def _assert_tracking_change_is_safe(
 ) -> None:
     """Refuse a change to batch or serial tracking while the item holds stock.
 
+    Turning either flag *on* is also refused while a packing specification
+    names the item as its material (``ItemRepository.packed_with``): the
+    specification would refuse that material if saved now, and MRP would keep
+    a recipe it plans nothing from. Both flags are
+    ``packing.repository.PACKING_MATERIAL_EXCLUDED_TRACKING``;
+    ``tests/unit/test_packing_material_rule.py`` fails if the two lists part.
+
     ASSUMPTION (docs/assumptions.md §24, §E10-2): ``is_batch_tracked`` and
     ``is_serial_tracked`` may only change while the item holds nothing
     anywhere: no on-hand, nothing reserved, in transit, out at a job-work
@@ -1558,17 +1565,33 @@ async def _assert_tracking_change_is_safe(
     )
     if not changing:
         return
-    if not await repo.has_stock_balance(item.id):
+    if await repo.has_stock_balance(item.id):
+        raise referenced_in_use(
+            f"Item {item.code} still holds stock, so how its stock is identified cannot be "
+            "changed. Issue, transfer or write the remaining balance off - including anything "
+            "in transit or out at a job-work vendor - and then change the tracking setting.",
+            item_code=item.code,
+            item_id=str(item.id),
+            fields=changing,
+        )
+    turning_on = [field for field in changing if wanted[field]]
+    if not turning_on:
         return
-
-    raise referenced_in_use(
-        f"Item {item.code} still holds stock, so how its stock is identified cannot be "
-        "changed. Issue, transfer or write the remaining balance off - including anything "
-        "in transit or out at a job-work vendor - and then change the tracking setting.",
-        item_code=item.code,
-        item_id=str(item.id),
-        fields=changing,
-    )
+    # ASSUMPTION (docs/assumptions.md §PACK-2): a packing specification refuses a
+    # material tracked by lot or by unit, so tracking is not turned on under one
+    # either - MRP would otherwise keep a recipe it can no longer plan from.
+    packed = await repo.packed_with(item.id)
+    if packed is not None:
+        raise referenced_in_use(
+            f"Item {item.code} is the packing material of the packing specification for "
+            f"item {packed}, and a carton cannot use a material tracked by lot or by unit. "
+            f"Change that specification's material or delete it on item {packed}, and then "
+            "change the tracking setting.",
+            item_code=item.code,
+            item_id=str(item.id),
+            packed_item_code=packed,
+            fields=turning_on,
+        )
 
 
 async def update_item(

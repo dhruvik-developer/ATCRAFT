@@ -74,6 +74,7 @@ from src.modules.inventory.schemas import (
     StockTransferCreate,
     StockTransferLineCreate,
 )
+from src.modules.packing.models import ItemPackingSpec
 from src.modules.products import service as products
 from src.modules.products.models import Item
 from src.modules.products.repository import ItemRepository
@@ -607,6 +608,42 @@ class TestTheFlagCannotBeFlippedUnderLiveStock:
             session, tenant, principal, bench.item_id, ItemUpdate(name="Brass rod, 16mm")
         )
         assert updated.name == "Brass rod, 16mm"
+
+    async def test_tracking_cannot_be_turned_on_under_a_packing_specification(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
+    ) -> None:
+        """A box with no stock may otherwise start being tracked, but not while a
+        packing specification uses it: the specification refuses a tracked
+        material, and MRP would keep a recipe it plans nothing from (§PACK-2)."""
+        box = await seed_bench(session, tenant, on_hand="0")
+        async with seeded(session):
+            product = await seed_support.seed_item(
+                session, company_id=tenant.company_id, code=_code("FG"), can_sell=True
+            )
+            session.add(
+                ItemPackingSpec(
+                    company_id=tenant.company_id,
+                    item_id=product.id,
+                    packing_material_item_id=box.item_id,
+                    units_per_carton=6,
+                    is_default=True,
+                )
+            )
+        product_code = product.code
+
+        for field in ("is_batch_tracked", "is_serial_tracked"):
+            with pytest.raises(BusinessRuleError) as excinfo:
+                await products.update_item(
+                    session, tenant, principal, box.item_id, ItemUpdate(**{field: True})
+                )
+            assert excinfo.value.code is ErrorCode.REFERENCED_RECORD_IN_USE
+            assert f"packing specification for item {product_code}" in excinfo.value.message
+            assert excinfo.value.details["fields"] == [field]
+
+        updated = await products.update_item(
+            session, tenant, principal, box.item_id, ItemUpdate(name="Carton, 6 handles")
+        )
+        assert updated.is_batch_tracked is False
 
     async def test_the_stock_probe_is_tenant_scoped(
         self, session: AsyncSession, tenant: TenantContext, other_company

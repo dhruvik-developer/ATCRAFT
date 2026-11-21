@@ -85,6 +85,24 @@ _ITEM_BALANCE_SQL = (
 )
 
 
+#: The first packing specification that names an item as its material, by the
+#: code of the item it packs: defaults first, then by that code. Raw SQL for the
+#: same reason as ``_ITEM_BALANCE_SQL`` - packing sits below the item master in
+#: the dependency order (docs/architecture.md).
+_PACKING_SPEC_FOR_MATERIAL_SQL = (
+    "SELECT packed.code FROM item_packing_specs spec "
+    "JOIN items packed ON packed.id = spec.item_id AND packed.company_id = spec.company_id "
+    "WHERE spec.company_id = :company_id AND spec.packing_material_item_id = :item_id "
+    "ORDER BY spec.is_default DESC, packed.code, spec.id LIMIT 1"
+)
+
+
+async def _item_packing_specs_exists(session: Any) -> bool:
+    """Is the ``item_packing_specs`` table present? See ``_inventory_balances_exists``."""
+    found = await session.execute(text("SELECT to_regclass('public.item_packing_specs')"))
+    return found.scalar() is not None
+
+
 async def _inventory_balances_exists(session: Any) -> bool:
     """Is the ``inventory_balances`` table present in this database?
 
@@ -759,6 +777,20 @@ class ItemRepository(BaseRepository[Item]):
             {"company_id": self.tenant.company_id, "item_id": item_id},
         )
         return found.first() is not None
+
+    async def packed_with(self, item_id: uuid.UUID) -> str | None:
+        """The code of an item whose packing specification uses this one as material.
+
+        ``None`` when no specification names it, or when ``item_packing_specs``
+        does not exist yet. One indexed probe, tenant-scoped by hand.
+        """
+        if not await _item_packing_specs_exists(self.session):
+            return None
+        found = await self.session.execute(
+            text(_PACKING_SPEC_FOR_MATERIAL_SQL),
+            {"company_id": self.tenant.company_id, "item_id": item_id},
+        )
+        return found.scalar_one_or_none()
 
     # --- search --------------------------------------------------------------
 
