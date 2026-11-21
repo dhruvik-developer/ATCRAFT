@@ -107,11 +107,16 @@ docs/assumptions.md that records it.
   expressed by setting it, and the ratio is frozen on the line so a later edit
   cannot restate what an issued order was supposed to return.
 
-* ASSUMPTION (docs/assumptions.md §JW-4): **Charges accrue on good output
-  received**, at the agreed rate, on the receipt date. A vendor is paid for
-  good pieces delivered, so a short or rejected delivery costs less without
-  anybody raising a credit note. A ``LOT`` rate is accrued once, on the first
-  receipt that returns any good output.
+* ASSUMPTION (docs/assumptions.md §JW-4): **Charges accrue on the good output
+  a receipt keys**, at the agreed rate, on the receipt date. A vendor is paid
+  for good pieces delivered, so a short delivery, or output rejected at the
+  receipt, costs less without anybody raising a credit note. A ``LOT`` rate is
+  accrued once, on the first receipt that keys any good output. The charge is
+  fixed at the receipt: output an inspection later rejects on a ``requires_qc``
+  order stays charged and billable, a ``LOT`` rate stays earned, and the
+  vendor's bill is adjusted by hand (owner decision, 20 November 2026).
+  :func:`record_quality_verdict` changes no charge; it is where an automatic
+  reduction would go if the owner decides on one.
 
 * ASSUMPTION (docs/assumptions.md §4): **The vendor debit is the value of
   company material lost beyond the allowance**, priced at the unit cost the
@@ -123,9 +128,10 @@ docs/assumptions.md that records it.
   its capitalised cost** (:func:`capitalised_output_cost`): the input the good
   output consumed, valued at the frozen challan issue cost - the ledger's FIFO
   draw captured on the challan line when the material left - plus the receipt
-  charge the line accrued, per good unit. Returned rejects carry their
-  proportional share of that input value without a processing charge; their
-  material is not also folded into the good units. The price is read from
+  charge the line accrued, per good unit. Rejects returned at the receipt
+  carry their proportional share of that input value without a processing
+  charge; their material is not also folded into the good units. Output an
+  inspection rejects later keeps the processing charge in its cost (§JW-4). The price is read from
   challans before posting, so it is exact rather than a second read of layers
   the posting itself consumes. Process loss within the allowance is expensed as
   scrap (as before) rather than absorbed into the good units, and the later

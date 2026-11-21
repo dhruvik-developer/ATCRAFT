@@ -443,14 +443,18 @@ genuine clearance pricing.
 
 ## 9. GST place-of-supply determination
 
-**Assumed.** Intra-state (CGST + SGST) when the company's `state_code` equals
-the shipping address `state_code`; otherwise inter-state (IGST). Rounding is
+**Assumed.** Intra-state (CGST + SGST) when the seller's `state_code` equals
+the shipping address `state_code`; otherwise inter-state (IGST), including when
+either state code is unknown. The seller's state is the branch's when the order
+names a branch that has one, and the company's otherwise (§SALES-3). Rounding is
 `ROUND_HALF_UP` at two decimal places, applied per line.
 
 **Why.** It is the ordinary rule and the rounding convention Indian invoicing
 expects. Exports, SEZ supplies and reverse-charge cases are **not** modelled.
 
-**Where.** `src/modules/sales/service.py` — tax computation.
+**Where.** `src/modules/sales/service.py` — `resolve_tax_treatment` and the tax
+computation; `src/modules/sales/repository.py` —
+`OrderPartyRepository.seller_state_code`.
 
 **Impact if wrong.** Incorrect tax on invoices — a statutory problem, not just a
 data one. Must be confirmed by Atcraft's accountants before go-live, and
@@ -4132,7 +4136,10 @@ good units; the later invoice price variance is expensed too; the sub-paisa
 rounding remainder is recorded on the receipt audit, not posted anywhere.
 
 Good output and rejected output returned to DAMAGED share the frozen material
-value proportionally; only good output earns processing charges. For
+value proportionally; only good output earns processing charges. Good output is
+what the receipt keys: on an order that requires inspection, output the
+inspection later rejects keeps the processing charge in its cost when quality
+moves it to damaged, and stays charged to the vendor (§JW-4). For
 `SCRAP_AT_VENDOR`, the rejected input share rounds once to input quantity scale
 (four places), moves from JOB_WORK to SCRAP, and good output carries the
 remaining input value. Rejected scrap stays distinct from process-loss scrap:
@@ -5644,11 +5651,18 @@ range is better served by the export than by the page.
 **Assumed.** `approval_requests.requested_action` holds the permission string of
 the action awaiting approval (`purchase_order.approve`), and the approver needs
 that permission. An action the permission registry does not know is not guessed
-at: only a platform superuser may decide it. Rejecting a request needs a note of
-at least `REASON_MIN_LENGTH` characters (`core/constants.py`, currently three),
-and a shorter one is refused with `REASON_TOO_SHORT` (`core/messages.py`);
-approving one does not. The note is an audited reason, so its floor is every
-audited reason's: raising `REASON_MIN_LENGTH` raises this one too.
+at: only a platform superuser may decide it. A request is decided from its
+owning document's workflow - rejecting the purchase order, the BOM, the stock
+adjustment - which closes the queue row in the same transaction through
+`close_approval`; the detached `/approvals/{id}/approve` and `/reject` routes are
+deprecated and refuse every decision. Rejecting needs a reason of at least
+`REASON_MIN_LENGTH` characters (`core/constants.py`, currently three), held by
+the owning workflow's rejection schema (`Reason` or `LongReason` in
+`core/fields.py`, or a field with the same floor), and a shorter one is refused;
+approving needs only what that workflow asks. The one exception is a
+reallocation request, whose decision note (`ReallocationDecision.decision_note`)
+is optional on a rejection too. The note is an audited reason, so its floor is
+every audited reason's: raising `REASON_MIN_LENGTH` raises this one too.
 
 **Why.** Checking the approver against the registry the underlying action is
 checked against cannot drift, as a second mapping table could. A rejection is an
@@ -5657,8 +5671,11 @@ is not evidence of a judgement - the conservative reading of master rules
 section 42.
 
 **Where.** `src/modules/audit/query_service.py` - `permission_for_action`,
-`assert_may_decide`, `ApprovalService._decide` (the note floor, from
-`REASON_MIN_LENGTH`). Who may decide a request they raised is section 2.
+`assert_may_decide`, `close_approval` (called by each owning workflow's decision);
+`src/core/fields.py` - `Reason`, `LongReason` (the note floor, from
+`REASON_MIN_LENGTH`). `ApprovalService._decide` still checks the floor before it
+refuses a decision on the deprecated routes. Who may decide a request they
+raised is section 2.
 
 **Impact if wrong.** If approval needs its own vocabulary, it needs a mapping
 from action to permission, kept in step with the registry by a test. If an
@@ -5908,7 +5925,8 @@ and `plan_line_receipt`.
 ## §JW-2. A job-work order is approved under job_work.close, which separates roles, not people
 
 **Assumed.** The permission vocabulary has no `job_work.approve`. Approving a
-draft - which takes a hard reservation for every line it will send out - needs
+draft - which takes a hard reservation for every line it will send out, except
+on a rework order, whose returned rejects are not reserved (§E7b-4) - needs
 `job_work.close`, the module's senior right, as do closing an order and
 accepting loss beyond the allowance (section 4). Of the role presets the Plant
 Manager holds it, and so do both administrator roles; the Production
@@ -5956,26 +5974,99 @@ default would come from the process or the item instead of the line; receipt
 planning and MRP's job-work supply (§E3b-1) already read the stored ratio, so
 only the default changes.
 
-## §JW-4. A vendor earns its charge on good output, and a lot rate once
+## §JW-4. A vendor earns its charge on the good output a receipt keys, and a lot rate once
 
-**Assumed.** Each receipt accrues the vendor's charge on the good output it
-returns, at the order's agreed rate: a `PER_PIECE` or `PER_KG` rate is
-multiplied by the good output, so rejected output, rework the vendor keeps,
+**Assumed.** Each receipt accrues the vendor's charge on the good output keyed
+on it, at the order's agreed rate: a `PER_PIECE` or `PER_KG` rate is multiplied
+by that output, so output rejected at the receipt, rework the vendor keeps,
 unprocessed returns and process loss earn nothing. A `LOT` rate is accrued once,
-in full, on the first receipt that returns any good output, and later receipts
-on the order accrue nothing. The receipt's charge is shared across its lines by
+in full, on the first receipt that keys any good output, and later receipts on
+the order accrue nothing. The receipt's charge is shared across its lines by
 their good output.
 
-**Why.** A vendor is paid for good pieces delivered, so a short or rejected
-delivery costs less without anybody raising a credit note. A lot rate is a flat
-charge for the consignment, however much of it comes back.
+The charge is fixed at the receipt and nothing changes it afterwards. On an
+order that requires inspection the keyed output goes to QC hold already
+charged. When the inspection rejects part of it, quality moves that part to
+damaged and calls `record_quality_verdict`, which releases the lot and changes
+no charge. Output an inspection rejects therefore stays charged and billable:
+the receipt line's charges, the receipt's and the order's totals and the
+billable lines offered for the vendor's bill all keep it, a bill for the full
+keyed quantity matches cleanly, and a `LOT` rate earned by a lot the inspection
+rejects entirely stays earned. The rejected units also carry the processing
+charge in their capitalised cost (§E7b-2). Recovering the charge for refused
+output is a manual adjustment: the vendor's bill is entered for less.
 
-**Where.** `src/modules/job_work/service.py` - `receipt_charge`, `receive`;
-`src/modules/job_work/models.py` - `RateBasis`.
+**Owner decision (20 November 2026).** Keep this billing behaviour and adjust
+the bill by hand. Reducing the charge automatically when an inspection rejects
+output is a separate, later decision.
+
+**Why.** A vendor is paid for good pieces delivered, so a short delivery, or
+output refused at the gate, costs less without anybody raising a credit note. A
+lot rate is a flat charge for the consignment, however much of it comes back.
+Re-pricing a receipt after its inspection changes a charge the receipt line,
+the order total and possibly an approved bill already state, which the owner
+chose not to do until it is decided.
+
+**Where.** `src/modules/job_work/service.py` - `receipt_charge`, `receive`,
+`record_quality_verdict`, `billable_lines`; `src/modules/job_work/models.py` -
+`RateBasis`; `src/modules/finance/service.py` - `_evaluate_job_work_line`, which
+matches a bill against the receipt line's output quantity and unbilled charges.
 
 **Impact if wrong.** If a vendor is paid for everything it processed, pass and
-fail alike, `receipt_charge` counts the rejected output too; a lot rate earned
-on every delivery drops its `lot_already_charged` test.
+fail alike, `receipt_charge` counts the output rejected at the receipt too; a
+lot rate earned on every delivery drops its `lot_already_charged` test. If
+output an inspection rejects should stop earning, the re-pricing belongs in
+`record_quality_verdict`: in the same transaction, reduce the receipt line's
+charges, the receipt's and the order's total charges, and a `LOT` accrual for a
+lot rejected entirely, by the refused share, audited, and refuse or flag a line
+already billed beyond what remains; the billable lines and the bill match then
+follow without further change.
+
+## §JW-5. Stock at a job-work vendor carries no book value, and an unprocessed return comes back at standard cost
+
+**Assumed.** Two valuation rules, stated plainly because the owner asked for
+them to be.
+
+1. Material issued to a job-work vendor leaves the company's stock value until
+   it comes back. A `JOB_WORK_ISSUE` moves the quantity from on-hand into the
+   position's `job_work_quantity` (§INV-2) and consumes on-hand FIFO layers as
+   any departure does; the job-work pool holds no cost layer. The inventory
+   valuation (`InventoryValuationRepository.valuation_stmt`) sums
+   `stock_value` and the on-hand layers only, so the material at the vendor is
+   in no valuation total while it is there. Its value is frozen on the challan
+   line (`unit_value`), and it re-enters stock value only as the output's
+   capitalised cost (§E7b-2), as returned rejects, or as an unprocessed return.
+2. Unprocessed material the vendor returns is re-booked at the item's standard
+   cost, not at the value it left with. The receipt posts it as a
+   `JOB_WORK_RECEIPT` from the job-work pool with no unit cost, so the layer it
+   opens is priced by the ordinary precedence (§INV-3): the item's standard cost
+   when it has one, otherwise the position's remaining cost. The position's
+   value changes by the difference from the frozen challan value.
+
+**Owner decision pending.** Both are how the code behaves today and are
+recorded so finance reads the figures correctly; changing either is the
+owner's decision.
+
+**Why.** The job-work pool sits outside on-hand so that ownership is not
+counted twice (§INV-2), and the valuation reads on-hand layers only. The
+receipt passes a cost for the output and the returned rejects, which it
+computes from the challans, but not for the unprocessed return, so that
+movement takes the engine's default price.
+
+**Where.** `src/modules/inventory/models.py` - `ON_HAND_STATES`,
+`CostLayerPool`; `src/modules/inventory/service.py` - `_DEFAULT_TRANSITION`,
+`inbound_unit_cost`; `src/modules/finance/repository.py` -
+`InventoryValuationRepository.valuation_stmt`;
+`src/modules/job_work/service.py` - `receipt_movements`;
+`src/modules/job_work/serial_tracking.py` - `receipt_movements`.
+
+**Impact if wrong.** If the balance sheet must show material at vendors, the
+valuation adds the job-work pool at its frozen challan value (the
+`pending_at_vendor` quantities priced from the challan lines), or the issue
+carries its layers into a job-work cost pool. If an unprocessed return must come
+back at the value it left with, both `receipt_movements` pass the challan
+line's quantity-weighted `unit_value` as the return movement's `unit_cost`, as
+they already do for the output and the returned rejects.
 
 ## §VEND-1. A vendor is rated on five receipts or more, delivery 60% and quality 40%
 
@@ -6872,8 +6963,11 @@ plus one, read under the order's row lock, and its barcode is built from the
 order's code and that number. Removing an unsealed carton deletes it and
 renumbers nothing, so removing carton 3 of 5 leaves a gap and the next carton is
 6. Removing the highest-numbered carton is different: nothing is left above it,
-so the next carton opened takes its number - and its barcode - again. A sealed
-carton cannot be removed.
+so a removed number - and its barcode - comes back once no carton above it
+remains. Usually that is the next carton opened; when an earlier gap sits
+directly below (cartons 1, 2, 3 and 5 after 4 was removed), removing 5 makes the
+next carton 4, and 5 comes back on the one after. A sealed carton cannot be
+removed.
 
 **Why.** A carton's label can be printed while it is still open, so renumbering
 cartons 4 and 5 would make two boxes claim one number. The number is not a
