@@ -18,7 +18,9 @@ names no internals. These shapes broke that and shipped past review:
   "Courier account not found. not found";
 * a refusal named a database table - "Add a uom_conversions row before using
   it." reached the item form verbatim. A sentence names what a person knows,
-  and an identifier stays in ``details``.
+  and an identifier stays in ``details``. That rule reads every literal in the
+  source, not only a raise's first argument, because a refusal also reaches a
+  person through a helper, a shared constant, a concatenation or a field error.
 
 Every rule is a function over source text, and each has a self-test that feeds
 it the violation it exists to catch.
@@ -35,7 +37,7 @@ from src.core.constants import REASON_MIN_LENGTH
 from src.core.models import Base
 from src.core.registry import import_all_models
 from tests.message_scan_support import _error_classes, _template
-from tests.source_scan_support import SRC, python_sources
+from tests.source_scan_support import SRC, python_sources, source_texts
 
 pytestmark = pytest.mark.unit
 
@@ -390,42 +392,169 @@ def schema_table_names() -> frozenset[str]:
     return frozenset(name for name in Base.metadata.tables if "_" in name)
 
 
-def table_names_in_refusals(
-    source: str, *, error_classes: set[str], schemas: bool, tables: frozenset[str]
-) -> list[str]:
-    """``line N: table`` for each user-facing refusal whose text names a table.
+#: A literal that is a name and nothing else - ``"stock_batches"``,
+#: ``"purchase_order_lines.id"``, a module path - addresses the schema in code;
+#: it is not a sentence about it. An error constructor's argument is the
+#: exception, because ``NotFoundError("stock_batches", ...)`` words the name
+#: into its sentence.
+_IDENTIFIER = re.compile(r"[\w.]+")
+#: SQL statement text, which names its tables by design.
+_SQL = re.compile(r"\s*(SELECT|INSERT|UPDATE|DELETE|WITH|LOCK)\b", re.IGNORECASE)
+#: Raises whose reader is the developer who called the code wrongly.
+_DEVELOPER_ERRORS = frozenset({"TypeError", "RuntimeError"})
 
-    The refusals are :func:`user_facing_texts`'s, and their text is matched word
-    by word against ``tables``.
+#: Text naming a table that no person reads, by ``(file under src, table)``,
+#: each with its reason.
+TABLE_TEXT_ALLOWED: dict[tuple[str, str], str] = {
+    ("modules/audit/repository.py", "audit_logs"): (
+        "_IMMUTABLE, the TypeError a developer gets for updating or deleting "
+        "through the append-only audit repository"
+    ),
+}
+
+
+def _called(node: ast.AST | None) -> str | None:
+    """The name a call calls - ``f(...)`` or ``module.f(...)`` - or None."""
+    if not isinstance(node, ast.Call):
+        return None
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    return node.func.attr if isinstance(node.func, ast.Attribute) else None
+
+
+def error_constructors(trees: list[ast.Module]) -> set[str]:
+    """Every AppError subclass, and every function annotated to return one.
+
+    ``referenced_in_use`` and ``duplicate_code`` build the error a route
+    raises, so their arguments are as user-facing as the class's own.
     """
-    return [
-        f"line {line}: {table}"
-        for line, text in user_facing_texts(source, error_classes=error_classes, schemas=schemas)
-        for table in sorted(tables.intersection(_WORD.findall(text)))
-    ]
-
-
-def test_no_refusal_names_a_database_table() -> None:
-    files = python_sources()
-    trees = [ast.parse(path.read_text(encoding="utf-8")) for path in files]
     message_classes, label_classes = _error_classes(trees)
+    classes = message_classes | label_classes
+    return classes | {
+        node.name
+        for tree in trees
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and isinstance(node.returns, ast.Name)
+        and node.returns.id in classes
+    }
+
+
+def _texts(node: ast.AST) -> list[str]:
+    """Every text a literal, an f-string, a ``+`` chain or a conditional can be."""
+    if isinstance(node, ast.Constant):
+        return [node.value] if isinstance(node.value, str) else ["{}"]
+    if isinstance(node, ast.JoinedStr):
+        return [_template(node) or "{}"]
+    if isinstance(node, ast.IfExp):
+        return _texts(node.body) + _texts(node.orelse)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return [left + right for left in _texts(node.left) for right in _texts(node.right)]
+    return ["{}"]
+
+
+def _is_text(node: ast.AST | None) -> bool:
+    """Whether ``node`` is a literal, an f-string, a conditional or a ``+`` chain."""
+    return (
+        (isinstance(node, ast.Constant) and isinstance(node.value, str))
+        or isinstance(node, (ast.JoinedStr, ast.IfExp))
+        or (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add))
+    )
+
+
+def table_names_in_text(
+    source: str, *, constructors: set[str], tables: frozenset[str]
+) -> list[tuple[int, str]]:
+    """``(line, table)`` for each text in ``source`` a person may read that names a table.
+
+    Every string literal is read wherever it sits - a raise, a constant such as
+    ``core/messages.py``'s, a message builder's argument, ``details["fields"]``
+    - with a ``+`` chain, an f-string and a conditional read whole. Left out:
+    docstrings; ``text(...)`` and any literal that is a SQL statement;
+    ``description=`` (OpenAPI prose for a developer); ``TypeError`` and
+    ``RuntimeError`` raises; and a literal that is only a name
+    (``ForeignKey("uom_conversions.id")``, ``details={"table": ...}``) unless it
+    is an argument of an error constructor in ``constructors``.
+    """
+    tree = ast.parse(source)
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    exempt: set[int] = set()
+    worded: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+        ):
+            exempt.add(id(node.body[0].value))
+        skipped: ast.AST | None = None
+        if _called(node) == "text":
+            skipped = node
+        elif isinstance(node, ast.keyword) and node.arg == "description":
+            skipped = node.value
+        elif isinstance(node, ast.Raise) and _called(node.exc) in _DEVELOPER_ERRORS:
+            skipped = node.exc
+        if skipped is not None:
+            exempt |= {id(inner) for inner in ast.walk(skipped)}
+        if isinstance(node, ast.Call) and _called(node) in constructors:
+            arguments = [*node.args, *(k.value for k in node.keywords if k.arg != "details")]
+            worded |= {id(inner) for argument in arguments for inner in ast.walk(argument)}
+    found: set[tuple[int, str]] = set()
+    for node in ast.walk(tree):
+        if not _is_text(node) or id(node) in exempt or _is_text(parents.get(node)):
+            continue
+        for text in _texts(node):
+            if _SQL.match(text) or (_IDENTIFIER.fullmatch(text) and id(node) not in worded):
+                continue
+            line = getattr(node, "lineno", 0)
+            found |= {(line, table) for table in tables.intersection(_WORD.findall(text))}
+    return sorted(found)
+
+
+def test_no_text_a_person_reads_names_a_database_table() -> None:
+    texts = source_texts()
+    constructors = error_constructors([ast.parse(source) for source in texts.values()])
     tables = schema_table_names()
     failures = [
-        f"  {path.relative_to(SRC).as_posix()}: {hit}"
-        for path in files
-        for hit in table_names_in_refusals(
-            path.read_text(encoding="utf-8"),
-            error_classes=message_classes | label_classes,
-            schemas=path.name.endswith("schemas.py"),
-            tables=tables,
-        )
+        f"  {relative}: line {line}: {table}"
+        for relative, source in texts.items()
+        for line, table in table_names_in_text(source, constructors=constructors, tables=tables)
+        if (relative, table) not in TABLE_TEXT_ALLOWED
     ]
 
     assert not failures, (
-        f"{len(failures)} refusal(s) name a database table:\n"
+        f"{len(failures)} text(s) name a database table:\n"
         + "\n".join(failures)
         + "\n\nName what a person knows - 'Add a conversion between these two units "
         "first.', not 'Add a uom_conversions row' - and keep identifiers in details."
+    )
+
+
+def test_the_table_allowlist_names_only_text_that_still_names_its_table() -> None:
+    texts = source_texts()
+    constructors = error_constructors([ast.parse(source) for source in texts.values()])
+    tables = schema_table_names()
+    stale = [
+        (relative, table)
+        for relative, table in TABLE_TEXT_ALLOWED
+        if table
+        not in {
+            found
+            for _, found in table_names_in_text(
+                texts[relative], constructors=constructors, tables=tables
+            )
+        }
+    ]
+
+    assert not stale, f"Allowed but no longer needed, so drop the entry: {stale}"
+
+
+def test_the_helper_constructors_are_derived_not_listed() -> None:
+    constructors = error_constructors([ast.parse(text) for text in source_texts().values()])
+
+    assert {"referenced_in_use", "duplicate_code", "NotFoundError", "BusinessRuleError"} <= (
+        constructors
     )
 
 
@@ -433,34 +562,66 @@ def test_the_table_rule_flags_a_table_named_in_a_refusal() -> None:
     tables = schema_table_names()
     source = "\n".join(
         [
-            "def factor(pair, batch_id):",
+            "def factor(pair, batch_id, item):",
             "    raise BusinessRuleError('Add a uom_conversions row before using it.')",
             "    raise NotFoundError('stock_batches', batch_id)",
             "    raise ValidationError(f'{pair} has no row in uom_conversions.')",
             "    raise BusinessRuleError('No items are left to pack.')",
             "    raise BusinessRuleError('Convert first.', details={'table': 'uom_conversions'})",
-            "    raise ValueError('uom_conversions: not a validator, not a schemas module')",
-            "class ConversionIn:",
-            "    @field_validator('factor')",
-            "    def _positive(cls, value):",
-            "        raise ValueError('Enter a factor for the uom_conversions row.')",
+            "    raise referenced_in_use(f'{item} still has stock_batches; retire them.')",
+            "    raise duplicate_code('stock_batches', item)",
+            "UOM_CONVERSION_MISSING = 'Add a uom_conversions row first.'",
+            "def joined(item, short):",
+            "    raise BusinessRuleError(",
+            "        'Item ' + ('has no uom_conversions row' if short else 'is fine') + '.'",
+            "    )",
+            "    raise BusinessRuleError(details={'fields': {'f': 'No uom_conversions'}})",
+            "    error = BusinessRuleError('Retire the stock_batches first.')",
+            "    raise errors.BusinessRuleError('Retire the stock_batches first.')",
+            "    raise BusinessRuleError(message='Retire the stock_batches first.')",
+            "    raise ValueError('Enter a factor for the uom_conversions row.')",
+            "    raise HTTPException(status_code=409, detail='Retire the stock_batches first.')",
+            "    session.execute(text('SELECT 1 FROM uom_conversions WHERE id = :id'))",
+            "BALANCE_SQL = 'SELECT 1 FROM stock_batches WHERE company_id = :company_id'",
+            "def write(row):",
+            "    raise TypeError('audit_logs is append-only: use record_audit.')",
+            "class Conversion(Base):",
+            "    '''One uom_conversions row, as a docstring may say.'''",
+            "    __tablename__ = 'uom_conversions'",
+            "    batch_id = mapped_column(ForeignKey('stock_batches.id'))",
+            "    factor = Field(description='The factor uom_conversions stores.')",
         ]
     )
-    flagged = table_names_in_refusals(
+    flagged = table_names_in_text(
         source,
-        error_classes={"BusinessRuleError", "ValidationError", "NotFoundError"},
-        schemas=False,
+        constructors={
+            "BusinessRuleError",
+            "ValidationError",
+            "NotFoundError",
+            "referenced_in_use",
+            "duplicate_code",
+        },
         tables=tables,
     )
 
     # The names come from the models, and a table that is also a word is left out.
     assert {"uom_conversions", "stock_batches"} <= tables
     assert "items" not in tables
+    # Line 11 opens the call whose concatenation, read whole, sits on line 12.
     assert flagged == [
-        "line 2: uom_conversions",
-        "line 3: stock_batches",
-        "line 4: uom_conversions",
-        "line 11: uom_conversions",
+        (2, "uom_conversions"),
+        (3, "stock_batches"),
+        (4, "uom_conversions"),
+        (7, "stock_batches"),
+        (8, "stock_batches"),
+        (9, "uom_conversions"),
+        (12, "uom_conversions"),
+        (14, "uom_conversions"),
+        (15, "stock_batches"),
+        (16, "stock_batches"),
+        (17, "stock_batches"),
+        (18, "uom_conversions"),
+        (19, "stock_batches"),
     ]
 
 
