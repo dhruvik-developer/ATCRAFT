@@ -1192,6 +1192,36 @@ async def test_the_pick_list_offers_no_packing_material_a_carton_refuses(
     assert offered.isdisjoint(tracked)
 
 
+async def test_a_packing_spec_refuses_a_material_a_carton_refuses(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    """MRP plans a default recipe's material (§E3b-6); packing must be able to use it."""
+    session, tenant = ctx
+    for flags in ({"is_serial_tracked": True}, {"is_batch_tracked": True}):
+        material = await seed_support.seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=_code("BOX"),
+            base_uom_id=bench.uom_id,
+            item_group=ItemGroup.PACKING_MATERIAL,
+            production_type=ProductionType.BUY,
+            can_purchase=True,
+            **flags,
+        )
+        material_id = material.id
+        with pytest.raises(BusinessRuleError, match="cannot be used as packing material"):
+            await service.create_item_packing_spec(
+                session,
+                tenant,
+                bench.goods_item_id,
+                ItemPackingSpecWrite(packing_material_item_id=material_id, units_per_carton=10),
+            )
+    rows, _ = await service.list_item_packing_specs(
+        session, tenant, bench.goods_item_id, PageParams(page=1, limit=50)
+    )
+    assert rows == []
+
+
 async def test_item_packing_specs_are_validated_audited_and_defaulted_safely(
     ctx: tuple[AsyncSession, TenantContext],
 ) -> None:

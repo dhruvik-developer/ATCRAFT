@@ -245,6 +245,19 @@ class CartonTotals:
 # -----------------------------------------------------------------------------
 
 
+#: The tracking that rules an item out as packing material, stated once for its
+#: three readers: the carton form's pick-list leaves these items out
+#: (``ItemLookupRepository.packing_materials``), and opening a carton and saving
+#: a packing specification refuse them (``service._require_untracked_material``).
+#: The seal posts one untracked issue for the box, so it has no unit or lot to
+#: name, and a recipe on such a material would plan boxes packing cannot use
+#: (docs/assumptions.md §PACK-2).
+PACKING_MATERIAL_EXCLUDED_TRACKING: tuple[InstrumentedAttribute[bool], ...] = (
+    Item.is_serial_tracked,
+    Item.is_batch_tracked,
+)
+
+
 class ItemLookupRepository(BaseRepository[Item]):
     """Read-only access to the item master for order entry, packing and labels."""
 
@@ -294,10 +307,10 @@ class ItemLookupRepository(BaseRepository[Item]):
         default-behaviour role database.md section 3 permits. Nothing downstream
         reads it to decide whether a seal may proceed.
 
-        An item tracked by lot or by unit is left out: the seal posts one
-        untracked issue for the box, so opening a carton on one is refused
-        (``service._resolve_packing_material``, docs/assumptions.md §PACK-2), and
-        the list offers only what that check accepts.
+        An item tracked by lot or by unit is left out
+        (``PACKING_MATERIAL_EXCLUDED_TRACKING``, docs/assumptions.md §PACK-2):
+        opening a carton refuses one, so the list offers only what that check
+        accepts.
 
         The availability is aggregated in the same statement rather than read per
         row, and it is never cached (section 34) - a packer choosing a box needs
@@ -326,8 +339,7 @@ class ItemLookupRepository(BaseRepository[Item]):
                 Item.deleted_at.is_(None),
                 Item.is_active.is_(True),
                 Item.item_group == ItemGroup.PACKING_MATERIAL,
-                Item.is_serial_tracked.is_(False),
-                Item.is_batch_tracked.is_(False),
+                *(flag.is_(False) for flag in PACKING_MATERIAL_EXCLUDED_TRACKING),
             )
             .group_by(Item.id)
             .order_by(Item.code.asc())

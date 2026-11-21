@@ -1153,7 +1153,38 @@ async def _validate_packing_spec_items(
         raise NotFoundError("Packing material item", material_item_id)
     if not material.can_purchase:
         raise ValidationError("The selected packing material item must be purchasable.")
+    # MRP turns a default recipe into demand for its material (§E3b-6), so a
+    # recipe on a material opening a carton refuses would plan boxes packing
+    # can never use.
+    _require_untracked_material(material)
     return material
+
+
+def _require_untracked_material(item: Item | PackingItem) -> None:
+    """Refuse an item tracked by unit or by lot as packing material (§PACK-2).
+
+    Opening a carton and saving a packing specification both call this, and the
+    carton form's pick-list leaves out the same items: one rule,
+    ``repository.PACKING_MATERIAL_EXCLUDED_TRACKING``, names the flags, and
+    ``tests/unit/test_packing_material_rule.py`` fails if a flag there has no
+    refusal here.
+    """
+    if item.is_serial_tracked:
+        # The seal posts one movement for the whole carton quantity, and the
+        # inventory engine demands a serial per unit for a serialised item. There
+        # is no contract in this module for choosing which box serial was used.
+        raise BusinessRuleError(
+            f"Item {item.code} is serial tracked and cannot be used as packing material: "
+            "the seal has no serial number to post against.",
+            details={"item_id": str(item.id)},
+        )
+    if item.is_batch_tracked:
+        raise BusinessRuleError(
+            f"Item {item.code} is batch tracked and cannot be used as packing material: "
+            "the seal has no batch to post against.",
+            code=ErrorCode.BATCH_REQUIRED,
+            details={"item_id": str(item.id)},
+        )
 
 
 def _packing_spec_read(
@@ -2237,13 +2268,15 @@ async def _resolve_packing_material(
     *,
     order: PackingOrder,
 ) -> PackingItem:
-    """The item this carton is made of.
+    """The item a carton is opened on, refused unless it can be packing material.
 
-    Existence and activity are checked because they are genuinely about whether
-    the operation may proceed. ``item_group`` is *not* checked - see the module's
-    Assumptions - but a carton sealed against something that is not classified as
-    packing material is logged, because it is almost always a mis-picked item and
-    somebody should be able to find it later.
+    It is refused when it does not exist (``NotFoundError``), is inactive, or is
+    tracked by unit or by lot (``_require_untracked_material``): those decide
+    whether the seal can post its issue. ``item_group`` is *not* checked - see
+    the module's Assumptions - but a carton opened on an item not classified as
+    packing material is logged as ``packing.unexpected_packing_material``,
+    because it is almost always a mis-picked item and somebody should be able to
+    find it later.
     """
     items = await ItemLookupRepository(session, tenant).load([item_id])
     item = items.get(item_id)
@@ -2254,21 +2287,7 @@ async def _resolve_packing_material(
             inactive_record("Item", item.code, "cannot be used as packing material"),
             details={"item_id": str(item_id)},
         )
-    if item.is_serial_tracked:
-        # The seal posts one movement for the whole carton quantity, and the
-        # inventory engine demands a serial per unit for a serialised item. There
-        # is no contract in this module for choosing which box serial was used.
-        raise BusinessRuleError(
-            f"Item {item.code} is serial tracked and cannot be used as packing material.",
-            details={"item_id": str(item_id)},
-        )
-    if item.is_batch_tracked:
-        raise BusinessRuleError(
-            f"Item {item.code} is batch tracked and cannot be used as packing material: "
-            "the seal has no batch to post against.",
-            code=ErrorCode.BATCH_REQUIRED,
-            details={"item_id": str(item_id)},
-        )
+    _require_untracked_material(item)
     if item.item_group is not ItemGroup.PACKING_MATERIAL:
         log.warning(
             "packing.unexpected_packing_material",

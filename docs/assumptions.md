@@ -168,7 +168,9 @@ continues to suppress sales-derived packing demand because its material has
 already been consumed. Cancelled orders do not suppress demand, and a
 warehouse-scoped run only nets assignments at included packing warehouses.
 Alternative non-default recipes are not counted together, and existing carton
-records never determine a future recipe.
+records never determine a future recipe. A recipe's material must be one packing
+can use: saving a specification on a material tracked by lot or by unit is
+refused, as opening a carton on it is (§PACK-2).
 
 **Why.** Reorder replenishment belongs in the same engine as sales and manual
 demand, so it nets against stock and dated supply rather than producing a
@@ -6793,11 +6795,14 @@ migration.
 ## §PACK-2. A carton's material is offered by item group, never refused by it
 
 **Assumed.** The carton form offers the active items whose `item_group` is
-`PACKING_MATERIAL`, with what each has on the shelf at the order's warehouse
-(`list_packing_materials`). Opening a carton accepts any item that exists, is
-active and is tracked neither by lot nor by unit; one outside that group is
-logged (`packing.unexpected_packing_material`) and accepted. Sealing the carton
-issues it.
+`PACKING_MATERIAL` and that are tracked neither by lot nor by unit - only what
+opening a carton accepts - with what each has on the shelf at the order's
+warehouse (`list_packing_materials`). Opening a carton accepts any item that
+exists, is active and is tracked neither by lot nor by unit; one outside that
+group is logged (`packing.unexpected_packing_material`) and accepted. Sealing
+the carton issues it. A packing specification (§E3b-6) refuses a material
+tracked by lot or by unit with the same sentence, because packing is the only
+consumer of the boxes its recipe plans (§PACK-4).
 
 **Why.** `docs/database.md` section 3 makes `item_group` a reporting and
 default-behaviour classification that no business rule may read to decide
@@ -6805,11 +6810,16 @@ whether an operation is permitted, so it may choose what the form offers, and
 refusing the box on it would be exactly the prohibited branch. An item outside
 the group is almost always a mis-picked box, which is why it is logged. A
 tracked item is refused because the seal posts one `MATERIAL_ISSUE` for the box,
-with no lot or unit to name.
+with no lot or unit to name. The list leaves tracked items out so it never offers
+a box the open refuses. The two tracking flags are named once, in
+`PACKING_MATERIAL_EXCLUDED_TRACKING`, which the list filters on and whose
+refusal opening a carton and saving a specification share, so the three cannot
+drift apart.
 
 **Where.** `src/modules/packing/service.py` - `_resolve_packing_material`,
-`add_carton`, `list_packing_materials`; `src/modules/packing/repository.py` -
-`ItemLookupRepository.packing_materials`.
+`_require_untracked_material`, `_validate_packing_spec_items`, `add_carton`,
+`list_packing_materials`; `src/modules/packing/repository.py` -
+`PACKING_MATERIAL_EXCLUDED_TRACKING`, `ItemLookupRepository.packing_materials`.
 
 **Impact if wrong.** If only packing material may be used as a box, that needs a
 capability flag on the item, as `can_job_work` is for job work - never a branch

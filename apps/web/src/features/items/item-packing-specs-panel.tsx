@@ -113,7 +113,7 @@ function PackingSpecDialog({
             label="Packing material"
             value={materialId}
             onChange={(value) => setMaterialId(value)}
-            filters={{ can_purchase: true }}
+            filters={{ can_purchase: true, is_serial_tracked: false, is_batch_tracked: false }}
             placeholder="Choose a purchasable item"
           />
           <div className="space-y-1.5">
