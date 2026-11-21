@@ -1,10 +1,16 @@
 /**
  * Units of measure and the conversions between them.
  *
- * A wrong conversion is the most expensive mistake this screen can make: it
- * does not fail, it quietly multiplies or divides every quantity derived from
- * it - a goods receipt, a BOM explosion, a stock valuation. So the whole design
- * of these dialogs is about the direction of the factor.
+ * Where a conversion is read today: when an item's purchase or sale unit is
+ * set or changed, the server refuses one that does not convert to the item's
+ * stock unit, and `UomConversionCheckDialog` converts a quantity on request.
+ * Purchase and sales documents use the item's stock unit only until unit
+ * conversion on documents is built, so no document quantity passes through
+ * these rows yet.
+ *
+ * A wrong conversion is still the expensive mistake: it does not fail, it
+ * quietly multiplies or divides whatever is converted through it. So the whole
+ * design of these dialogs is about the direction of the factor.
  *
  * `factor` means **how many `to` units make ONE `from` unit**. The create form
  * never shows a bare number: it renders the equation as the operator types, and
@@ -20,9 +26,10 @@
  *   carries neither. Moving a unit between families would orphan every
  *   conversion in both.
  * - **A conversion cannot be edited, only removed and re-entered.** There is no
- *   PATCH on `/products/uom-conversions/{id}`, which is the safer contract:
- *   an in-place factor change would silently re-value stock already booked
- *   through it.
+ *   PATCH on `/products/uom-conversions/{id}`. Entering a removed conversion
+ *   again in the same direction restores that row with the new factor, and the
+ *   audit trail records the change of factor; entered in the other direction it
+ *   is a new row.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -631,8 +638,8 @@ export function ConversionFormDialog({
  * Remove a conversion.
  *
  * The consequence is stated in units rather than in the abstract: once the pair
- * is gone, a document quoting one of them cannot resolve into the other and the
- * resolver refuses rather than guessing.
+ * is gone, the two units may no longer convert, and the server refuses a check
+ * or a newly chosen item unit that needs them rather than guessing a factor.
  */
 export function ConversionDeleteDialog({
   conversion,
@@ -663,7 +670,7 @@ export function ConversionDeleteDialog({
       title="Remove this conversion?"
       description={
         conversion
-          ? `${statement}. Once it is gone, a document quoting either unit cannot be resolved into the other - the resolver refuses rather than assuming a factor.`
+          ? `${statement}. Once it is gone, these two units may no longer convert: Check a conversion, and an item given one of them as a new purchase or sale unit, refuse rather than assume a factor. Items already saved keep their units, and documents use the stock unit, so no document changes. Entering the conversion again restores it.`
           : undefined
       }
       confirmLabel="Remove conversion"
@@ -680,8 +687,8 @@ export function ConversionDeleteDialog({
  * Convert a real quantity and show what the server said.
  *
  * `GET /products/uom-conversions/convert` resolves through the family's base
- * unit and inverts a stored pair when it has to, so its answer is the one every
- * document will get. Nothing here multiplies anything: an arithmetic check that
+ * unit and inverts a stored pair when it has to - the same conversions the item
+ * form's unit check reads. Nothing here multiplies anything: an arithmetic check that
  * shares this screen's assumption about direction would confirm its own error.
  *
  * Reading it needs `uom.view`, the same right as the conversion list this
@@ -750,8 +757,8 @@ export function UomConversionCheckDialog({
         <DialogHeader>
           <DialogTitle>Check a conversion</DialogTitle>
           <DialogDescription>
-            The server answers this exactly as it would for a document line, so it is the
-            authoritative reading of the factor - not a second calculation done here.
+            The server answers this from the stored conversions, so it is the authoritative reading
+            of the factor - not a second calculation done here.
           </DialogDescription>
         </DialogHeader>
 

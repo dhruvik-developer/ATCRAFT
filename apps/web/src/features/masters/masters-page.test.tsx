@@ -661,6 +661,10 @@ describe('unit conversions', () => {
     )
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/1 KG = 1000 G/)).toBeVisible()
+    // Documents use the stock unit for now, so the warning names what a
+    // conversion really affects - and that re-entering it is the way back.
+    expect(dialog).toHaveTextContent('documents use the stock unit, so no document changes')
+    expect(dialog).toHaveTextContent('Entering the conversion again restores it.')
     await user.click(within(dialog).getByRole('button', { name: 'Remove conversion' }))
 
     expect(fetch.calls.find((call) => call.method === 'DELETE')?.path).toBe(
