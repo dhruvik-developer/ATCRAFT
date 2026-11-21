@@ -89,10 +89,14 @@ docs/assumptions.md that records it.
   a decided status would close their only way out of the pool.
 
 * ASSUMPTION (docs/assumptions.md §QC-3): **``return_required`` is a flag, not a
-  purchase return.** Rejected incoming material owes the vendor a return or a
-  replacement, but raising it is procurement's decision, numbering series and
-  approval. Quality states the requirement, notifies the buyers and leaves the
-  document to the module that owns it.
+  purchase return.** On an inspection that names a vendor, a decision that
+  rejects a quantity, or a rework cycle completed as RETURNED, raises it: the
+  vendor was owed a return or a replacement. It only rises - nothing clears it,
+  a purchase return included - so it records that a return was owed, not that
+  one is still outstanding. Raising the return is procurement's decision,
+  numbering series and approval; quality records the flag, notifies the buyers
+  once, when the flag is raised, and leaves the document to the module that
+  owns it.
 """
 
 from __future__ import annotations
@@ -2219,9 +2223,12 @@ async def decide_inspection(
             entity_code=inspection.code,
             summary=(
                 f"{inspection.code} decided {result}: "
-                f"{requested.accepted} accepted, {requested.rejected} rejected, "
-                f"{requested.rework} for rework, {requested.hold} held, "
-                f"{requested.scrap} scrapped of {inspection.inspected_quantity}"
+                f"{_plain_quantity(requested.accepted)} accepted, "
+                f"{_plain_quantity(requested.rejected)} rejected, "
+                f"{_plain_quantity(requested.rework)} for rework, "
+                f"{_plain_quantity(requested.hold)} held, "
+                f"{_plain_quantity(requested.scrap)} scrapped of "
+                f"{_plain_quantity(inspection.inspected_quantity)}"
             ),
             user_id=tenant.user_id,
             old_values=before,
@@ -2449,9 +2456,13 @@ async def _announce_failure(
         role_codes=QC_FAILURE_ROLE_CODES,
         notification_type=NotificationType.QC_FAILED,
         severity=NotificationSeverity.WARNING,
-        title=f"{refused} refused at {inspection.qc_stage} inspection {inspection.code}",
+        title=(
+            f"{_plain_quantity(refused)} refused at {inspection.qc_stage} inspection "
+            f"{inspection.code}"
+        ),
         body=(
-            f"{inspection.code} refused {refused} of {inspection.inspected_quantity}. "
+            f"{inspection.code} refused {_plain_quantity(refused)} of "
+            f"{_plain_quantity(inspection.inspected_quantity)}. "
             f"Reason: {inspection.rejection_reason or 'not stated'}."
         ),
         entity_type=AUDIT_QC_INSPECTION,

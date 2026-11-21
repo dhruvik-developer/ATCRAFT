@@ -34,6 +34,7 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
+from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
 from src.modules.documents.models import DocumentCategory
 from src.modules.documents.schemas import DocumentFilters, DocumentUploadRequest
@@ -918,12 +919,20 @@ async def test_a_returned_cycle_flags_the_vendor_return(db, tenant, masters) -> 
     assert reread.return_required is True
 
 
-async def _a_buyer(db: AsyncSession, tenant: TenantContext, approver: Principal) -> None:
-    """Give the approver one of the purchase roles a vendor-return notice goes to."""
+async def _a_buyer(
+    db: AsyncSession,
+    tenant: TenantContext,
+    approver: Principal,
+    role_code: str = quality_service.QC_RETURN_ROLE_CODES[0],
+) -> None:
+    """Give the approver one of the purchase roles a vendor-return notice goes to.
+
+    Or, by ``role_code``, another role a quality notice is addressed to.
+    """
     role = Role(
         company_id=tenant.company_id,
-        code=quality_service.QC_RETURN_ROLE_CODES[0],
-        name="Purchase manager",
+        code=role_code,
+        name=role_code.replace("_", " ").capitalize(),
         permissions=[],
     )
     db.add(role)
@@ -1039,6 +1048,36 @@ async def test_a_re_decision_that_rejects_nothing_new_tells_the_buyers_nothing_n
 
     [still_once] = await return_notices(db, inspection_id)
     assert (still_once.id, still_once.occurrence_count) == (told.id, 1)
+
+
+async def test_the_failure_notice_and_the_decision_summary_state_plain_quantities(
+    db, tenant, masters, approver
+) -> None:
+    """``10 refused ... of 50``, not the stored ``10.0000 ... of 50.0000``."""
+    await _a_buyer(db, tenant, approver, quality_service.QC_FAILURE_ROLE_CODES[0])
+    inspection = await _vendor_inspection(db, tenant, masters)
+    inspection_id, code = inspection.id, inspection.code
+
+    await quality_service.decide_inspection(
+        db, tenant, inspection_id, decide_payload(accepted="20", rejected="10", hold="20")
+    )
+
+    notices = await db.execute(
+        select(Notification).where(Notification.group_key == f"qc-failed:{inspection_id}")
+    )
+    [notice] = notices.scalars().all()
+    assert notice.title == f"10 refused at INCOMING inspection {code}"
+    assert notice.body.startswith(f"{code} refused 10 of 50. Reason: ")
+    summaries = await db.execute(
+        select(AuditLog.summary).where(
+            AuditLog.entity_id == inspection_id,
+            AuditLog.action == AuditAction.QC_DECISION,
+            AuditLog.summary.like(f"{code} decided %"),
+        )
+    )
+    assert [summary.split(": ", 1)[1] for summary in summaries.scalars().all()] == [
+        "20 accepted, 10 rejected, 0 for rework, 20 held, 0 scrapped of 50"
+    ]
 
 
 # -----------------------------------------------------------------------------
