@@ -82,8 +82,9 @@ _MARKER = re.compile(r"\bASSUMPTION\b")
 _COMMENT_LEADER = re.compile(r"^\s*#:?\s?")
 #: The lines that end one comment paragraph inside a longer comment block.
 _COMMENT_BREAKS = frozenset({"#", "#:"})
-#: A comment line that opens a ``* `` or ``- `` bullet, which starts a paragraph.
-_COMMENT_BULLET = re.compile(r"^\s*#:?\s*[*-]\s")
+#: A comment line that starts with a ``* `` or ``- `` marker, and the text after
+#: it - a bullet, or a ``-`` dash that wrapped to the start of a line.
+_COMMENT_BULLET = re.compile(r"^\s*#:?\s*[*-]\s+(\S)")
 
 
 def recorded_sections(document: str) -> set[str]:
@@ -134,9 +135,28 @@ def _continues_comment(line: str) -> bool:
     return stripped.startswith("#") and stripped not in _COMMENT_BREAKS
 
 
-def _opens_bullet(line: str) -> bool:
-    """Whether comment ``line`` opens a bullet, and so a paragraph of its own."""
-    return bool(_COMMENT_BULLET.match(line))
+def _opens_bullet(lines: list[str], index: int) -> bool:
+    """Whether comment line ``index`` opens a bullet, and so a paragraph of its own.
+
+    This codebase writes its dash as `` - ``, and a comment that wraps can start
+    a line with one: ``# - rejected or scrapped - and ...`` continues the
+    sentence above it. So a ``* `` or ``- `` line opens a bullet only where a
+    list item can begin: its text does not start with a lower-case letter, or
+    the line before it is not comment text, is a paragraph break, ends with
+    ``:`` or opens a bullet itself. A wrapped dash continues in lower case after
+    a line that is none of those.
+    """
+    bullet = _COMMENT_BULLET.match(lines[index])
+    if bullet is None:
+        return False
+    if not bullet.group(1).islower() or index == 0:
+        return True
+    before = lines[index - 1]
+    return (
+        not _continues_comment(before)
+        or before.rstrip().endswith(":")
+        or _opens_bullet(lines, index - 1)
+    )
 
 
 def _continues_text(line: str) -> bool:
@@ -144,7 +164,7 @@ def _continues_text(line: str) -> bool:
     return bool(line.strip())
 
 
-def _opens_nothing(line: str) -> bool:
+def _opens_nothing(lines: list[str], index: int) -> bool:
     """Docstring text: a paragraph runs to its blank line, bullets included."""
     return False
 
@@ -164,7 +184,8 @@ def marked_paragraphs(source: str) -> list[tuple[int, str]]:
     A comment paragraph is the run of ``#`` lines around the marker, ended by a
     bare ``#`` or ``#:`` line, and a line opening a ``* `` or ``- `` bullet
     starts one - two bullets are two rules, and one's citation must not cover
-    the other's marker. Any other line holding the marker is docstring text -
+    the other's marker. A wrapped `` - `` dash is not a bullet
+    (:func:`_opens_bullet`). Any other line holding the marker is docstring text -
     or a comment trailing code - and its paragraph is the run of non-blank
     lines around it, kept inside the string literal it sits in, so code after a
     docstring's closing quotes cannot lend it a citation. That is the rule of
@@ -183,7 +204,7 @@ def marked_paragraphs(source: str) -> list[tuple[int, str]]:
         if not _MARKER.search(line):
             continue
         joins: Callable[[str], bool]
-        opens: Callable[[str], bool]
+        opens: Callable[[list[str], int], bool]
         if line.lstrip().startswith("#"):
             low, high, joins, opens = 0, last, _continues_comment, _opens_bullet
         else:
@@ -195,9 +216,9 @@ def marked_paragraphs(source: str) -> list[tuple[int, str]]:
             )
             joins, opens = _continues_text, _opens_nothing
         start = end = index
-        while start > low and joins(lines[start - 1]) and not opens(lines[start]):
+        while start > low and joins(lines[start - 1]) and not opens(lines, start):
             start -= 1
-        while end < high and joins(lines[end + 1]) and not opens(lines[end + 1]):
+        while end < high and joins(lines[end + 1]) and not opens(lines, end + 1):
             end += 1
         found.setdefault((start, end), index + 1)
     return [
@@ -380,6 +401,37 @@ def test_a_comment_bullet_opens_a_paragraph_of_its_own() -> None:
         (7, "- A dash bullet. ASSUMPTION: neither does this one."),
     ]
     assert [number for number, _ in uncited_assumptions(source, {"PO-1"})] == [5, 7]
+
+
+def test_a_dash_wrapped_to_the_start_of_a_comment_line_opens_no_bullet() -> None:
+    """A cited rule whose sentence wraps at a `` - `` dash is still one cited paragraph.
+
+    Read as a bullet, the dash cut the marker's line off from the citation two
+    lines down, and the guard reported a cited rule as citing nothing. A
+    lower-case bullet straight after a colon, a break or another bullet still
+    opens one.
+    """
+    source = (
+        "# ASSUMPTION: a line FAILS incoming inspection when any of its lot was refused\n"
+        "# - rejected or scrapped - and PASSES otherwise\n"
+        "# (docs/assumptions.md §E4-2).\n"
+        "RULE = 1\n"
+        "# The two refusals:\n"
+        "# - a lot. ASSUMPTION: this one cites nothing.\n"
+        "# - a unit. ASSUMPTION (docs/assumptions.md §E4-2): this one does.\n"
+        "OTHER = 2\n"
+    )
+
+    assert marked_paragraphs(source) == [
+        (
+            1,
+            "ASSUMPTION: a line FAILS incoming inspection when any of its lot was refused "
+            "- rejected or scrapped - and PASSES otherwise (docs/assumptions.md §E4-2).",
+        ),
+        (6, "- a lot. ASSUMPTION: this one cites nothing."),
+        (7, "- a unit. ASSUMPTION (docs/assumptions.md §E4-2): this one does."),
+    ]
+    assert [number for number, _ in uncited_assumptions(source, {"E4-2"})] == [6]
 
 
 def test_the_marker_rule_finds_a_paragraph_that_cites_no_recorded_section() -> None:
