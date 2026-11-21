@@ -697,27 +697,38 @@ async def sweep_expired_documents() -> dict[str, Any]:
     past its ``expires_at``, audited and deleted in a transaction of its own, its
     file unlinked once that has committed, and a file already gone is not an
     error. This finds the companies holding one and gives each its own session
-    as the system actor, taking ``DOCUMENT_PURGE_BATCH`` rows a call until a call
-    comes back short, for at most ``MAX_PURGE_BATCHES`` calls; a larger backlog
-    is finished by the next night's run. Idempotent: a purged row is gone, so
-    running it again deletes nothing and audits nothing.
+    as the system actor, taking ``DOCUMENT_PURGE_BATCH`` rows a call - each call
+    starting past the last row the one before it read - until a call reads fewer,
+    for at most ``MAX_PURGE_BATCHES`` calls; a larger backlog is finished by the
+    next night's run. Idempotent: a purged row is gone, so running it again
+    deletes nothing and audits nothing.
+
+    ``removed`` and ``failed`` count rows: a row ``purge_expired`` could not
+    remove is logged there with its id and left for the next night, and the
+    company's purge goes on past it. ``companies_failed`` counts companies whose
+    purge stopped part-way; the rows each removed before it stopped are in
+    ``removed``. Every row or company that failed is counted in
+    ``atcraft_sweep_unit_failures_total``.
     """
     async with session_scope() as session:
         companies = await companies_with_expired_documents(session, utcnow())
 
-    removed = 0
-    failed = 0
+    removed = failed = companies_failed = 0
     for company_id in companies:
         try:
             async with session_scope() as session:
                 documents = DocumentService(session, _system_tenant(company_id))
+                after: tuple[datetime, uuid.UUID] | None = None
                 for _batch in range(MAX_PURGE_BATCHES):
-                    purged = await documents.purge_expired(limit=DOCUMENT_PURGE_BATCH)
-                    removed += purged
-                    if purged < DOCUMENT_PURGE_BATCH:
+                    batch = await documents.purge_expired(limit=DOCUMENT_PURGE_BATCH, after=after)
+                    removed += batch.removed
+                    failed += batch.failed
+                    count_sweep_failure("maintenance.purge_expired_documents", batch.failed)
+                    if batch.read < DOCUMENT_PURGE_BATCH:
                         break
+                    after = batch.resume_after
         except Exception as exc:
-            failed += 1
+            companies_failed += 1
             count_sweep_failure("maintenance.purge_expired_documents")
             log.error(
                 "maintenance.document_purge_failed",
@@ -731,8 +742,14 @@ async def sweep_expired_documents() -> dict[str, Any]:
         companies=len(companies),
         removed=removed,
         failed=failed,
+        companies_failed=companies_failed,
     )
-    return {"companies": len(companies), "removed": removed, "failed": failed}
+    return {
+        "companies": len(companies),
+        "removed": removed,
+        "failed": failed,
+        "companies_failed": companies_failed,
+    }
 
 
 # -----------------------------------------------------------------------------

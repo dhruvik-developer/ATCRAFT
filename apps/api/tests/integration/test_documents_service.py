@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers, UploadFile
 
@@ -46,6 +46,7 @@ from src.core.pagination import PageParams, SortParams
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.documents import service as documents_service
 from src.modules.documents.models import Document, DocumentCategory
+from src.modules.documents.repository import DocumentRepository
 from src.modules.documents.schemas import DocumentFilters, DocumentUploadRequest
 from src.modules.documents.service import (
     PURGE_REASON,
@@ -446,7 +447,7 @@ class TestReads:
         )
         assert [d.id for d in shown] == [document.id]
 
-        assert await service.purge_expired() == 1
+        assert (await service.purge_expired()).removed == 1
         assert stored_files(storage_root) == []
         assert await document_count(session, tenant.company_id) == 0
 
@@ -457,6 +458,27 @@ class TestReads:
 
 
 class TestDeletion:
+    async def test_a_document_the_purge_deleted_first_answers_404_and_is_not_audited_twice(
+        self, session: AsyncSession, tenant: TenantContext, storage_root, monkeypatch
+    ) -> None:
+        service = DocumentService(session, tenant)
+        document = await service.upload(upload_file(PDF), DocumentUploadRequest())
+        get_for_delete = DocumentRepository.get_for_delete
+
+        async def raced(self, *args, **kwargs):
+            row = await get_for_delete(self, *args, **kwargs)
+            # The purge's delete, committed between the person's read and theirs.
+            await self.session.execute(
+                delete(Document.__table__).where(Document.__table__.c.id == document.id)
+            )
+            return row
+
+        monkeypatch.setattr(DocumentRepository, "get_for_delete", raced)
+
+        with pytest.raises(NotFoundError):
+            await service.delete_document(document.id, reason="Superseded")
+        assert await purge_audits(session, [document.id]) == []
+
     async def test_removes_row_and_file_and_audits_it(
         self, session: AsyncSession, tenant: TenantContext, storage_root
     ) -> None:
@@ -611,7 +633,7 @@ class TestNightlyPurge:
 
         result = await maintenance.sweep_expired_documents()
 
-        assert result == {"companies": 2, "removed": 4, "failed": 0}
+        assert result == {"companies": 2, "removed": 4, "failed": 0, "companies_failed": 0}
         assert await surviving(session, lapsed_ids + kept_ids) == set(kept_ids)
         assert [path.exists() for _, path in lapsed] == [False] * 4
         assert [path.exists() for _, path in kept] == [True] * 5
@@ -633,6 +655,7 @@ class TestNightlyPurge:
             "companies": 0,
             "removed": 0,
             "failed": 0,
+            "companies_failed": 0,
         }
         assert len(await purge_audits(session, lapsed_ids + kept_ids)) == 4
         assert await surviving(session, kept_ids) == set(kept_ids)
@@ -692,3 +715,73 @@ class TestNightlyPurge:
         assert (await maintenance.sweep_expired_documents())["removed"] == 1
         assert await surviving(session, ids) == set()
         assert not backlog[-1][1].exists()
+
+    async def test_a_row_that_cannot_be_removed_is_skipped_and_the_rest_still_go(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The oldest rows are read first, so a row that always fails once stopped
+        its company's purge at that row every night."""
+        service = DocumentService(session, tenant)
+        backlog = [
+            await stored(service, f"export-{age}.csv", lapsed_minutes_ago=age)
+            for age in (5, 4, 3, 2)
+        ]
+        ids = [document_id for document_id, _ in backlog]
+        bad_key, refused_audit = ids[0], ids[1]
+        # A storage key resolve_storage_path refuses: refused before anything is written.
+        await session.execute(
+            update(Document).where(Document.id == bad_key).values(storage_key="exports//escape.csv")
+        )
+        # A write refused inside the row's own transaction, which rolls its
+        # savepoint back and expires every instance the batch loaded.
+        record = documents_service.record_audit
+
+        async def refusing(*args, **kwargs):
+            if kwargs.get("entity_id") == refused_audit:
+                raise RuntimeError("the audit insert failed")
+            return await record(*args, **kwargs)
+
+        monkeypatch.setattr(documents_service, "record_audit", refusing)
+        monkeypatch.setattr(maintenance, "DOCUMENT_PURGE_BATCH", 2)
+        monkeypatch.setattr(maintenance, "session_scope", run_in(session))
+
+        result = await maintenance.sweep_expired_documents()
+
+        # Both failures fill the first batch, and the second batch still runs.
+        assert result == {"companies": 1, "removed": 2, "failed": 2, "companies_failed": 0}
+        assert await surviving(session, ids) == {bad_key, refused_audit}
+        assert [path.exists() for _, path in backlog] == [True, True, False, False]
+        assert {audit.entity_id for audit in await purge_audits(session, ids)} == set(ids[2:])
+
+    async def test_a_row_someone_deleted_meanwhile_is_not_deleted_or_audited_again(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A person deleting a document the purge has already read: one audit row."""
+        service = DocumentService(session, tenant)
+        document_id, path = await stored(service, "export.csv", lapsed_minutes_ago=1)
+        list_expired = DocumentRepository.list_expired
+
+        async def raced(self, *args, **kwargs):
+            rows = await list_expired(self, *args, **kwargs)
+            # The other deleter's statement, committed between the read and the purge.
+            await self.session.execute(
+                delete(Document.__table__).where(Document.__table__.c.id == document_id)
+            )
+            return rows
+
+        monkeypatch.setattr(DocumentRepository, "list_expired", raced)
+
+        batch = await service.purge_expired()
+
+        assert (batch.read, batch.removed, batch.failed) == (1, 0, 0)
+        assert await purge_audits(session, [document_id]) == []
+        # The file is the other deleter's to unlink, not the purge's.
+        assert path.exists()

@@ -71,7 +71,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import BinaryIO
+from typing import Any, BinaryIO
 from urllib.parse import quote
 
 import anyio
@@ -896,76 +896,167 @@ class DocumentService:
         reason: str,
         principal: Principal | None = None,
     ) -> None:
-        """Remove one document by id."""
+        """Remove one document by id.
+
+        A document someone else - the nightly purge, say - deleted between the
+        read and the delete answers 404 like any other missing one, and its
+        deletion keeps the single audit row the other deleter wrote.
+        """
         document = await self.repo.get_for_delete(document_id, principal=principal)
         if document is None:
             raise NotFoundError("Document", document_id)
-        await self._delete(document, reason=reason)
+        if not await self._remove(_removal(document), reason=reason):
+            raise NotFoundError("Document", document_id)
 
-    async def _delete(self, document: Document, *, reason: str) -> None:
-        """Audit and drop the row, then unlink the file.
+    async def _remove(self, removal: _Removal, *, reason: str) -> bool:
+        """Drop the row and audit it, then unlink the file. ``False``: it was already gone.
 
-        Takes a loaded instance rather than an id so the purge sweep does not
-        re-select every row it has already read (section 32).
+        Works from a :class:`_Removal` - plain values read before anything is
+        written - so the purge can go on to its next row after one fails: a
+        failed transaction expires every instance the session loaded.
 
-        Deleting an expired document is legal on purpose - a lapsed export must
-        still be removable - which is why the lifecycle declares an edge from
-        EXPIRED as well as from AVAILABLE.
+        The row goes by a conditional delete (``delete_if_present``), so when a
+        person and the purge delete the same document at once, the one that
+        finds the row already gone writes no audit row and unlinks nothing:
+        exactly one ``DOCUMENT_DELETE`` entry records the deletion.
         """
-        current = document_state(document)
-        DOCUMENT_LIFECYCLE.assert_transition(current, DocumentState.DELETED)
-
-        document_id = document.id
-        file_name = document.file_name
-        # Resolved *before* the row disappears, and through the same containment
-        # guard as every other path in this module.
-        path = resolve_storage_path(document.storage_key)
-        before = snapshot(document, _AUDITED_FIELDS)
-
         async with transaction(self.session):
+            if not await self.repo.delete_if_present(removal.document_id):
+                return False
             await record_audit(
                 self.session,
                 company_id=self.tenant.company_id,
                 action=AuditAction.DOCUMENT_DELETE,
                 entity_type=AUDIT_ENTITY,
-                entity_id=document_id,
-                entity_code=file_name[:64],
-                summary=f"Deleted document {file_name}",
+                entity_id=removal.document_id,
+                entity_code=removal.file_name,
+                summary=f"Deleted document {removal.file_name}",
                 user_id=self.tenant.user_id,
-                # The metadata is about to stop existing, so the audit row is the
-                # only remaining record of what was removed.
-                old_values={"status": str(current), **before},
+                # The metadata has stopped existing, so the audit row is the only
+                # remaining record of what was removed.
+                old_values={"status": str(removal.state), **removal.before},
                 new_values={"status": str(DocumentState.DELETED)},
                 context={"reason": reason},
             )
-            await self.repo.hard_delete(document)
 
         # Only now, with the metadata gone for good. A failure here leaves an
         # unreferenced file, which housekeeping can find; unlinking earlier would
         # risk a surviving row that points at nothing, which nothing can fix.
-        await _discard(path)
-        log.info("documents.deleted", document_id=str(document_id), reason=reason)
+        await _discard(removal.path)
+        log.info("documents.deleted", document_id=str(removal.document_id), reason=reason)
+        return True
 
-    async def purge_expired(self, *, limit: int = MAX_PURGE_BATCH) -> int:
-        """Delete one batch of lapsed documents. Returns how many were removed.
+    async def purge_expired(
+        self,
+        *,
+        limit: int = MAX_PURGE_BATCH,
+        after: tuple[datetime, uuid.UUID] | None = None,
+    ) -> PurgeBatch:
+        """Delete one batch of lapsed documents, and say what became of it.
 
         Written for the nightly ``maintenance.purge_expired_documents`` sweep,
         which calls it for each company holding one until a batch comes back
-        short. Only rows past ``expires_at`` are read, oldest first, and each
-        goes through :meth:`_delete`: its audit row and its delete commit in a
-        transaction of their own, and only then is its file unlinked - a file
-        already gone is not an error. It must be called outside any business
-        transaction, or the commit would be the caller's and the files would go
-        before it. A failure part-way keeps the rows already purged and leaves
-        the rest, file and all, for the next run; a second run finds nothing to
-        do (docs/assumptions.md §DOC-4).
+        short, passing each batch's ``resume_after`` as the next one's ``after``.
+        Only rows past ``expires_at`` are read, oldest first, and each goes
+        through :meth:`_remove`: its delete and audit row commit in a transaction
+        of their own, and only then is its file unlinked - a file already gone is
+        not an error. It must be called outside any business transaction, or the
+        commit would be the caller's and the files would go before it.
+
+        A row that cannot be removed - a storage key that fails containment, a
+        refused write - is logged with its id, counted in ``failed`` and left,
+        file and all; the rest of the batch goes on, and the next batch starts
+        past it, so one bad row cannot hold up a company's purge night after
+        night. A row someone deleted meanwhile is counted in neither. A second
+        run finds nothing more to do (docs/assumptions.md §DOC-4).
         """
-        expired = await self.repo.list_expired(utcnow(), limit=limit)
+        expired = await self.repo.list_expired(utcnow(), limit=limit, after=after)
+        if not expired:
+            return PurgeBatch(read=0, removed=0, failed=0, resume_after=after)
+        last = expired[-1]
+        # ``list_expired`` reads only rows with an expiry, so this is never None.
+        resume_after = (last.expires_at or utcnow(), last.id)
+        # Every value the deletes need, read before the first of them: a failed
+        # one rolls its savepoint back, which expires the instances loaded here.
+        planned: list[_Removal] = []
+        failed = 0
         for document in expired:
-            await self._delete(document, reason=PURGE_REASON)
-        if expired:
-            log.info("documents.purged_expired", count=len(expired))
-        return len(expired)
+            document_id = document.id
+            try:
+                planned.append(_removal(document))
+            except Exception as exc:
+                failed += 1
+                _log_purge_failure(document_id, exc)
+
+        removed = 0
+        for removal in planned:
+            try:
+                if await self._remove(removal, reason=PURGE_REASON):
+                    removed += 1
+            except Exception as exc:
+                failed += 1
+                _log_purge_failure(removal.document_id, exc)
+        if removed:
+            log.info("documents.purged_expired", count=removed)
+        return PurgeBatch(
+            read=len(expired), removed=removed, failed=failed, resume_after=resume_after
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _Removal:
+    """What deleting one document needs, read off its row before anything is written."""
+
+    document_id: uuid.UUID
+    file_name: str
+    path: Path
+    state: DocumentState
+    before: dict[str, Any]
+
+
+def _removal(document: Document) -> _Removal:
+    """Check a document may be deleted and capture what its deletion records.
+
+    Deleting an expired document is legal on purpose - a lapsed export must still
+    be removable - which is why the lifecycle declares an edge from EXPIRED as
+    well as from AVAILABLE. The path is resolved *before* the row disappears, and
+    through the same containment guard as every other path in this module.
+    """
+    current = document_state(document)
+    DOCUMENT_LIFECYCLE.assert_transition(current, DocumentState.DELETED)
+    return _Removal(
+        document_id=document.id,
+        file_name=document.file_name,
+        path=resolve_storage_path(document.storage_key),
+        state=current,
+        before=snapshot(document, _AUDITED_FIELDS),
+    )
+
+
+def _log_purge_failure(document_id: uuid.UUID, exc: Exception) -> None:
+    """One lapsed row the purge could not remove: named, so an operator can find it."""
+    log.error(
+        "documents.purge_failed",
+        document_id=str(document_id),
+        error=str(exc),
+        exc_info=exc,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PurgeBatch:
+    """What one :meth:`DocumentService.purge_expired` call did.
+
+    ``read`` is how many lapsed rows it took up - a batch that read fewer than
+    its limit was the last; ``removed`` and ``failed`` split them, leaving out a
+    row someone else deleted meanwhile; ``resume_after`` is the next batch's
+    ``after``.
+    """
+
+    read: int
+    removed: int
+    failed: int
+    resume_after: tuple[datetime, uuid.UUID] | None
 
 
 __all__ = [
@@ -984,6 +1075,7 @@ __all__ = [
     "DocumentState",
     "FileTypeRule",
     "MagicSignature",
+    "PurgeBatch",
     "assert_content_matches",
     "assert_upload_allowed",
     "build_storage_key",

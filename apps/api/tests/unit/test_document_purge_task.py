@@ -15,6 +15,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -24,6 +25,7 @@ from src.core import observability
 from src.core.actors import SYSTEM_ACTOR_ID
 from src.core.deps import TenantContext
 from src.modules.documents.repository import MAX_PURGE_BATCH
+from src.modules.documents.service import PurgeBatch
 from src.workers import celery_app as worker
 from src.workers.tasks import maintenance
 
@@ -41,14 +43,24 @@ class _Sweep:
     sessions: list[object] = field(default_factory=list)
     #: ``(company, actor, session, limit)`` for each ``purge_expired`` call.
     calls: list[tuple[uuid.UUID, uuid.UUID, object, int]] = field(default_factory=list)
+    #: The ``after`` each call was given, in call order.
+    afters: list[tuple[datetime, uuid.UUID] | None] = field(default_factory=list)
+
+
+def _cursor(n: int) -> tuple[datetime, uuid.UUID]:
+    """A stand-in for the ``(expires_at, id)`` of the last row batch ``n`` read."""
+    return (datetime(2026, 1, 1, tzinfo=UTC), uuid.UUID(int=n))
 
 
 def _patch(
     monkeypatch: pytest.MonkeyPatch,
     companies: list[uuid.UUID],
-    batch: Callable[[uuid.UUID, int], int],
+    batch: Callable[[uuid.UUID, int], int | PurgeBatch],
 ) -> _Sweep:
-    """Run the sweep over ``companies``; ``batch(company, n)`` is what call ``n`` purges."""
+    """Run the sweep over ``companies``; ``batch(company, n)`` is what call ``n`` does.
+
+    A plain number is a batch that read and removed that many rows.
+    """
     sweep = _Sweep()
 
     @asynccontextmanager
@@ -64,11 +76,17 @@ def _patch(
         def __init__(self, session: object, tenant: TenantContext) -> None:
             self.session, self.tenant, self.batches = session, tenant, 0
 
-        async def purge_expired(self, *, limit: int) -> int:
+        async def purge_expired(
+            self, *, limit: int, after: tuple[datetime, uuid.UUID] | None = None
+        ) -> PurgeBatch:
             self.batches += 1
             company = self.tenant.company_id
             sweep.calls.append((company, self.tenant.user_id, self.session, limit))
-            return batch(company, self.batches)
+            sweep.afters.append(after)
+            done = batch(company, self.batches)
+            if isinstance(done, PurgeBatch):
+                return done
+            return PurgeBatch(read=done, removed=done, failed=0, resume_after=_cursor(self.batches))
 
     monkeypatch.setattr(maintenance, "session_scope", scope)
     monkeypatch.setattr(maintenance, "companies_with_expired_documents", discover)
@@ -123,7 +141,7 @@ def test_each_company_is_purged_in_a_session_of_its_own_as_the_system(
     first, second = uuid.uuid4(), uuid.uuid4()
     sweep = _patch(monkeypatch, [first, second], lambda _company, _n: 3)
 
-    assert _run() == {"companies": 2, "removed": 6, "failed": 0}
+    assert _run() == {"companies": 2, "removed": 6, "failed": 0, "companies_failed": 0}
 
     discovery, *per_company = sweep.sessions
     assert [(company, actor, limit) for company, actor, _, limit in sweep.calls] == [
@@ -141,8 +159,10 @@ def test_a_company_is_purged_batch_after_batch_until_one_comes_back_short(
     full = maintenance.DOCUMENT_PURGE_BATCH
     sweep = _patch(monkeypatch, [uuid.uuid4()], lambda _company, n: full if n < 3 else 7)
 
-    assert _run() == {"companies": 1, "removed": 2 * full + 7, "failed": 0}
+    assert _run() == {"companies": 1, "removed": 2 * full + 7, "failed": 0, "companies_failed": 0}
     assert len(sweep.calls) == 3
+    # Each batch starts past the last row the one before it read.
+    assert sweep.afters == [None, _cursor(1), _cursor(2)]
 
 
 def test_a_backlog_stops_at_the_batch_ceiling_and_waits_for_the_next_night(
@@ -158,6 +178,7 @@ def test_a_backlog_stops_at_the_batch_ceiling_and_waits_for_the_next_night(
         "companies": 1,
         "removed": maintenance.MAX_PURGE_BATCHES * full,
         "failed": 0,
+        "companies_failed": 0,
     }
 
 
@@ -174,14 +195,37 @@ def test_a_company_that_fails_is_counted_and_the_next_is_still_purged(
     sweep = _patch(monkeypatch, [broken, healthy], batch)
     before = _failures()
 
-    assert _run() == {"companies": 2, "removed": 2, "failed": 1}
+    assert _run() == {"companies": 2, "removed": 2, "failed": 0, "companies_failed": 1}
     assert [company for company, *_ in sweep.calls] == [broken, healthy]
     assert _failures() == before + 1
+
+
+def test_rows_a_batch_could_not_remove_are_counted_and_the_purge_goes_on_past_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A full batch with a failed row in it is still full: the next batch must run.
+
+    Counting only removed rows would read it as the last, and a bad row among the
+    oldest would stop its company's purge at that row every night.
+    """
+    full = maintenance.DOCUMENT_PURGE_BATCH
+
+    def batch(_company: uuid.UUID, n: int) -> int | PurgeBatch:
+        if n == 1:
+            return PurgeBatch(read=full, removed=full - 2, failed=2, resume_after=_cursor(1))
+        return 3
+
+    sweep = _patch(monkeypatch, [uuid.uuid4()], batch)
+    before = _failures()
+
+    assert _run() == {"companies": 1, "removed": full - 2 + 3, "failed": 2, "companies_failed": 0}
+    assert sweep.afters == [None, _cursor(1)]
+    assert _failures() == before + 2
 
 
 def test_nothing_expired_opens_no_company_session(monkeypatch: pytest.MonkeyPatch) -> None:
     sweep = _patch(monkeypatch, [], lambda _company, _n: 0)
 
-    assert _run() == {"companies": 0, "removed": 0, "failed": 0}
+    assert _run() == {"companies": 0, "removed": 0, "failed": 0, "companies_failed": 0}
     assert len(sweep.sessions) == 1
     assert sweep.calls == []

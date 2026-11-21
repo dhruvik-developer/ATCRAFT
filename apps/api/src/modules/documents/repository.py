@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, or_, select
+from sqlalchemy import ColumnElement, Select, and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -161,19 +161,50 @@ class DocumentRepository(BaseRepository[Document]):
         default_order = sort.resolve(self.sortable_fields, Document.created_at.desc())
         return stmt.order_by(default_order, Document.id.desc())
 
-    async def list_expired(self, now: datetime, *, limit: int = MAX_PURGE_BATCH) -> list[Document]:
+    async def list_expired(
+        self,
+        now: datetime,
+        *,
+        limit: int = MAX_PURGE_BATCH,
+        after: tuple[datetime, uuid.UUID] | None = None,
+    ) -> list[Document]:
         """One batch of lapsed documents, oldest expiry first.
 
-        Ordered by ``expires_at`` so repeated batches make monotonic progress
-        through the backlog instead of re-reading the same arbitrary slice.
+        Ordered by ``(expires_at, id)`` so repeated batches make monotonic
+        progress through the backlog instead of re-reading the same arbitrary
+        slice. ``after`` is the ``(expires_at, id)`` of the last row an earlier
+        batch read: the batch starts past it, so a row whose delete failed is not
+        read again - and does not hold up the rows behind it - in the same run.
         """
-        stmt = (
-            self._scoped()
-            .where(_expired(now))
-            .order_by(Document.expires_at.asc(), Document.id.asc())
-            .limit(min(limit, MAX_PURGE_BATCH))
+        stmt = self._scoped().where(_expired(now))
+        if after is not None:
+            expires_at, document_id = after
+            stmt = stmt.where(
+                or_(
+                    Document.expires_at > expires_at,
+                    and_(Document.expires_at == expires_at, Document.id > document_id),
+                )
+            )
+        stmt = stmt.order_by(Document.expires_at.asc(), Document.id.asc()).limit(
+            min(limit, MAX_PURGE_BATCH)
         )
         return list((await self.session.execute(stmt)).scalars().unique().all())
+
+    async def delete_if_present(self, document_id: uuid.UUID) -> bool:
+        """Delete one of this tenant's rows; ``False`` when it is already gone.
+
+        A conditional ``DELETE ... RETURNING`` rather than ``session.delete``: of
+        two deleters racing for one row - a person and the nightly purge - the
+        second waits on the first's row lock and then matches nothing, so it can
+        tell it lost and write no second audit row for the same deletion.
+        """
+        stmt = (
+            delete(Document)
+            .where(Document.company_id == self.tenant.company_id, Document.id == document_id)
+            .returning(Document.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none() is not None
 
 
 __all__ = [
