@@ -66,7 +66,7 @@
         "title": "Inspect what was held",
         "route": "/quality",
         "what": "Open the pending inspection, record the readings against the check sheet it was raised on, and decide: accepted, rejected, rework, hold or scrap \u2014 the quantities must add up to the whole lot inspected. Recording readings and deciding are separate rights, so the person measuring need not be the person signing.",
-        "effect": "Deciding is a stock movement, not a note. Accepted quantity moves from QC hold into free stock; rejected moves to damaged and raises the return; scrap is written off. Rework and hold move nothing and stay in the pool to be decided again. One reading on a critical parameter out of specification rejects the lot whatever else passed."
+        "effect": "Deciding is a stock movement, not a note. Accepted quantity moves from QC hold into free stock; rejected moves to damaged and, against a named vendor, flags a return for purchasing to raise; scrap is written off. Rework and hold move nothing and stay in the pool to be decided again. One reading on a critical parameter out of specification rejects the lot whatever else passed."
       },
       {
         "step": 10,
@@ -470,7 +470,7 @@
         {
           "route": "/masters?tab=conversions",
           "title": "Unit conversions",
-          "purpose": "How two units of the same family relate - one box is twelve pieces, one kilogram is a thousand grams. This is the most consequential small screen in the system: a conversion entered backwards does not fail, it quietly multiplies or divides every quantity derived from it, at every goods receipt, every bill of material and every stock valuation. Everything about the screen is built to make the direction unmistakable before anything is saved.",
+          "purpose": "How two units of the same family relate - one box is twelve pieces, one kilogram is a thousand grams. A conversion entered backwards does not fail; it quietly multiplies or divides whatever is converted through it. Today that is two things: the check made when an item's purchase or sale unit is saved, and Check a conversion. Purchase and sales documents are entered in the item's stock unit for now and convert nothing, so no document quantity passes through these rows yet. Everything about the screen is built to make the direction unmistakable before anything is saved.",
           "whoUses": "Whoever owns the item master, usually alongside the units themselves.",
           "keyActions": [
             {
@@ -481,7 +481,7 @@
             {
               "action": "Check a conversion is right",
               "how": "Check a conversion at the top right. Type a real quantity, pick the two units, press Convert.",
-              "note": "The answer comes from the server and is the same answer any document would get - it is not a second sum done on this screen, which could only agree with its own mistake."
+              "note": "The answer comes from the server, which holds an item's purchase or sale unit to the same conversions - it is not a second sum done on this screen, which could only agree with its own mistake."
             },
             {
               "action": "Remove a conversion",
@@ -500,8 +500,8 @@
             "The factor always answers one question: how many of the second unit make one of the first. Read it any other way and every quantity derived from it is wrong.",
             "A pair is stored once and works in both directions, so there is no reverse row to enter. Entering the reverse as well is refused - two rows could disagree, and whichever the system found first would win.",
             "A conversion may only relate two units of the same measurement family. Kilograms to pieces is not a unit conversion at all - it is a weight that belongs to a particular item - and it is refused, which is why the second list only ever offers the first unit's own family.",
-            "A conversion cannot be edited, only removed and re-entered. Changing a factor in place would silently re-value stock that was already booked through it.",
-            "Once a conversion is removed, a document quoting one of the two units can no longer be resolved into the other: the system refuses the document rather than guessing a factor. Have the replacement ready before removing one.",
+            "A conversion cannot be edited, only removed and re-entered. Entering a removed conversion again in the same direction restores it with the new factor, and the change is recorded in the audit trail.",
+            "Once a conversion is removed, the two units may no longer convert: Check a conversion, and an item given one of them as a new purchase or sale unit, are refused rather than guessing a factor. Items already saved keep their units, and purchase and sales documents use the item's stock unit for now, so no document changes.",
             "If a company has more units than one page can hold, a conversion pointing at one of the later ones shows as \"Unknown unit\" with a warning above the table. The factor and its direction are still correct."
           ],
           "permission": "Reading needs the right to view units; adding and removing need the right to manage them. Check a conversion needs only the read right, so anyone who can see the list can verify a factor."
@@ -1149,7 +1149,7 @@
             "At least one capability must be ticked. An item that can do nothing is unusable by every other screen and is almost always a slip of the keyboard, so the system refuses to save it.",
             "The production type and the capabilities must agree: Make needs 'Manufacturable', Buy needs 'Purchasable', Make or buy needs both, and Job work needs 'Job work'. Otherwise planning would raise a suggestion to make something no production order can be created for.",
             "The item group is a reporting classification only. It never decides what an item is allowed to do \u2014 the capabilities do that, and nothing re-reads the group afterwards.",
-            "A purchase or sale unit must be convertible to the base unit, and the conversion must already be defined under Masters. This is checked when you save, so the problem surfaces at the desk rather than at a goods receipt with the vendor's lorry at the gate.",
+            "A purchase or sale unit must be convertible to the base unit, and the conversion must already be defined under Masters. This is checked when you save. For now no document uses the purchase or sale unit: requisitions, RFQs, quotations, purchase and sales orders, receipts, dispatches and returns are all entered in the base unit, and a line in any other unit is refused with a message naming the item, its base unit and the unit given.",
             "GST rate cannot exceed 100 percent and lead time cannot exceed 3650 days.",
             "An optional default bin must belong to the item's default warehouse. Receipt and material-issue pickers prefill it only in that warehouse; you can clear or choose a different bin. Reassign the default before retiring its bin."
           ],
@@ -1682,6 +1682,7 @@
             "Read the draft supply that confirmation raised for a shortfall. Press Plan shortfall to recalculate after stock arrives or the order changes; review and submit the drafts on their own screens."
           ],
           "rules": [
+            "Every line is in the item's stock unit; the line's unit picker starts on 'The item's stock unit'. Documents do not convert units yet, so a line in another unit is refused with a message naming the line, the item, its stock unit and the unit given.",
             "A draft reserves nothing. It is a quotation the customer has not committed to, and holding stock against it would starve an order that is real.",
             "Confirming runs the credit check first, against the customer's account as it stands at that instant. If the account is blocked, inactive, or the order would take the account past its credit limit, the confirmation is refused and the message states the numbers \u2014 what is outstanding, what this order adds, and what the limit is. To proceed: settle or write off part of the balance, raise the limit on the customer record, or release the credit hold.",
             "Confirming reserves stock; it does not move it. The goods stay physically where they are and stay in the stock total. What changes is that they stop being available to any other order. Nothing leaves the warehouse until a despatch is made.",
@@ -2110,13 +2111,14 @@
             "The person who raised a requisition cannot approve it. That is the whole point of the approval step.",
             "A rejection, a cancellation and a deletion each need a written reason, because the requester reads it and the audit trail keeps it.",
             "Only items flagged as purchasable, and still active, can be asked for. Whether an item can be bought is decided on the item record, not by which group it belongs to.",
+            "Every line is in the item's stock unit, the base unit its stock is counted in. Documents do not convert units yet, so a line in any other unit is refused with a message such as 'Line 2 is in PKT, but item SCR-10 is stocked in NOS. Documents do not convert units yet, so enter the quantity in NOS.'",
             "A requisition must name the warehouse the material is wanted at, because an order raised from it has to be delivered somewhere.",
             "The required-by date cannot be earlier than the date the requisition is raised \u2014 that is nearly always a mistyped year.",
             "The estimated price is indicative only. What will actually be paid is settled on the purchase order.",
             "Once an RFQ or a purchase order has been raised against an approved requisition it becomes Converted, and from there the only move left is to close it \u2014 cancelling it would say nothing about the commitment already made to a vendor.",
             "When a purchase order raised from a requisition is cancelled or rejected, the quantity goes back onto the requisition as unmet demand, so the shortage is not silently dropped.",
             "Raising purchase orders picks each line's vendor in this order: the vendor chosen on the proposal, the vendor suggested on the requisition line, the item's preferred vendor, and the preferred vendor of the item's category or the nearest parent category that has one.",
-            "The price comes from the proposal, the requisition's estimated price, or the last price paid to that vendor for the item \u2014 never the item's standard cost, which is what the company values the item at, not what any vendor offered. A line with no vendor or no price stops the whole conversion until it is given one or left out; nothing is ever half-raised.",
+            "The price comes from the proposal, the requisition's estimated price, or the last price paid to that vendor for the item \u2014 never the item's standard cost, which is what the company values the item at, not what any vendor offered. A line with no vendor or no price stops the whole conversion until it is given one or left out; nothing is ever half-raised. A line keyed in a unit other than the item's stock unit before 20 November 2026 is listed among the lines that cannot be converted, with that reason, and can be left out.",
             "Lines are grouped into one order per vendor, item category and delivery warehouse. The category is the one the vendor is qualified to supply, so the order goes to that vendor's manager for it; when several managers cover the same category the order is left unassigned and the buyer chooses at Send.",
             "At most 20 purchase orders are raised in one go. If an open order already covers the same demand the conversion stops and shows it; raising anyway needs the right to approve purchase orders and a written reason."
           ],
@@ -2374,6 +2376,7 @@
             "The order opens on its own page as a draft. Submit it for approval from there."
           ],
           "rules": [
+            "Every line is in the item's stock unit. Documents do not convert units yet, so a line in another unit is refused with a message naming the line, the item, its stock unit and the unit given; a receipt or a return copies the order line's unit and refuses an older line kept in another one.",
             "An order can only be raised on a vendor that is approved and not suspended. If the supplier you want is refused, get their record approved first on the Vendors screen.",
             "Only items flagged as purchasable and still active can be ordered.",
             "The expected delivery date cannot be earlier than the order date.",
@@ -3278,7 +3281,7 @@
             "Repeat for each lot until everything is back. Then Close the order.",
             "Returned rejected output can seed a linked order with Create rework draft. Creating the draft moves no rejected stock. The order can currently issue available stock only; damaged-stock issuing needs a separate workflow. Scrapped output and output still held for vendor rework do not offer this action."
           ],
-          "permission": "The screen needs the right to view job work. The actions are split across four different rights on purpose: raising, amending, cancelling and deleting a draft all need the right to create job work orders; issuing needs the right to issue; receiving needs the right to receive; and approving and closing both need the senior job-work right that the plant manager holds and the planner who raises orders does not. That separation is deliberate - the person who raises an order is not the person who approves it.",
+          "permission": "The screen needs the right to view job work. The actions are split across four different rights on purpose: raising, amending, cancelling and deleting a draft all need the right to create job work orders; issuing needs the right to issue; receiving needs the right to receive; and approving and closing both need the senior job-work right that the plant manager holds and the planner who raises orders does not. That separation is by role, not by person: the planner who raises orders cannot approve them, but a plant manager, who holds both rights, may approve an order they raised themselves.",
           "rules": [
             "Material at a vendor is still company property. Issuing does not remove it from the books - it moves it into a job-work pool where it is still owned, still valued and still countable. It is simply not available to promise to anyone else.",
             "The order can only be amended while it is a draft. Once approved it holds reservations that other documents have been refused material because of, and once issued it holds company stock on somebody else's premises. Neither can be quietly restated by a line edit.",
@@ -3288,7 +3291,7 @@
             "Getting back more output than the order expected is refused, not quietly accepted - beyond a 2% allowance for the odd extra piece a plating line runs to fill a rack. More than that is a mis-keyed quantity or somebody else's goods, and both need a person.",
             "Loss inside the agreed allowance on the line is written off as scrap with the receipt's reason. Loss beyond the allowance refuses the receipt until someone with the senior job-work right accepts it, and the value of the material lost is charged back to the vendor at what the company was carrying it at - not at a price list, and not as a penalty.",
             "Rejected output the vendor is going to rework keeps the material where it is: nothing moves, the order line stays open, and the quantity keeps appearing as pending at the vendor with its true ageing.",
-            "The vendor's charge accrues on good output received, at the agreed rate, on the receipt date. A short or rejected delivery therefore costs less without anyone raising a credit note. A flat lot rate is charged once, on the first receipt that brings any output back.",
+            "The vendor's charge accrues on the good output keyed at the receipt, at the agreed rate, on the receipt date. Output rejected at the receipt, returned unprocessed or lost earns nothing, so a short delivery costs less without anyone raising a credit note. On an order that needs inspection, output the inspection rejects afterwards stays charged and billable: reduce the vendor's bill by hand. A flat lot rate is charged once, on the first receipt that brings any good output back, and stays earned even if the inspection rejects that lot.",
             "Give the order its GST rate and SAC when raising it - 18% and 9988 unless the vendor's paperwork says otherwise. Both are copied onto the vendor-invoice lines when the work is billed.",
             "A job-work bill charges receipt lines, never the order in the abstract. Approving one books the processing charge to the job-work expense account, moves what each receipt line has billed, and recovers the chargeback for material the vendor lost beyond allowance against the same bill. Cancelling a posted bill reverses both postings.",
             "Where an order requires inspection, the returned output is received onto QC hold rather than into the available pool, and an inspection is raised with it.",
@@ -3302,7 +3305,7 @@
           "route": "/job-work/:id",
           "title": "One job work order",
           "purpose": "Everything one job-work order means: its lines with issued, received, rejected, scrap and still-at-vendor quantities; its timeline from approval through every challan and receipt to QC and close; the reconciliation of what went out against what came back, shown beside the ledger's live job-work pool so a divergence between the two is visible; every receipt with its QC outcome and a way to send rejected output back for rework; and every challan with its delivery challan PDF.",
-          "whoUses": "The planner following an order, the storekeeper receiving its lots, and the plant manager checking the reconciliation before paying the vendor.",
+          "whoUses": "The planner following an order, the production supervisor receiving its lots, and the plant manager checking the reconciliation before paying the vendor.",
           "keyActions": [
             {
               "action": "Read the reconciliation",
@@ -3537,7 +3540,7 @@
             {
               "action": "Search the whole history",
               "how": "All inspections tab",
-              "note": "Search by inspection, item or reference, sort, and filter by stage and outcome. Accepted, rejected, rework and scrapped quantities are all columns, and the Return column shows \"Owed\" once a rejection, or a rework cycle completed as Returned, finds the vendor owes a return or a replacement. The mark stays after the return is raised or the replacement accepted."
+              "note": "Search by inspection, item or reference, sort, and filter by stage and outcome. Accepted, rejected, rework and scrapped quantities are all columns, and the Return column shows \"Owed\" once a rejection, or a rework cycle completed as Returned, finds the vendor owes a return or a replacement. The mark stays after the return is raised or the replacement accepted. The inspection's own detail shows the same mark as Return owed."
             },
             {
               "action": "Re-decide a lot on hold or in rework",
@@ -3547,7 +3550,7 @@
             {
               "action": "Work the rework bench",
               "how": "Rework tab, then Open a cycle on the lot",
-              "note": "Name the quantity and who does it. Starting puts it on the bench; completing it with an outcome hands the lot back for re-decision. A scrapped or returned outcome is the bench's recommendation - the inspector still dispositions it."
+              "note": "Name the quantity and who does it. Starting puts it on the bench; completing it with an outcome hands the lot back for re-decision and moves no stock. A scrapped outcome is the bench's recommendation - the inspector still scraps the quantity on re-decision. A returned outcome against a named vendor also marks the inspection as owing a return and tells the buyers, unless a return was already owed; the inspector still dispositions the quantity."
             },
             {
               "action": "Chart an item's quality over time",
@@ -3577,7 +3580,7 @@
             "Every characteristic marked as must-be-recorded needs a reading before a decision can be taken - unless a critical failure has already settled the answer, in which case no further measurement could change it and the rest of the sheet is not demanded.",
             "Rejecting or scrapping anything requires a stated cause. It is what feeds the vendor's rating, what a debit note is written from, and what a corrective action starts with, so the decision is refused without it.",
             "A lot can be decided again while quantity is still on hold, but accepted, rejected and scrapped quantities can only ever grow. Material already released may have been issued or sold, so it cannot be pulled back by editing the inspection.",
-            "Rejected material from a named vendor is flagged as owing a return and the buyers are notified. The return itself is raised in procurement - quality states that one is owed, it does not raise it, because the return is procurement's document, numbering and approval.",
+            "A rejection, or a rework cycle completed as Returned, against a named vendor flags the inspection as owing a return or a replacement, and the buyers are notified when the flag is first raised. The flag records that a return was owed and stays after the return is raised or the replacement accepted. The return itself is raised in procurement - quality states that one is owed, it does not raise it, because the return is procurement's document, numbering and approval.",
             "Whether a reading passes is decided by the system against the specification, never asserted by whoever typed it, and the result is stored as it was judged at the time. A later change to the specification therefore cannot rewrite the past.",
             "An item for which nobody has written a specification is still put forward for inspection. It simply arrives with no characteristics to measure, and the inspector dispositions it on judgement with a remark - refusing to raise it would mean the goods were never inspected at all.",
             "A finished rework cycle hands the lot back for re-decision rather than dispositioning it. Every verdict stays in the lot's history, so re-deciding a reworked lot never erases how it was decided before.",
@@ -3628,7 +3631,7 @@
             {
               "action": "Open a carton",
               "how": "Add a carton, at the foot of the cartons list",
-              "note": "Name the box being used and how many of it, its type (box, carton, crate, pallet, bag, drum or shrink wrap), its dimensions and its empty weight. The box list shows only packing material actually in stock at that warehouse, with the free quantity beside each."
+              "note": "Name the box being used and how many of it, its type (box, carton, crate, pallet, bag, drum or shrink wrap), its dimensions and its empty weight. The box list shows the active packing material that is tracked neither by lot nor by unit, with the free quantity at that warehouse beside each - including a box with none free there."
             },
             {
               "action": "Put something in a carton",
@@ -3653,7 +3656,7 @@
             {
               "action": "Remove an open carton",
               "how": "The bin icon in the carton header, with a reason",
-              "note": "Only while it is unsealed. Its contents go back to the order's lines, and the carton number is not reused."
+              "note": "Only while it is unsealed. Its contents go back to the order's lines and no other carton is renumbered. New cartons are numbered after the highest one left, so a removed carton's number and barcode come back once no carton above it remains."
             },
             {
               "action": "Finish packing",
@@ -5144,7 +5147,7 @@
             {
               "action": "Set a file to be removed automatically",
               "how": "Documents \u2192 Upload a file \u2192 \"Delete automatically after\"",
-              "note": "Up to a year ahead. Past the date the file is hidden, then deleted overnight. Leave it empty to keep the file indefinitely \u2014 except an export or a temporary file, which is given a date automatically."
+              "note": "Up to a year ahead. Past the date the file is hidden, then deleted overnight. Leave it empty to keep the file until someone deletes it \u2014 except an export or a temporary file, which is given a date automatically. A temporary file is kept at most a day, so its date must fall within the next 24 hours."
             },
             {
               "action": "Mark a file as not confidential within the company",
@@ -5162,7 +5165,7 @@
             {
               "action": "Narrow by how the file is being kept",
               "how": "Documents \u2192 \"Any category\" filter",
-              "note": "Uploaded documents and attachments are kept until deleted; generated exports and temporary files are given an expiry automatically."
+              "note": "Uploaded documents and attachments are kept until deleted; generated exports and temporary files are given an expiry automatically. A temporary file is never kept longer than a day."
             },
             {
               "action": "See everything filed against the same record",
@@ -5202,7 +5205,7 @@
             "The stored location of a file is generated by the system and never derives from the name you gave it, so a mischievously named file cannot reach anywhere it should not.",
             "Deleting a file removes both the record and the file itself, together, and requires a written reason. There is no undelete: a record whose file was gone would advertise a document that cannot be opened, which is worse than an honest absence. The audit trail is what remembers the deletion.",
             "A file is filed against a record with both its type and its id, or with neither. Half a reference points at nothing any search can find.",
-            "A retention date must be in the future and at most a year ahead. Beyond that, keep the file indefinitely and delete it deliberately when it is no longer needed.",
+            "A retention date must be in the future and at most a year ahead, and a temporary file's at most 24 hours ahead. Left empty, an uploaded document or attachment is kept until someone deletes it, an export is given a date seven days ahead and a temporary file one a day ahead.",
             "A file past its retention date is deleted overnight, its record and the file together, and the audit trail records each deletion as made by the system.",
             "Files marked as not confidential are still only visible to people signed in to your company. Nothing here is ever public on the internet."
           ]

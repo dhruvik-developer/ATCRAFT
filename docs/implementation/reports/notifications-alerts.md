@@ -284,7 +284,7 @@ Beat schedule, verbatim (`:71-109`):
   - The Permissions-Policy does not mention notifications or push.
 
   Requirements: a secure context (deployed processes are forced to HTTPS; localhost and 127.0.0.1 are fine), and on iOS 16.4+ the site must be installed to the Home Screen, which needs a manifest.
-- **Service-worker caching would break deploy recovery.** `main.tsx` has a `vite:preloadError` handler that reloads after a deploy. It assumes there is no service-worker cache, so any new service worker must have no `fetch` handler.
+- **Service-worker caching would break deploy recovery.** `main.tsx` installs `installStaleBundleRecovery` (`lib/stale-bundle.ts`), which listens for `vite:preloadError` and reloads after a deploy. It waits one task so a background download's failure (`noteBackgroundFailure` in `lib/preload.ts`) is left alone, and it reloads at most once in 10 seconds (`CHUNK_RELOAD_LOOP_WINDOW_MS`) so a broken deploy cannot loop. It assumes there is no service-worker cache, so any new service worker must have no `fetch` handler.
 
 ### 13. Outbound HTTP and crypto available to the backend
 
