@@ -11,12 +11,23 @@
 # `nginx -t` fails because a certificate is missing, which says nothing about
 # whether the configuration is right.
 #
+# It loads it twice: in the deployment's own nginx runtime, and in the oldest
+# nginx a host may run (MIN_HOST_NGINX). The configs use directives older
+# releases refuse - `http2 on;` arrived in 1.25.1 - and Ubuntu's own package is
+# 1.18 on 22.04 and 1.24 on 24.04, which is why the runbook installs nginx from
+# the nginx.org repository. Both images are nginx.org builds, carrying the same
+# nginx.conf that repository's package installs on the host.
+#
 # --installed is the mode for a deployment host: the runbook copies the
 # templates to /etc/nginx and substitutes the real hostnames there, so the
 # repository copies keep example.com and the default mode refuses them (as it
 # must - and editing them in place would dirty the tree `deploy.sh up`
 # requires clean). It reads the installed files, and the placeholder check is
-# aimed at them, which is what the handover checklist asks for.
+# aimed at them, which is what the handover checklist asks for. It also reads
+# the box's own `nginx -v` and refuses a version below MIN_HOST_NGINX: a config
+# that loads in a container proves nothing about a host nginx that cannot parse
+# it. The box's own `sudo nginx -t`, which the runbook runs next, has the last
+# word.
 #
 # Worth running before every `systemctl reload nginx`, and especially after
 # changing the domains: a bad host config takes production offline, and
@@ -32,6 +43,51 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# The deployment's nginx runtime (docker-compose.yml), then the oldest nginx a
+# host may run. Keep the second image's version equal to MIN_HOST_NGINX.
+MIN_HOST_NGINX="1.25.1"
+NGINX_IMAGES=(
+  nginx:1.30.6-alpine3.24-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2c4d839f5eb3d34ac3f8f7
+  nginx:1.25.1-alpine-slim@sha256:7d7e3ec705ac1d04fbdf4537ad009d5f170a035a494e96f6eb0f828c10c062b6
+)
+
+# True when dotted version $1 is at least $2, compared numerically part by part
+# (1.100.0 is newer than 1.25.1).
+version_at_least() {
+  local IFS=. i
+  local -a have need
+  read -r -a have <<<"$1"
+  read -r -a need <<<"$2"
+  for i in 0 1 2; do
+    if (( 10#${have[i]:-0} > 10#${need[i]:-0} )); then return 0; fi
+    if (( 10#${have[i]:-0} < 10#${need[i]:-0} )); then return 1; fi
+  done
+  return 0
+}
+
+# The box's own nginx is what loads the installed files on reload. /usr/sbin is
+# not on every user's PATH, so it is searched as well.
+require_host_nginx_version() {
+  local nginx_bin reported version
+  nginx_bin=$(PATH="$PATH:/usr/sbin:/usr/local/sbin" command -v nginx || true)
+  if [ -z "$nginx_bin" ]; then
+    echo "error: this host has no nginx - install nginx $MIN_HOST_NGINX or later from the nginx.org repository (ONE-BOX-RUNBOOK.md, step 8)" >&2
+    return 1
+  fi
+  reported=$("$nginx_bin" -v 2>&1 || true)
+  version=$(printf '%s\n' "$reported" | sed -n 's#^nginx version: [^/]*/\([0-9][0-9.]*\).*#\1#p' | head -n 1)
+  if [ -z "$version" ]; then
+    echo "error: could not read the host nginx version from '$nginx_bin -v': $reported" >&2
+    return 1
+  fi
+  if ! version_at_least "$version" "$MIN_HOST_NGINX"; then
+    echo "error: the host runs nginx $version, and the host configuration needs nginx $MIN_HOST_NGINX or later (it uses 'http2 on;')" >&2
+    echo "install nginx from the nginx.org repository (ONE-BOX-RUNBOOK.md, step 8), then run this check again" >&2
+    return 1
+  fi
+  echo "host nginx $version (at least $MIN_HOST_NGINX)"
+}
 
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 
@@ -60,6 +116,7 @@ case "$MODE" in
       echo "run the sed lines from the runbook against $INSTALLED_CONF_D/atcraft-*.conf, then run this check again" >&2
       exit 1
     fi
+    require_host_nginx_version || exit 1
     ;;
   repo)
     if grep -q 'example\.com' infrastructure/nginx/host/atcraft-*.conf; then
@@ -79,6 +136,7 @@ cat > "$REPO_ROOT/$RUNNER" <<'INNER'
 #!/bin/sh
 set -e
 apk add --no-cache openssl >/dev/null 2>&1
+echo "=== $(nginx -v 2>&1) ==="
 
 mkdir -p /etc/nginx/snippets /var/www/certbot /var/log/nginx
 if [ "${MODE:-}" = "installed" ]; then
@@ -154,5 +212,8 @@ if [ "$MODE" = "installed" ]; then
   # Read-only, and no sudo needed: the daemon reads the bind mount as root.
   mounts+=(-v "${INSTALLED_CONF_D}:/host/conf.d:ro" -v "${INSTALLED_SNIPPETS}:/host/snippets:ro")
 fi
-MSYS_NO_PATHCONV=1 docker run --rm "${mounts[@]}" -e MODE="$MODE" \
-  --entrypoint sh nginx:1.30.6-alpine3.24-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2c4d839f5eb3d34ac3f8f7 "/repo/${RUNNER}"
+for image in "${NGINX_IMAGES[@]}"; do
+  MSYS_NO_PATHCONV=1 docker run --rm "${mounts[@]}" -e MODE="$MODE" \
+    --entrypoint sh "$image" "/repo/${RUNNER}"
+  echo
+done

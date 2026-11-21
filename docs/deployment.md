@@ -26,8 +26,9 @@ git pull --ff-only origin main
 ```
 
 `up` restarts the deployment's own Nginx, which reads its configuration from the
-checkout. The host Nginx under `/etc/nginx` is installed by hand and `up` does
-not touch it: when a release changes `infrastructure/nginx/host/`, reinstall and
+checkout. The host Nginx under `/etc/nginx` is installed by hand, at 1.25.1 or
+later from the nginx.org repository (runbook step 8), and `up` does not touch
+it: when a release changes `infrastructure/nginx/host/`, reinstall and
 reload it as the runbook's
 [host Nginx procedure](../ONE-BOX-RUNBOOK.md#when-a-release-changes-the-host-nginx)
 describes.

@@ -274,7 +274,10 @@ and security audits, schema checks, browser coverage and deployment checks; see
 
 ## Production setup, from a bare host
 
-Assumes Ubuntu 22.04/24.04 with a sudo user. Substitute your real hostname for
+Assumes Ubuntu 22.04/24.04 with a sudo user, and host nginx 1.25.1 or later from
+the nginx.org repository ([step 8](#8-certificates)): the host configuration
+uses `http2 on;`, which nginx 1.25.1 introduced, and Ubuntu's own package is
+1.18 on 22.04 and 1.24 on 24.04. Substitute your real hostname for
 `erp.example.com` throughout.
 
 ### 1. DNS
@@ -437,18 +440,54 @@ block in `atcraft-main.conf` names
 that file every time until the certificates exist — not conditionally — and
 a reload chained behind it never runs.
 
-What answers the ACME challenge at this point is the packaged default site
-(`server_name _`, root `/var/www/html`), which serves any hostname the moment
-the package is installed. The symlink lets it serve the challenge from
-`/var/www/certbot`, the directory the atcraft `:80` blocks serve later. That
-matters: certbot records the webroot a certificate was issued with and renews
-against it, so a certificate issued against `/var/www/html` would fail every
-renewal once step 9 has replaced that site.
+Install nginx from the nginx.org stable repository, not Ubuntu's archive: the
+host configuration needs nginx 1.25.1 or later, and `check-host-nginx.sh
+--installed` refuses anything older. The pin makes apt prefer nginx.org's
+package over Ubuntu's; certbot still comes from Ubuntu.
 
 ```bash
+sudo apt-get update
+sudo apt-get install -y curl gnupg2 ca-certificates lsb-release ubuntu-keyring
+curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor \
+  | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+gpg --dry-run --quiet --no-keyring --import --import-options import-show \
+  /usr/share/keyrings/nginx-archive-keyring.gpg
+```
+
+Compare the fingerprints printed with the ones listed on
+<https://nginx.org/en/linux_packages.html#Ubuntu>, and stop if any differ.
+Then add the repository for this release's codename and install:
+
+```bash
+echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://nginx.org/packages/ubuntu $(lsb_release -cs) nginx" \
+  | sudo tee /etc/apt/sources.list.d/nginx.list
+printf 'Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n' \
+  | sudo tee /etc/apt/preferences.d/99nginx
 sudo apt-get update && sudo apt-get install -y nginx certbot
+sudo systemctl enable --now nginx
+nginx -v                      # nginx version: nginx/1.25.1 or later
+```
+
+On a box that already runs Ubuntu's nginx, copy `/etc/nginx` aside first
+(`sudo cp -a /etc/nginx /root/etc-nginx-before-nginx-org`). The same commands
+replace the package; if apt asks about `/etc/nginx/nginx.conf`, take the package
+maintainer's version, because Ubuntu's loads modules the nginx.org package does
+not ship. The installed `conf.d/` and `snippets/` files stay, and the nginx.org
+`nginx.conf` reads only `conf.d/*.conf`, so `sites-enabled/` is no longer
+loaded.
+
+What answers the ACME challenge at this point is the packaged default site,
+`/etc/nginx/conf.d/default.conf` (root `/usr/share/nginx/html`). It is the only
+server on port 80, so it serves any hostname the moment the package is
+installed. The symlink lets it serve the challenge from `/var/www/certbot`,
+the directory the atcraft `:80` blocks serve later. That matters: certbot
+records the webroot a certificate was issued with and renews against it, so a
+certificate issued against `/usr/share/nginx/html` would fail every renewal once
+step 9 has replaced that site.
+
+```bash
 sudo mkdir -p /var/www/certbot
-sudo ln -sfn /var/www/certbot/.well-known /var/www/html/.well-known
+sudo ln -sfn /var/www/certbot/.well-known /usr/share/nginx/html/.well-known
 
 sudo certbot certonly --webroot -w /var/www/certbot -d erp.yourcompany.com \
   --agree-tos -m ops@yourcompany.com --no-eff-email
@@ -475,8 +514,11 @@ cd /srv/atcraft-main && ./scripts/check-host-nginx.sh --installed
 
 `--installed` reads `/etc/nginx/conf.d` and `/etc/nginx/snippets`, generates
 self-signed certificates at the exact paths the configs name, and runs
-`nginx -t` plus the routing, port and closed-endpoint assertions. It also refuses any
-installed config that still says `example.com`. Without the flag the script
+`nginx -t` plus the routing, port and closed-endpoint assertions, once in the
+deployment's nginx and once in nginx 1.25.1, the oldest the configs support. It also
+refuses any installed config that still says `example.com`, and a host nginx
+older than 1.25.1, read from the box's own `nginx -v`. The box's own
+`sudo nginx -t` below is still the last word. Without the flag the script
 checks the repository copies, which keep the placeholders — customising those
 instead would dirty the working tree that `deploy.sh up` requires clean.
 
@@ -484,7 +526,7 @@ Remove the packaged default site. The supplied `00-default.conf` becomes the
 only default and rejects unknown HTTP Host and TLS SNI values:
 
 ```bash
-sudo rm -f /etc/nginx/sites-enabled/default
+sudo rm -f /etc/nginx/conf.d/default.conf
 sudo nginx -t && sudo systemctl reload nginx
 
 sudo systemctl enable --now certbot.timer     # renewal
@@ -803,17 +845,37 @@ diff -u /etc/nginx/snippets/atcraft-proxy.conf infrastructure/nginx/host/snippet
 
 No output means the host is current. Any output is a change the release made -
 or one made by hand on the box, which belongs in the repository before it is
-overwritten. Install the release's copies the way step 9 does, load them in a
-throwaway nginx, then reload the live one:
+overwritten. Copy the installed files aside, install the release's copies the
+way step 9 does, and load them in a throwaway nginx and in the box's own; reload
+the live nginx only when both accept them, and otherwise put the previous files
+back:
 
 ```bash
+sudo mkdir -p /var/backups/atcraft-nginx
+sudo cp -p /etc/nginx/conf.d/00-default.conf /etc/nginx/conf.d/atcraft-main.conf \
+           /etc/nginx/snippets/atcraft-proxy.conf /var/backups/atcraft-nginx/
+
 sudo cp infrastructure/nginx/host/snippets/atcraft-proxy.conf /etc/nginx/snippets/
 sudo cp infrastructure/nginx/host/00-default.conf \
         infrastructure/nginx/host/atcraft-main.conf /etc/nginx/conf.d/
 sudo sed -i 's/erp\.example\.com/erp.yourcompany.com/g' /etc/nginx/conf.d/atcraft-main.conf
-./scripts/check-host-nginx.sh --installed
-sudo nginx -t && sudo systemctl reload nginx
+
+if ./scripts/check-host-nginx.sh --installed && sudo nginx -t; then
+  sudo systemctl reload nginx
+else
+  sudo cp -p /var/backups/atcraft-nginx/00-default.conf \
+             /var/backups/atcraft-nginx/atcraft-main.conf /etc/nginx/conf.d/
+  sudo cp -p /var/backups/atcraft-nginx/atcraft-proxy.conf /etc/nginx/snippets/
+  sudo nginx -t && echo "previous host nginx files restored; the live nginx was not reloaded"
+fi
 ```
+
+Restoring matters even though the failed check skipped the reload: the running
+nginx keeps its old configuration in memory, but the next restart - a reboot,
+or a package upgrade - reads `/etc/nginx`, and a file the box's nginx cannot
+load there takes the site down. If the check refused the host nginx as older
+than 1.25.1, install nginx from the nginx.org repository as
+[step 8](#8-certificates) describes, then run this block again.
 
 A reload does not drop traffic: nginx starts workers on the new configuration
 and lets the old ones finish the requests they hold.
@@ -1139,7 +1201,8 @@ Before the client takes over:
       and `SMTP_HOST` hold the real values in the env file — `doctor` names
       any key that still says `example.com`
 - [ ] Host nginx: `./scripts/check-host-nginx.sh --installed` passes, which
-      also proves the installed config contains no `example.com`
+      also proves the installed config contains no `example.com` and the
+      host's own nginx is 1.25.1 or later
 - [ ] `JWT_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` were
       freshly generated for this deployment; the credential key also differs
       from the JWT key

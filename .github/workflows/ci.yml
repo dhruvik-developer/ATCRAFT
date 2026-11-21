@@ -342,8 +342,20 @@ jobs:
         # ONE-BOX-RUNBOOK.md step 9, run literally: copy the templates to
         # /etc/nginx, substitute the hostnames with the runbook's own sed lines,
         # then validate the installed copies. --installed must refuse the
-        # placeholders before the sed and accept the result after it.
+        # placeholders before the sed and accept the result after it. It also
+        # refuses a host nginx below 1.25.1, and the runner's Ubuntu package is
+        # older, so step 8's nginx.org install runs first, as the runbook has it.
         run: |
+          sudo apt-get update
+          sudo apt-get install -y curl gnupg2 ca-certificates lsb-release ubuntu-keyring
+          curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor \
+            | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://nginx.org/packages/ubuntu $(lsb_release -cs) nginx" \
+            | sudo tee /etc/apt/sources.list.d/nginx.list
+          printf 'Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n' \
+            | sudo tee /etc/apt/preferences.d/99nginx
+          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nginx
+          nginx -v
           sudo mkdir -p /etc/nginx/conf.d /etc/nginx/snippets
           sudo cp infrastructure/nginx/host/snippets/atcraft-proxy.conf /etc/nginx/snippets/
           sudo cp infrastructure/nginx/host/00-default.conf \
