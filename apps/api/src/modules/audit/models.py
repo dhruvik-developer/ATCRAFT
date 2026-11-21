@@ -22,6 +22,12 @@ from src.core.constants import MAX_REQUEST_ID_LENGTH
 from src.core.models import ImmutableLedgerEntity
 from src.core.types import GUID
 
+# Width of ``audit_logs.entity_code``. ``record_audit`` cuts a longer code to it,
+# because the label a caller has to hand - a contact's name, a file name, an
+# email address - is often wider than the column, and an audit row that cannot
+# be written fails the business change it describes.
+AUDIT_ENTITY_CODE_LENGTH = 64
+
 
 class AuditAction(StrEnum):
     """The action vocabulary from master rules section 41."""
@@ -83,7 +89,7 @@ class AuditLog(ImmutableLedgerEntity):
     # the audit row must survive the deletion of whatever it describes.
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
-    entity_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entity_code: Mapped[str | None] = mapped_column(String(AUDIT_ENTITY_CODE_LENGTH), nullable=True)
 
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     old_values: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

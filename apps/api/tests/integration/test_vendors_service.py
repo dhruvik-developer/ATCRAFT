@@ -1033,6 +1033,54 @@ class TestContacts:
         assert audited.context == {"promoted_id": str(second.id)}
         assert audited.created_by_id == tenant.user_id
 
+    async def test_a_primary_with_a_name_wider_than_an_audit_code_can_be_demoted(
+        self, session: AsyncSession
+    ) -> None:
+        """A contact name may run to 160 characters; ``audit_logs.entity_code`` holds 64.
+
+        The demotion's audit row is named by the demoted contact, so it must be
+        cut to fit rather than refused by the database - which would fail the
+        promotion and leave the long-named contact primary for good.
+        """
+        tenant, _ = await _seed_tenant(session)
+        vendor = await VendorService(session, tenant).create_vendor(_payload("VEND-001"))
+        service = VendorContactService(session, tenant)
+        long_name = "Accounts Payable Desk - Shree Ganesh Brass and Copper Industries Private Ltd"
+        assert len(long_name) > 64
+        first = await service.create_contact(
+            vendor.id,
+            VendorContactCreate(
+                name=long_name,
+                contact_role=VendorContactRole.ACCOUNTS,
+                email="ap@example.com",
+                is_primary=True,
+            ),
+        )
+
+        # Promoted by creation...
+        second = await service.create_contact(
+            vendor.id,
+            VendorContactCreate(
+                name="Priya Nair",
+                contact_role=VendorContactRole.OWNER,
+                email="priya@example.com",
+                is_primary=True,
+            ),
+        )
+        [audited] = await _demotion_audits(session, "vendor_contact", first.id)
+        assert audited.entity_code == long_name[:64]
+        assert audited.context == {"promoted_id": str(second.id)}
+
+        # ...and back again by nomination: the long-named contact's own audit row.
+        promoted = await service.set_primary(first.id)
+        assert promoted.is_primary is True
+        trail = await session.execute(
+            select(AuditLog.entity_code).where(
+                AuditLog.entity_type == "vendor_contact", AuditLog.entity_id == first.id
+            )
+        )
+        assert all(len(code) <= 64 for code in trail.scalars().all() if code)
+
     async def test_two_primaries_are_impossible_even_by_direct_write(
         self, session: AsyncSession
     ) -> None:

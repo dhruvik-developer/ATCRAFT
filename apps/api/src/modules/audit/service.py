@@ -26,7 +26,12 @@ from src.core.logging import (
     ip_address_ctx,
     user_agent_ctx,
 )
-from src.modules.audit.models import AuditAction, AuditLog, CompanyApprovalSettings
+from src.modules.audit.models import (
+    AUDIT_ENTITY_CODE_LENGTH,
+    AuditAction,
+    AuditLog,
+    CompanyApprovalSettings,
+)
 from src.modules.audit.repository import CompanyApprovalSettingsRepository
 from src.modules.audit.schemas import ApprovalSettingsRead, ApprovalSettingsUpdate
 
@@ -147,6 +152,11 @@ async def record_audit(
     recorded with no user and the label ``"System"`` unless the caller names one:
     the nil placeholder it carries is not a user, and the foreign key would
     refuse it.
+
+    ``entity_code`` is cut to :data:`AUDIT_ENTITY_CODE_LENGTH` characters here,
+    once for every caller: a label wider than the column (a 160-character
+    contact name, say) would otherwise make the database refuse the audit row
+    and fail the change it records.
     """
     if is_system_actor(user_id):
         actor_label = actor_label or SYSTEM_ACTOR_LABEL
@@ -162,7 +172,7 @@ async def record_audit(
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        entity_code=entity_code,
+        entity_code=entity_code[:AUDIT_ENTITY_CODE_LENGTH] if entity_code else entity_code,
         summary=summary or f"{action} {entity_type}",
         old_values=old_clean,
         new_values=new_clean,
