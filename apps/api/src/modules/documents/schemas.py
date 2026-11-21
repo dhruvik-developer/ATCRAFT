@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -33,6 +33,13 @@ ENTITY_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 #: Retention beyond this is not a temporary artefact any more; a caller wanting
 #: permanent storage should not be setting an expiry at all.
 MAX_RETENTION_DAYS = 365
+
+#: How long a TEMP file is kept: its default retention and the latest expiry an
+#: upload may name for one. ASSUMPTION (docs/assumptions.md §DOC-4): TEMP files
+#: are stored under ``storage/temp``, whose sweep deletes every file a day old
+#: whatever row points at it (§SWEEP-1), so a later date would leave a listed
+#: document whose bytes are gone.
+TEMP_RETENTION = timedelta(hours=24)
 
 
 class DocumentUploadRequest(BaseModel):
@@ -76,7 +83,14 @@ class DocumentUploadRequest(BaseModel):
             if (self.expires_at - now).days > MAX_RETENTION_DAYS:
                 raise ValueError(
                     f"The expiry time cannot be more than {MAX_RETENTION_DAYS} days away; "
-                    "omit it for a document that is kept indefinitely."
+                    "leave it empty to keep a document, attachment or report until "
+                    "someone deletes it."
+                )
+            if self.category is DocumentCategory.TEMP and self.expires_at - now > TEMP_RETENTION:
+                hours = int(TEMP_RETENTION.total_seconds() // 3600)
+                raise ValueError(
+                    f"A temporary file is kept for at most {hours} hours; choose an expiry "
+                    f"time within the next {hours} hours, or leave it empty."
                 )
         return self
 
@@ -135,6 +149,7 @@ class DocumentFilters(BaseModel):
 __all__ = [
     "ENTITY_TYPE_PATTERN",
     "MAX_RETENTION_DAYS",
+    "TEMP_RETENTION",
     "DocumentFilters",
     "DocumentRead",
     "DocumentUploadRequest",

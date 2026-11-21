@@ -17,6 +17,7 @@ from src.core.clock import utcnow
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.schemas import (
     MAX_RETENTION_DAYS,
+    TEMP_RETENTION,
     DocumentFilters,
     DocumentRead,
     DocumentUploadRequest,
@@ -73,9 +74,30 @@ class TestUploadRequest:
         with pytest.raises(ValidationError, match=str(MAX_RETENTION_DAYS)):
             DocumentUploadRequest(expires_at=utcnow() + timedelta(days=MAX_RETENTION_DAYS + 2))
 
+    def test_the_retention_refusal_does_not_promise_every_category_is_kept(self) -> None:
+        # An export or a temporary file left without a date still lapses (§DOC-4).
+        with pytest.raises(ValidationError) as caught:
+            DocumentUploadRequest(expires_at=utcnow() + timedelta(days=MAX_RETENTION_DAYS + 2))
+        message = str(caught.value)
+        assert "indefinitely" not in message
+        assert "document, attachment or report until someone deletes it" in message
+
     def test_a_reasonable_retention_is_accepted(self) -> None:
         moment = utcnow() + timedelta(days=30)
         assert DocumentUploadRequest(expires_at=moment).expires_at == moment
+
+    def test_a_temporary_file_cannot_outlive_the_scratch_sweep(self) -> None:
+        # storage/temp is swept of every day-old file whatever row points at it,
+        # so a later date would list a document whose bytes are gone (§DOC-4).
+        with pytest.raises(ValidationError, match="temporary file is kept for at most 24 hours"):
+            DocumentUploadRequest(
+                category=DocumentCategory.TEMP, expires_at=utcnow() + timedelta(days=30)
+            )
+
+    def test_a_temporary_file_may_lapse_sooner_than_its_default(self) -> None:
+        moment = utcnow() + TEMP_RETENTION - timedelta(minutes=5)
+        payload = DocumentUploadRequest(category=DocumentCategory.TEMP, expires_at=moment)
+        assert payload.expires_at == moment
 
 
 class TestFilters:

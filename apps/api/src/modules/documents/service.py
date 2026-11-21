@@ -96,6 +96,7 @@ from src.modules.audit.service import record_audit, snapshot
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.repository import MAX_PURGE_BATCH, DocumentRepository
 from src.modules.documents.schemas import (
+    TEMP_RETENTION,
     DocumentFilters,
     DocumentRead,
     DocumentUploadRequest,
@@ -338,7 +339,7 @@ CATEGORY_DIRECTORY: dict[DocumentCategory, str] = {
 #: supplier's QC certificate would be a data-loss bug, not housekeeping - and
 #: neither has a generated report (§A2-6).
 DEFAULT_RETENTION: dict[DocumentCategory, timedelta] = {
-    DocumentCategory.TEMP: timedelta(hours=24),
+    DocumentCategory.TEMP: TEMP_RETENTION,
     DocumentCategory.EXPORT: timedelta(days=7),
 }
 

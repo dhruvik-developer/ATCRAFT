@@ -410,12 +410,15 @@ function UploadDialog({
               aria-invalid={Boolean(errors.expires)}
               onChange={(event) => setExpiresAt(event.target.value)}
             />
-            {/* The nightly purge deletes the row and the file once the date has
-                passed (docs/assumptions.md §DOC-4); until then it is hidden. */}
+            {/* Past the date the file is hidden until the nightly purge deletes
+                the row and the file (docs/assumptions.md §DOC-4). A temporary
+                file lives in storage/temp, which is swept of day-old files, so
+                the API refuses a date for one more than 24 hours ahead. */}
             <p className="mt-1 text-xs text-muted-foreground">
               Past this date the file is hidden, then deleted overnight. Leave empty to keep it
-              indefinitely - except an export or a temporary file, which is given a date
-              automatically. At most {MAX_RETENTION_DAYS} days ahead.
+              until someone deletes it - except an export, which is given a date automatically. A
+              temporary file is kept at most a day, so its date must fall within the next 24 hours.
+              At most {MAX_RETENTION_DAYS} days ahead.
             </p>
             <FieldError message={errors.expires} />
           </div>
