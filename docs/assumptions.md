@@ -5406,6 +5406,10 @@ declared one.
 
 **Assumed.** A document stored without an `expires_at` takes its category's
 default retention (`DEFAULT_RETENTION`): a TEMP file 24 hours, an EXPORT 7 days.
+An upload may name an earlier date for a TEMP file but not a later one
+(`TEMP_RETENTION`, refused with a 422): its file sits under `storage/temp`,
+which the maintenance sweep empties of day-old files whatever row points at
+them, so a later date would list a document whose bytes are gone.
 DOCUMENT, ATTACHMENT and REPORT files have none - a report's file, an issued
 invoice's PDF among them, is kept (§A2-6) - and lapse only on a date their
 uploader chose, at most a year ahead. A document past its `expires_at` drops out
@@ -5420,13 +5424,21 @@ lapsed before the purge was scheduled included - and calls
 of its own: `DOCUMENT_PURGE_BATCH` (100) rows a call, oldest expiry first, until
 a call comes back short or `MAX_PURGE_BATCHES` (40, the ceiling the other purges
 share) calls have run, so a company loses at most 4 000 a night and the rest of
-a backlog waits for the next. Each row's `DOCUMENT_DELETE` audit entry - reason
-"Retention period elapsed" (`PURGE_REASON`), actor "System" - and its delete
-commit in a transaction of their own, and only then is its file unlinked; a
-file already gone is not an error. A company whose purge fails is logged
-(`maintenance.document_purge_failed`) and counted in
-`atcraft_sweep_unit_failures_total`, keeps the rows already purged and is tried
-again the next night; the other companies go on. The maintenance sweep
+a backlog waits for the next; each call starts past the last row the one before
+it read. Each row's delete and its `DOCUMENT_DELETE` audit entry - reason
+"Retention period elapsed" (`PURGE_REASON`), actor "System" - commit in a
+transaction of their own, and only then is its file unlinked; a file already
+gone is not an error. The delete is conditional (`delete_if_present`), for a
+person's deletion as for the purge's: when both delete one row at once, the one
+that finds it already gone writes no audit entry and unlinks nothing, so one
+deletion leaves one entry, and a person who lost the race is answered `404`. A row that cannot be removed -
+a storage key the path guard refuses, a refused write - is logged with its id
+(`documents.purge_failed`), counted in `failed` and in
+`atcraft_sweep_unit_failures_total`, and left, file and all, for the next
+night; the rest of its company's purge goes on past it. A company whose purge
+stops part-way is logged (`maintenance.document_purge_failed`), counted in
+`companies_failed` and in the same metric, keeps the rows already purged, which
+`removed` counts, and is tried again the next night; the other companies go on. The maintenance sweep
 separately deletes the files under `storage/temp`, where TEMP documents are
 stored, once they are 24 hours old (§SWEEP-1).
 
@@ -5443,11 +5455,12 @@ rows one call holds and the time between reading a row and deleting it, and no
 lock is held across a batch. Unlinking only after the commit means a failure in
 between leaves a file nothing points at, never a row whose bytes are gone.
 
-**Where.** `src/modules/documents/service.py` - `DEFAULT_RETENTION`,
-`default_expiry`, `DocumentService.purge_expired`, `PURGE_REASON`;
+**Where.** `src/modules/documents/schemas.py` - `TEMP_RETENTION`,
+`DocumentUploadRequest`; `src/modules/documents/service.py` - `DEFAULT_RETENTION`,
+`default_expiry`, `DocumentService.purge_expired`, `PurgeBatch`, `PURGE_REASON`;
 `src/modules/documents/repository.py` - `document_not_expired`,
 `companies_with_expired_documents`, `DocumentRepository.list_expired`,
-`MAX_PURGE_BATCH`; `src/workers/tasks/maintenance.py` -
+`DocumentRepository.delete_if_present`, `MAX_PURGE_BATCH`; `src/workers/tasks/maintenance.py` -
 `purge_expired_documents`, `sweep_expired_documents`, `DOCUMENT_PURGE_BATCH`,
 `purge_temp_files`; `src/workers/celery_app.py` - `DOCUMENT_PURGE_HOUR_UTC`,
 `DOCUMENT_PURGE_MINUTE_UTC` and the `purge-expired-documents` entry.
