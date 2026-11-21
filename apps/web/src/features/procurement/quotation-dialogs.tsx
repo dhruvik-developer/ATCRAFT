@@ -815,6 +815,8 @@ const lineSchema = z.object({
       'A discount cannot exceed 100%',
     ),
   lead_time_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
+  // The saved line's unit, never shown: see `toLinePayload`.
+  uom_id: z.string(),
 })
 
 const schema = z
@@ -862,6 +864,7 @@ const emptyLine = () => ({
   unit_price: '',
   discount_percentage: '',
   lead_time_days: '',
+  uom_id: '',
 })
 
 function emptyValues(rfqId: string | null): QuotationFormValues {
@@ -884,10 +887,13 @@ function emptyValues(rfqId: string | null): QuotationFormValues {
 /**
  * The line payload, exactly as `QuotationLineIn` declares it.
  *
- * Two fields are deliberately absent. `uom_id` is omitted so the API writes the
- * line in the item's stock unit, the only unit a document takes for now
- * (docs/assumptions.md §UOM-1), and there is no tax field at all - the item
- * master owns the GST rate and the payload cannot override it.
+ * `uom_id` is blank on a new line, so the API writes it in the item's stock
+ * unit, the only unit a document takes for now (docs/assumptions.md §UOM-1). A
+ * revision resends each saved line's own unit: omitting it would relabel a line
+ * saved in another unit to the stock unit while keeping its number and price,
+ * so the API refuses that line instead and says to add it again. There is no
+ * tax field at all - the item master owns the GST rate and the payload cannot
+ * override it.
  */
 const toLinePayload = (
   line: QuotationFormValues['lines'][number],
@@ -902,6 +908,7 @@ const toLinePayload = (
   // Null means "the header's lead time applies to this line", which is a
   // different statement from promising zero days.
   lead_time_days: line.lead_time_days.trim() === '' ? null : Number(line.lead_time_days.trim()),
+  uom_id: asText(line.uom_id),
 })
 
 /**
@@ -950,6 +957,7 @@ export function QuotationFormDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<QuotationFormValues>({
@@ -994,6 +1002,7 @@ export function QuotationFormDialog({
               ? ''
               : line.discount_percentage,
             lead_time_days: line.lead_time_days === null ? '' : String(line.lead_time_days),
+            uom_id: line.uom_id,
           }))
         : [emptyLine()],
     })
@@ -1373,12 +1382,18 @@ export function QuotationFormDialog({
                                   id={`quotation-line-item-${index}`}
                                   label={`Line ${index + 1} item`}
                                   value={itemField.value || null}
-                                  onChange={(itemId) => itemField.onChange(itemId ?? '')}
+                                  onChange={(itemId) => {
+                                    itemField.onChange(itemId ?? '')
+                                    // The saved unit belongs to the item that was
+                                    // there; the new item's line is in its stock unit.
+                                    setValue(`lines.${index}.uom_id`, '')
+                                  }}
                                   placeholder="Search the item master"
                                   invalid={Boolean(errors.lines?.[index]?.item_id)}
                                 />
                               )}
                             />
+                            <input type="hidden" {...register(`lines.${index}.uom_id`)} />
                             <FieldError message={errors.lines?.[index]?.item_id?.message} />
                           </div>
 

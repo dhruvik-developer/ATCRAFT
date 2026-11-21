@@ -600,6 +600,8 @@ describe('what the quotation form sends', () => {
       // Null means "the header's lead time applies", which is a different
       // statement from promising zero days.
       lead_time_days: null,
+      // A new line names no unit, so the API writes it in the item's stock unit.
+      uom_id: null,
     })
     expect(body.lines[1]).toMatchObject({
       line_number: 2,
@@ -608,9 +610,7 @@ describe('what the quotation form sends', () => {
       unit_price: '1200',
       discount_percentage: '2.5',
     })
-    // `uom_id` is deliberately absent so the API writes the item's stock unit,
-    // and there is no tax field at all - the item master owns it.
-    expect(body.lines[0]).not.toHaveProperty('uom_id')
+    // There is no tax field at all - the item master owns it.
     expect(body.lines[0]).not.toHaveProperty('tax_percentage')
     expect(typeof body.lines[0]!.unit_price).toBe('string')
   })
@@ -780,6 +780,61 @@ describe('revising an offer that will not load', () => {
       'ACME-Q-8891',
     )
     expect(screen.getByRole('button', { name: 'Save revised offer' })).toBeEnabled()
+  })
+})
+
+describe('revising an offer with a line saved in another unit', () => {
+  it('sends the saved unit back, so the line is never relabelled to the stock unit', async () => {
+    // A line keyed in packets before documents were held to the stock unit.
+    // Omitting its unit would make the API write "10 at 140" in pieces - the
+    // same number and price in a unit ten times smaller - so the revision
+    // resends the saved unit and the API refuses the line instead
+    // (docs/assumptions.md §UOM-1).
+    const PACKET = '01a00000-0000-7000-8000-0000000000u2'
+    const { user, fetch } = renderScreen(
+      <QuotationFormDialog open onOpenChange={() => undefined} quotationId={QUOTATION_ID} />,
+      {
+        permissions: BUYER,
+        routes: {
+          [`GET ${QUOTATIONS_PATH}/${QUOTATION_ID}`]: () =>
+            quotationDetail({
+              lines: [
+                {
+                  id: '01a00000-0000-7000-8000-0000000000l1',
+                  line_number: 1,
+                  item_id: ITEM_BRASS,
+                  description: 'Brass rod 12mm',
+                  quantity: '10.0000',
+                  unit_price: '140.000000',
+                  discount_percentage: '0.0000',
+                  discount: '0.0000',
+                  tax_percentage: '18.0000',
+                  tax_amount: '252.0000',
+                  line_total: '1652.0000',
+                  lead_time_days: null,
+                  uom_id: PACKET,
+                  notes: null,
+                },
+              ],
+            }),
+          [`GET /products/items/${ITEM_BRASS}`]: ok({
+            id: ITEM_BRASS,
+            code: 'BRASS-ROD-12',
+            name: 'Brass rod 12mm',
+          }),
+          [`PATCH ${QUOTATIONS_PATH}/${QUOTATION_ID}`]: ok(quotation()),
+        },
+      },
+    )
+
+    await stable(() => screen.getByRole('textbox', { name: /vendor quotation number/i }))
+    await user.click(screen.getByRole('button', { name: 'Save revised offer' }))
+
+    await waitFor(() => fetch.requestFor('PATCH', `${QUOTATIONS_PATH}/${QUOTATION_ID}`))
+    const body = fetch.requestFor('PATCH', `${QUOTATIONS_PATH}/${QUOTATION_ID}`) as {
+      lines: Record<string, unknown>[]
+    }
+    expect(body.lines[0]).toMatchObject({ quantity: '10.0000', uom_id: PACKET })
   })
 })
 

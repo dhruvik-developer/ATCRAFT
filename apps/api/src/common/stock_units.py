@@ -17,7 +17,7 @@ to word a refusal.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,10 @@ from src.core.deps import TenantContext
 from src.core.errors import NotFoundError, ValidationError
 from src.core.messages import not_in_stock_unit
 from src.modules.products.models import UnitOfMeasure
+
+#: Advice for a refused line, as a fixed sentence or built from the stock
+#: unit's code (``"add it again as a new line in NOS"``).
+Remedy = str | Callable[[str], str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,14 +54,14 @@ async def require_stock_units(
     tenant: TenantContext,
     lines: Iterable[LineUnit],
     *,
-    remedy: str | None = None,
+    remedy: Remedy | None = None,
 ) -> None:
     """Refuse the first line whose unit is not its item's stock unit.
 
     A unit this company does not have is "not found", as any foreign reference
     is. ``remedy`` replaces the advice to enter the quantity in the stock unit,
-    for a line the caller copied from a source document rather than took from
-    the request.
+    for a line the caller copied from a source document, or one saved before the
+    rule, where re-keying the number on the same line is not what fixes it.
     """
     refused = next(
         (line for line in lines if line.uom_id not in (None, line.stock_uom_id)),
@@ -71,7 +75,13 @@ async def require_stock_units(
         raise NotFoundError("Unit of measure", refused.uom_id)
     stock_unit, unit = labels_in_order(pair, codes, "code")
     raise ValidationError(
-        not_in_stock_unit(refused.subject, refused.item_code, stock_unit, unit, remedy),
+        not_in_stock_unit(
+            refused.subject,
+            refused.item_code,
+            stock_unit,
+            unit,
+            remedy(stock_unit) if callable(remedy) else remedy,
+        ),
         details={
             "item_code": refused.item_code,
             "uom_id": str(refused.uom_id),
@@ -80,4 +90,4 @@ async def require_stock_units(
     )
 
 
-__all__ = ["LineUnit", "require_stock_units"]
+__all__ = ["LineUnit", "Remedy", "require_stock_units"]

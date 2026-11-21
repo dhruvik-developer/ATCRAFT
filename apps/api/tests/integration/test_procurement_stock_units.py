@@ -43,6 +43,8 @@ from src.modules.procurement.schemas import (
     RequisitionConversionRequest,
     RequisitionCreate,
     RequisitionLineIn,
+    RequisitionUpdate,
+    RfqCreate,
 )
 from src.modules.products.models import Item, ProductionType, UnitOfMeasure
 from tests import seed_support
@@ -207,33 +209,36 @@ async def test_another_companys_unit_is_not_found(db, tenant, other_tenant, buye
 # -----------------------------------------------------------------------------
 
 
-async def _legacy_order(db, tenant, buyer: Principal, masters):
-    """A sent order whose line reads in packets, as one raised before the rule would."""
+async def _legacy_order(db, tenant, buyer: Principal, masters, *, received: str | None = None):
+    """A sent order whose line reads in packets, as one raised before the rule would.
+
+    ``received`` first takes that much against the line in the stock unit, so the
+    order has receipt history; ``"0"`` leaves only a draft receipt behind.
+    """
     item, packet_id = await bought_in_packets(db, tenant, masters)
-    order, lines, _ = await make_order(db, tenant, buyer, masters, item=item, quantity="5")
+    order, lines, _ = await make_order(db, tenant, buyer, masters, item=item, quantity="10")
     await send_order(db, tenant, buyer, order)
+    if received == "0":
+        await receive(db, tenant, buyer, order, lines[0], received="1", post=False)
+    elif received is not None:
+        await receive(db, tenant, buyer, order, lines[0], received=received)
     order_line = await fresh(db, PurchaseOrderLine, lines[0].id)
     order_line.uom_id = packet_id
     await db.flush()
     return item, order, order_line
 
 
-async def test_no_receipt_is_taken_against_an_order_line_in_another_unit(
-    db, tenant, buyer, masters
-) -> None:
-    item, order, order_line = await _legacy_order(db, tenant, buyer, masters)
-    item_id, order_code, warehouse_id = item.id, order.code, masters["warehouse"].id
-
+async def _receive_legacy_line(db, tenant, order_id, order_line_id) -> ValidationError:
     with pytest.raises(ValidationError) as refused:
         await service.create_goods_receipt(
             db,
             tenant,
             GoodsReceiptCreate(
-                purchase_order_id=order.id,
+                purchase_order_id=order_id,
                 lines=[
                     GoodsReceiptLineIn(
                         line_number=1,
-                        purchase_order_line_id=order_line.id,
+                        purchase_order_line_id=order_line_id,
                         received_quantity=Decimal("5"),
                         accepted_quantity=Decimal("5"),
                         rejected_quantity=Decimal("0"),
@@ -241,12 +246,55 @@ async def test_no_receipt_is_taken_against_an_order_line_in_another_unit(
                 ],
             ),
         )
+    return refused.value
 
-    assert refused.value.message.startswith(f"Purchase order {order_code} line 1 is in PKT")
-    assert refused.value.message.endswith(
-        "so amend that line to the stock unit before receiving against it."
+
+async def test_no_receipt_is_taken_against_an_order_line_in_another_unit(
+    db, tenant, buyer, masters
+) -> None:
+    """An order nothing was received against is amended: the line is added again."""
+    item, order, order_line = await _legacy_order(db, tenant, buyer, masters)
+    item_id, order_code, warehouse_id = item.id, order.code, masters["warehouse"].id
+    stock_code = masters["uom"].code
+
+    refused = await _receive_legacy_line(db, tenant, order.id, order_line.id)
+
+    assert refused.message.startswith(f"Purchase order {order_code} line 1 is in PKT")
+    assert refused.message.endswith(
+        f"so amend {order_code}: add the line again as a new line in {stock_code} and "
+        "remove this one."
     )
     assert await balance_of(db, tenant, item_id, warehouse_id) is None
+
+
+async def test_a_partly_received_order_with_a_line_in_another_unit_is_closed_short(
+    db, tenant, buyer, masters
+) -> None:
+    """An order with receipts cannot be amended, so the advice is the short close."""
+    _, order, order_line = await _legacy_order(db, tenant, buyer, masters, received="4")
+    order_code, stock_code = order.code, masters["uom"].code
+
+    refused = await _receive_legacy_line(db, tenant, order.id, order_line.id)
+
+    assert refused.message.endswith(
+        f"so receive whatever else is due on {order_code}, close it short and order this "
+        f"line again in {stock_code}."
+    )
+
+
+async def test_an_order_with_only_a_draft_receipt_is_cancelled_or_closed_short(
+    db, tenant, buyer, masters
+) -> None:
+    """A draft receipt is history too: the amendment is closed, so it is not advised."""
+    _, order, order_line = await _legacy_order(db, tenant, buyer, masters, received="0")
+    order_code, stock_code = order.code, masters["uom"].code
+
+    refused = await _receive_legacy_line(db, tenant, order.id, order_line.id)
+
+    assert refused.message.endswith(
+        f"so {order_code} can no longer be amended; cancel it, or receive its other lines "
+        f"and close it short, and order this line again in {stock_code}."
+    )
 
 
 async def test_a_draft_receipt_in_another_unit_is_not_posted(db, tenant, buyer, masters) -> None:
@@ -359,4 +407,77 @@ async def test_an_order_line_cannot_draw_on_a_requisition_line_in_another_unit(
     )
     assert refused.value.message.endswith(
         "so leave it out of this order and raise that demand again in the stock unit."
+    )
+
+
+# -----------------------------------------------------------------------------
+# A saved line in another unit is added again, and a copied one is named
+# -----------------------------------------------------------------------------
+
+
+async def test_a_requisition_edit_resending_a_line_in_another_unit_says_add_it_again(
+    db, tenant, buyer, masters
+) -> None:
+    """The edit form resends the saved unit and has no unit control (§UOM-1).
+
+    So the refusal's advice is a new line, and a new line naming no unit is
+    accepted in the stock unit - the advice can be followed on that screen.
+    """
+    item, packet_id = await bought_in_packets(db, tenant, masters)
+    header, lines = await service.create_requisition(
+        db, tenant, buyer, requisition_payload(masters, item.id)
+    )
+    saved = await fresh(db, PurchaseRequisitionLine, lines[0].id)
+    saved.uom_id = packet_id
+    await db.flush()
+    header_id, stock_code = header.id, masters["uom"].code
+    resent = requisition_payload(masters, item.id, uom_id=packet_id).lines
+
+    with pytest.raises(ValidationError) as refused:
+        await service.update_requisition(db, tenant, header_id, RequisitionUpdate(lines=resent))
+
+    assert refused.value.message.endswith(
+        f"so add it again as a new line in {stock_code} and remove this one."
+    )
+    _, replaced = await service.update_requisition(
+        db,
+        tenant,
+        header_id,
+        RequisitionUpdate(lines=requisition_payload(masters, item.id).lines),
+    )
+    assert replaced[0].uom_id == masters["uom"].id
+
+
+async def test_an_rfq_copying_a_requisition_line_in_another_unit_names_that_line(
+    db, tenant, buyer, approver, masters
+) -> None:
+    """Nobody typed the copied line, and an approved requisition cannot be edited."""
+    item, packet_id = await bought_in_packets(db, tenant, masters)
+    header, lines = await service.create_requisition(
+        db, tenant, buyer, requisition_payload(masters, item.id)
+    )
+    for status in (RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.APPROVED):
+        await service.transition_requisition(
+            db, tenant, approver, header.id, status, reason="Demand approved"
+        )
+    copied = await fresh(db, PurchaseRequisitionLine, lines[0].id)
+    copied.uom_id = packet_id
+    await db.flush()
+    header_id, header_code, stock_code = header.id, header.code, masters["uom"].code
+
+    with pytest.raises(ValidationError) as refused:
+        await service.create_rfq(
+            db,
+            tenant,
+            RfqCreate(
+                warehouse_id=masters["warehouse"].id,
+                requisition_id=header_id,
+                vendor_ids=[masters["vendor"].id],
+            ),
+        )
+
+    assert refused.value.message.startswith(f"Requisition {header_code} line 1 is in PKT")
+    assert refused.value.message.endswith(
+        "so add the lines to quote to the RFQ by hand instead of copying them, and raise "
+        f"this one again on a new requisition in {stock_code}."
     )

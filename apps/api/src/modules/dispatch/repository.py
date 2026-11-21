@@ -505,6 +505,35 @@ class FulfilledOrderLineRepository(BaseRepository[SalesOrderLine]):
         )
         return list((await self.session.execute(stmt)).scalars().unique().all())
 
+    async def open_lines_in_other_units(self, sales_order_id: uuid.UUID) -> list[Any]:
+        """The order's open lines whose unit is not their item's stock unit.
+
+        Rows of ``line_number``, ``item_code``, ``base_uom_id`` and ``uom_id`` in
+        line order - normally none, since documents are written in the stock
+        unit; a line saved before that rule is what this finds.
+        """
+        stmt = (
+            select(
+                SalesOrderLine.line_number,
+                Item.code.label("item_code"),
+                Item.base_uom_id,
+                SalesOrderLine.uom_id,
+            )
+            .join(
+                Item,
+                and_(Item.id == SalesOrderLine.item_id, Item.company_id == self.tenant.company_id),
+            )
+            .where(
+                SalesOrderLine.company_id == self.tenant.company_id,
+                SalesOrderLine.sales_order_id == sales_order_id,
+                SalesOrderLine.status != "CANCELLED",
+                SalesOrderLine.dispatched_quantity < SalesOrderLine.quantity,
+                SalesOrderLine.uom_id != Item.base_uom_id,
+            )
+            .order_by(SalesOrderLine.line_number)
+        )
+        return list((await self.session.execute(stmt)).all())
+
     async def open_line_count(self, sales_order_id: uuid.UUID) -> int:
         """How many lines of the order still owe goods.
 

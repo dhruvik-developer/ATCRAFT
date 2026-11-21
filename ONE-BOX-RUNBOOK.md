@@ -899,6 +899,73 @@ It only reads. It prints the entity, the code and the reason for each value,
 and exits non-zero if there are any, so it can gate a deploy. A clean database
 prints "Every stored GSTIN and PAN is valid."
 
+### Once, before deploying the stock-unit release
+
+From this release every purchase and sales document line is in its item's
+stock unit, and a line saved in another unit before it is refused wherever it
+would be acted on rather than posted unconverted (docs/assumptions.md §UOM-1).
+Before deploying it, list those lines - it only reads; open
+`./scripts/deploy.sh main psql` and paste:
+
+```sql
+with lines as (
+  select 'Purchase requisition' as document, h.code, h.status::text as status, l.item_id, l.uom_id
+    from purchase_requisition_lines l join purchase_requisitions h on h.id = l.requisition_id
+  union all select 'RFQ', h.code, h.status::text, l.item_id, l.uom_id
+    from rfq_lines l join rfqs h on h.id = l.rfq_id
+  union all select 'Vendor quotation', null, h.status::text, l.item_id, l.uom_id
+    from vendor_quotation_lines l join vendor_quotations h on h.id = l.quotation_id
+  union all select 'Purchase order', h.code, h.status::text, l.item_id, l.uom_id
+    from purchase_order_lines l join purchase_orders h on h.id = l.purchase_order_id
+  union all select 'Goods receipt', h.code, h.status::text, l.item_id, l.uom_id
+    from goods_receipt_lines l join goods_receipts h on h.id = l.goods_receipt_id
+  union all select 'Purchase return', h.code, h.status::text, l.item_id, l.uom_id
+    from purchase_return_lines l join purchase_returns h on h.id = l.purchase_return_id
+  union all select 'Vendor invoice', h.code, h.status::text, l.item_id, l.uom_id
+    from vendor_invoice_lines l join vendor_invoices h on h.id = l.vendor_invoice_id
+  union all select 'Sales order', h.code, h.status::text, l.item_id, l.uom_id
+    from sales_order_lines l join sales_orders h on h.id = l.sales_order_id
+  union all select 'Sales invoice', h.code, h.status::text, l.item_id, l.uom_id
+    from sales_invoice_lines l join sales_invoices h on h.id = l.sales_invoice_id
+  union all select 'Packing order', h.code, h.status::text, l.item_id, l.uom_id
+    from packing_order_lines l join packing_orders h on h.id = l.packing_order_id
+  union all select 'Job work order', h.code, h.status::text, l.item_id, l.uom_id
+    from job_work_order_lines l join job_work_orders h on h.id = l.job_work_order_id
+  union all select 'Production order', h.code, h.status::text, l.item_id, l.uom_id
+    from production_order_components l join production_orders h on h.id = l.production_order_id
+  union all select 'Assembly order', h.code, h.status::text, l.item_id, l.uom_id
+    from assembly_order_components l join assembly_orders h on h.id = l.assembly_order_id
+)
+select l.document, l.code, l.status, i.code as item, u.code as line_unit, b.code as stock_unit
+  from lines l
+  join items i on i.id = l.item_id
+  join units_of_measure u on u.id = l.uom_id
+  join units_of_measure b on b.id = i.base_uom_id
+ where l.uom_id <> i.base_uom_id
+ order by l.document, l.code, i.code;
+```
+
+No rows means there is nothing to do. For each row whose document is still
+open, before or right after the deploy:
+
+- a draft requisition, RFQ, vendor quotation or purchase order, or an approved
+  or sent order nothing has been received against: edit or amend it, add the
+  line again as a new line in the stock unit and remove the old one;
+- an approved requisition: leave the line out when converting or quoting, and
+  raise it again on a new requisition in the stock unit;
+- a purchase order with receipts: receive what else is due, close it short and
+  order the line again; a draft goods receipt: cancel it;
+- a draft sales order: open the line and set its unit to the stock unit; a
+  confirmed or allocated one: cancel it and raise it again in the stock unit
+  before anything on it ships, because from this release it cannot ship;
+- a **partly dispatched sales order whose line is still open: stop.** No
+  release offers a way to close that line - the order can be neither edited
+  nor cancelled - so refer it to the owner before deploying, and do the same
+  for any open document of a kind not named here.
+
+Received, closed, cancelled and invoiced documents need nothing; a return
+against such a line is refused, because its source cannot change any more.
+
 ---
 
 ## Migrations

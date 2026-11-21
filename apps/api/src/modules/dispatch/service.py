@@ -851,13 +851,59 @@ class _ShippedLine(Protocol):
     def sales_order_line_id(self) -> uuid.UUID | None: ...
 
 
-#: What a sales-order line in another unit needs: a confirmed line's unit is
-#: frozen, so the line is closed at what has shipped - or the order cancelled -
-#: and the rest ordered again (docs/assumptions.md §UOM-1).
-_RAISE_IN_STOCK_UNIT = (
-    "reduce that line to what has shipped, or cancel the order, and raise the rest on a "
-    "new order in the stock unit"
-)
+def _cancel_unshipped_order(stock_unit: str) -> str:
+    """The way out for a line in another unit on an order nothing has shipped from.
+
+    Cancelling is open only until the first consignment leaves, and a confirmed
+    line's unit is frozen, so the order is cancelled and raised again before
+    any of it ships (docs/assumptions.md §UOM-1).
+    """
+    return f"cancel the order and raise it again in {stock_unit} before any of it ships"
+
+
+def _leave_line_open(stock_unit: str) -> str:
+    """What a partly dispatched order can still do about a line in another unit.
+
+    Such an order can be neither edited nor cancelled, so the line can only be
+    left behind and its goods ordered again (docs/assumptions.md §UOM-1).
+    """
+    return (
+        f"take this line off the consignment and raise what is still to ship on a new order "
+        f"in {stock_unit}. The line cannot be closed on this order, so the order stays "
+        "partly dispatched"
+    )
+
+
+async def _assert_unshipped_order_in_stock_units(
+    session: AsyncSession, tenant: TenantContext, order: Any
+) -> None:
+    """Refuse the first consignment of an order that has a line in another unit.
+
+    Once anything ships, the order can no longer be cancelled, and a line in
+    another unit can never ship - so the order would stay partly dispatched for
+    good. Every open line is checked, not only the consigned ones, while
+    cancelling is still the way out (docs/assumptions.md §UOM-1).
+    """
+    if SalesOrderStatus(order.status) not in (
+        SalesOrderStatus.CONFIRMED,
+        SalesOrderStatus.ALLOCATED,
+    ):
+        return
+    rows = await FulfilledOrderLineRepository(session, tenant).open_lines_in_other_units(order.id)
+    await require_stock_units(
+        session,
+        tenant,
+        (
+            LineUnit(
+                subject=f"Sales order {order.code} line {row.line_number}",
+                item_code=row.item_code,
+                stock_uom_id=row.base_uom_id,
+                uom_id=row.uom_id,
+            )
+            for row in rows
+        ),
+        remedy=_cancel_unshipped_order,
+    )
 
 
 def _order_line_units(
@@ -1157,7 +1203,7 @@ async def _validate_lines(
             session,
             tenant,
             _order_line_units(lines, order_lines, items),
-            remedy=_RAISE_IN_STOCK_UNIT,
+            remedy=_leave_line_open,
         )
     live = await live_reservations(session, tenant, list(order_lines.values()))
     planned = (
@@ -1636,6 +1682,7 @@ async def create_dispatch(
             )
             if locked_order is None:
                 raise NotFoundError("Sales order", payload.sales_order_id)
+            await _assert_unshipped_order_in_stock_units(session, tenant, locked_order)
         await _validate_lines(
             session,
             tenant,
@@ -1776,6 +1823,8 @@ async def update_dispatch(
             )
             if locked_order is None:
                 raise NotFoundError("Sales order", dispatch.sales_order_id)
+            if line_payload is not None:
+                await _assert_unshipped_order_in_stock_units(session, tenant, locked_order)
 
         if line_payload is not None:
             await _validate_lines(
@@ -2125,6 +2174,7 @@ async def dispatch_consignment(
             # or movement posted, so an order that cannot ship is refused with the
             # remedy named rather than by the status walk at the very end.
             assert_order_dispatchable(sales_order.code, SalesOrderStatus(sales_order.status))
+            await _assert_unshipped_order_in_stock_units(session, tenant, sales_order)
         order_line_ids = [
             line.sales_order_line_id for line in lines if line.sales_order_line_id is not None
         ]
@@ -2136,7 +2186,7 @@ async def dispatch_consignment(
             session,
             tenant,
             _order_line_units(lines, order_lines, items),
-            remedy=_RAISE_IN_STOCK_UNIT,
+            remedy=_leave_line_open,
         )
         live = await live_reservations(session, tenant, list(order_lines.values()))
         planned = (

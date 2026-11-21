@@ -49,7 +49,7 @@ from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.common.document_access import register_document_entity_resolver
 from src.common.repository import labels_by_id, labels_in_order
-from src.common.stock_units import LineUnit, require_stock_units
+from src.common.stock_units import LineUnit, Remedy, require_stock_units
 from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.actors import actor_id
 from src.core.clock import today, utcnow
@@ -662,26 +662,82 @@ async def _assert_stock_units(
     tenant: TenantContext,
     lines: Iterable[_UnitLine],
     items: dict[uuid.UUID, PurchasableItem],
+    *,
+    source: str | None = None,
+    remedy: Remedy | None = None,
 ) -> None:
     """Every requested line is in its item's stock unit, or names none.
 
     A line naming no unit is written in the stock unit by its applier. Any
     other unit is refused rather than converted (docs/assumptions.md §UOM-1):
-    a goods receipt posts the line's number as stock.
+    a goods receipt posts the line's number as stock. ``source`` names the
+    document the lines were copied from, so the refusal points at the line the
+    person can find; ``remedy`` replaces the advice to enter the quantity in the
+    stock unit (:func:`_readd_in_stock_unit` for a line set replacing saved
+    lines).
     """
     await require_stock_units(
         session,
         tenant,
         (
             LineUnit(
-                subject=f"Line {line.line_number}",
+                subject=(
+                    f"Line {line.line_number}"
+                    if source is None
+                    else f"{source} line {line.line_number}"
+                ),
                 item_code=items[line.item_id].code,
                 stock_uom_id=items[line.item_id].base_uom_id,
                 uom_id=line.uom_id,
             )
             for line in lines
         ),
+        remedy=remedy,
     )
+
+
+async def _receipt_unit_remedy(
+    session: AsyncSession, tenant: TenantContext, order: PurchaseOrder
+) -> Remedy:
+    """The way out for an order line in another unit, from where the order stands.
+
+    An amendment replaces the line, but only on an order with no receipt
+    history of any status; after that the order is closed short once something
+    has been received, or cancelled before, and the line ordered again
+    (docs/assumptions.md §UOM-1).
+    """
+    code = order.code
+    if PurchaseOrderStatus(order.status) is PurchaseOrderStatus.PARTIALLY_RECEIVED:
+        return lambda stock_unit: (
+            f"receive whatever else is due on {code}, close it short and order this line "
+            f"again in {stock_unit}"
+        )
+    if await has_receipt_history(session, tenant, order.id):
+        return lambda stock_unit: (
+            f"{code} can no longer be amended; cancel it, or receive its other lines and "
+            f"close it short, and order this line again in {stock_unit}"
+        )
+    return lambda stock_unit: (
+        f"amend {code}: add the line again as a new line in {stock_unit} and remove this one"
+    )
+
+
+def _quote_without_requisition_line(stock_unit: str) -> str:
+    """The way out for a requisition line in another unit an RFQ would copy."""
+    return (
+        "add the lines to quote to the RFQ by hand instead of copying them, and raise "
+        f"this one again on a new requisition in {stock_unit}"
+    )
+
+
+def _readd_in_stock_unit(stock_unit: str) -> str:
+    """The way out for a saved line in another unit, on any form that edits lines.
+
+    The edit forms resend a saved line with its saved unit and have no unit
+    control, so re-typing the quantity cannot fix it; a new line is written in
+    the stock unit (docs/assumptions.md §UOM-1).
+    """
+    return f"add it again as a new line in {stock_unit} and remove this one"
 
 
 async def _load_vendor(
@@ -1355,7 +1411,9 @@ async def update_requisition(
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
-            await _assert_stock_units(session, tenant, payload.lines, items)
+            await _assert_stock_units(
+                session, tenant, payload.lines, items, remedy=_readd_in_stock_unit
+            )
             await _assert_suggested_vendors(session, tenant, payload.lines)
             await validate_source_demand_refs(
                 session,
@@ -1627,6 +1685,7 @@ async def create_rfq(
 
         line_payloads = payload.lines
         requisition: PurchaseRequisition | None = None
+        copied_from: str | None = None
         if payload.requisition_id is not None:
             requisition = await requisition_repo.get(payload.requisition_id)
             if requisition is None:
@@ -1644,6 +1703,7 @@ async def create_rfq(
                 line_payloads = _rfq_lines_from_requisition(
                     await requisition_line_repo.list_for_requisition(requisition.id)
                 )
+                copied_from = f"Requisition {requisition.code}"
 
         if not line_payloads:
             raise ValidationError("An RFQ needs at least one line.")
@@ -1655,7 +1715,17 @@ async def create_rfq(
 
         items = await _load_items(session, tenant, [line.item_id for line in line_payloads])
         _assert_purchasable(items)
-        await _assert_stock_units(session, tenant, line_payloads, items)
+        # A copied line keeps the requisition's unit and nobody typed it, so the
+        # refusal names the requisition line and how to quote without it: an
+        # approved requisition cannot be edited (docs/assumptions.md §UOM-1).
+        await _assert_stock_units(
+            session,
+            tenant,
+            line_payloads,
+            items,
+            source=copied_from,
+            remedy=None if copied_from is None else _quote_without_requisition_line,
+        )
 
         rfq_date = payload.rfq_date or today()
         code = await next_document_number(session, tenant.company_id, DocTypes.RFQ, on=rfq_date)
@@ -1742,7 +1812,9 @@ async def update_rfq(
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
-            await _assert_stock_units(session, tenant, payload.lines, items)
+            await _assert_stock_units(
+                session, tenant, payload.lines, items, remedy=_readd_in_stock_unit
+            )
             await line_repo.delete_for_rfq(rfq.id)
             lines = [
                 _apply_rfq_line(
@@ -2077,7 +2149,9 @@ async def update_quotation(
         lines: list[VendorQuotationLine]
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
-            await _assert_stock_units(session, tenant, payload.lines, items)
+            await _assert_stock_units(
+                session, tenant, payload.lines, items, remedy=_readd_in_stock_unit
+            )
             amounts = _price_quotation_lines(payload.lines, items)
             await line_repo.delete_for_quotation(quotation.id)
             lines = [
@@ -3095,7 +3169,9 @@ async def update_purchase_order(
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
-            await _assert_stock_units(session, tenant, payload.lines, items)
+            await _assert_stock_units(
+                session, tenant, payload.lines, items, remedy=_readd_in_stock_unit
+            )
             amounts = _price_order_lines(payload.lines, items)
 
             outgoing = await line_repo.lock_for_order(order.id)
@@ -4780,23 +4856,25 @@ async def create_goods_receipt(
         # stock, so an order line written before documents were held to the
         # stock unit is refused, never received unconverted (docs/assumptions.md
         # §UOM-1).
-        await require_stock_units(
-            session,
-            tenant,
-            (
-                LineUnit(
-                    subject=f"Purchase order {order.code} line {order_line.line_number}",
-                    item_code=items[order_line.item_id].code,
-                    stock_uom_id=items[order_line.item_id].base_uom_id,
-                    uom_id=order_line.uom_id,
-                )
-                for order_line in (
-                    order_lines.get(line.purchase_order_line_id) for line in payload.lines
-                )
-                if order_line is not None
-            ),
-            remedy="amend that line to the stock unit before receiving against it",
-        )
+        received_units = [
+            LineUnit(
+                subject=f"Purchase order {order.code} line {order_line.line_number}",
+                item_code=items[order_line.item_id].code,
+                stock_uom_id=items[order_line.item_id].base_uom_id,
+                uom_id=order_line.uom_id,
+            )
+            for order_line in (
+                order_lines.get(line.purchase_order_line_id) for line in payload.lines
+            )
+            if order_line is not None
+        ]
+        if any(unit.uom_id != unit.stock_uom_id for unit in received_units):
+            await require_stock_units(
+                session,
+                tenant,
+                received_units,
+                remedy=await _receipt_unit_remedy(session, tenant, order),
+            )
 
         receipt_date = payload.receipt_date or today()
         code = await next_document_number(session, tenant.company_id, DocTypes.GRN, on=receipt_date)

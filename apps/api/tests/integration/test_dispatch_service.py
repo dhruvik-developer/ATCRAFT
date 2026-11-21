@@ -701,15 +701,82 @@ async def test_no_consignment_is_planned_against_an_order_line_in_another_unit(
     """§UOM-1: a dispatch line posts its number as stock, so five packets would leave as five."""
     bench = await seed_bench(ctx, ordered="100")
     packet_code = await _in_packets(ctx, bench)
-    item_code, stock_code = bench.item.code, bench.uom.code
+    item_code, stock_code, order_code = bench.item.code, bench.uom.code, bench.order.code
 
     with pytest.raises(ValidationError) as refused:
         await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
 
     assert refused.value.message == (
-        f"Sales order line 1 is in {packet_code}, but item {item_code} is stocked in "
-        f"{stock_code}. Documents do not convert units yet, so reduce that line to what has "
-        "shipped, or cancel the order, and raise the rest on a new order in the stock unit."
+        f"Sales order {order_code} line 1 is in {packet_code}, but item {item_code} is "
+        f"stocked in {stock_code}. Documents do not convert units yet, so cancel the order "
+        f"and raise it again in {stock_code} before any of it ships."
+    )
+
+
+async def test_an_order_with_a_line_in_another_unit_ships_nothing_until_it_is_raised_again(
+    ctx: Ctx,
+) -> None:
+    """The first consignment would take away the order's only exit (§UOM-1).
+
+    Once anything ships the order can no longer be cancelled, and a line in
+    another unit can never ship, so a consignment of the *other* lines would
+    leave the order partly dispatched for good. Every open line is checked
+    while cancelling is still possible.
+    """
+    bench = await seed_bench(ctx, ordered="100")
+    other_item = await seed_item(ctx, bench.uom)
+    packet = await seed_support.seed_uom(
+        ctx.session,
+        company_id=ctx.company_id,
+        code=f"PKT{uuid.uuid4().hex[:6].upper()}",
+        name="Packet",
+    )
+    ctx.session.add(
+        SalesOrderLine(
+            company_id=ctx.company_id,
+            sales_order_id=bench.order.id,
+            line_number=2,
+            item_id=other_item.id,
+            quantity=Decimal("5"),
+            uom_id=packet.id,
+            unit_price=Decimal("100"),
+        )
+    )
+    await ctx.session.flush()
+    order_code, other_code = bench.order.code, other_item.code
+
+    with pytest.raises(ValidationError) as refused:
+        await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+
+    assert refused.value.message.startswith(
+        f"Sales order {order_code} line 2 is in {packet.code}, but item {other_code} "
+    )
+    assert refused.value.message.endswith("before any of it ships.")
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == Decimal("100.0000")
+
+
+async def test_a_partly_dispatched_order_says_plainly_its_line_in_another_unit_stays_open(
+    ctx: Ctx,
+) -> None:
+    """Shipped before the rule: the order can be neither edited nor cancelled (§UOM-1)."""
+    bench = await seed_bench(ctx, ordered="100")
+    detail = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+    await service.mark_ready(ctx.session, ctx.tenant, detail.id, reason="Loaded")
+    await service.dispatch_consignment(
+        ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="First lorry")
+    )
+    packet_code = await _in_packets(ctx, bench)
+    stock_code = bench.uom.code
+
+    with pytest.raises(ValidationError) as refused:
+        await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+
+    assert refused.value.message.startswith(f"Sales order line 1 is in {packet_code}")
+    assert refused.value.message.endswith(
+        "so take this line off the consignment and raise what is still to ship on a new "
+        f"order in {stock_code}. The line cannot be closed on this order, so the order "
+        "stays partly dispatched."
     )
 
 
@@ -721,7 +788,7 @@ async def test_a_plan_saved_before_the_unit_rule_is_not_sent_and_moves_nothing(
     await service.mark_ready(ctx.session, ctx.tenant, detail.id, reason="Loaded")
     await _in_packets(ctx, bench)
 
-    with pytest.raises(ValidationError, match="Sales order line 1 is in PKT"):
+    with pytest.raises(ValidationError, match=f"Sales order {bench.order.code} line 1 is in PKT"):
         await service.dispatch_consignment(
             ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="Leaving anyway")
         )

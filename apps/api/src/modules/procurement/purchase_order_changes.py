@@ -192,9 +192,12 @@ async def _apply_lines(
     items = await service._load_items(session, tenant, [line.item_id for line in payloads])
     service._assert_purchasable(items)
     # A retained line keeps the unit it has unless the change names another, so
-    # a line written before documents were held to the stock unit has to be
-    # amended to it here rather than being carried on (docs/assumptions.md §UOM-1).
-    await service._assert_stock_units(session, tenant, payloads, items)
+    # a line written before documents were held to the stock unit is refused
+    # here rather than carried on; the amendment screen has no unit control, so
+    # the way out is a new line in the stock unit (docs/assumptions.md §UOM-1).
+    await service._assert_stock_units(
+        session, tenant, payloads, items, remedy=service._readd_in_stock_unit
+    )
     existing_ids = {source_id for links in old_allocations.values() for source_id in links}
     incoming_ids = {source_id for links in desired for source_id in links}
     requisitions, source_lines = await service._lock_requisition_sources(
