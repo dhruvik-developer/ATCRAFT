@@ -26,6 +26,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { addDaysISO, toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
@@ -72,6 +73,10 @@ const WAREHOUSE_ID = '01a00000-0000-7000-8000-00000000wh01'
 const ITEM_BRASS = '01a00000-0000-7000-8000-0000000item1'
 const ITEM_STEEL = '01a00000-0000-7000-8000-0000000item2'
 const ORDERS_PATH = '/procurement/purchase-orders'
+// A month after the order date the form defaults to (today): the form refuses a
+// delivery before the order date, so a fixed calendar date goes stale the day
+// after it passes - which is how these tests started failing on 21 November 2026.
+const EXPECTED_DELIVERY = addDaysISO(toDateInput(new Date()), 30)
 
 type User = ReturnType<typeof renderScreen>['user']
 
@@ -414,7 +419,7 @@ describe('what the order form sends', () => {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new purchase order/i }))
     await stable(() => screen.getByRole('dialog', { busy: false }))
-    await user.type(screen.getByLabelText(/expected delivery/i), '2026-11-20')
+    await user.type(screen.getByLabelText(/expected delivery/i), EXPECTED_DELIVERY)
     await user.click(screen.getByRole('combobox', { name: 'Vendor' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /V-ACME/ })))
     await user.click(screen.getByRole('combobox', { name: 'Deliver to' }))
@@ -450,7 +455,7 @@ describe('what the order form sends', () => {
 
     expect(body.vendor_id).toBe(VENDOR_ID)
     expect(body.warehouse_id).toBe(WAREHOUSE_ID)
-    expect(body.expected_delivery_date).toBe('2026-11-20')
+    expect(body.expected_delivery_date).toBe(EXPECTED_DELIVERY)
     // Blank terms are omitted rather than zeroed: the API then falls back to the
     // vendor's agreed terms, and "0 days" is a different instruction entirely.
     expect(body).not.toHaveProperty('payment_terms_days')
@@ -623,7 +628,7 @@ describe('the duplicate refusal', () => {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new purchase order/i }))
     await stable(() => screen.getByRole('dialog', { busy: false }))
-    await user.type(screen.getByLabelText(/expected delivery/i), '2026-11-20')
+    await user.type(screen.getByLabelText(/expected delivery/i), EXPECTED_DELIVERY)
     await user.click(screen.getByRole('combobox', { name: 'Vendor' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /V-ACME/ })))
     await user.click(screen.getByRole('combobox', { name: 'Deliver to' }))
