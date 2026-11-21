@@ -84,7 +84,7 @@ from src.modules.packing.models import (
     PackingOrderStatus,
 )
 from src.modules.procurement import service as procurement_service
-from src.modules.procurement.models import PurchaseRequisition
+from src.modules.procurement.models import PurchaseRequisition, PurchaseRequisitionLine
 
 # Production is deployed, so the MANUFACTURE half of the conversion seam is live:
 # these tests read the order it actually created rather than trusting the hook.
@@ -103,7 +103,7 @@ from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
 from tests.private_schema_support import private_schema, rolled_back_session
 from tests.schema_support import prepare_metadata
-from tests.seed_support import seed_company, seed_user
+from tests.seed_support import seed_company, seed_uom, seed_user
 from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
@@ -1479,6 +1479,44 @@ async def test_a_buy_suggestion_becomes_a_draft_requisition(ctx: Ctx) -> None:
     ).scalar_one()
     assert requisition.code == result.created_document_code
     assert requisition.source_id == suggestion.id
+
+
+@pytest.mark.asyncio
+async def test_a_buy_suggestion_is_requested_in_the_stock_unit_it_was_counted_in(
+    ctx: Ctx,
+) -> None:
+    """§UOM-1: the plan nets in the stock unit, so the requisition line is in it.
+
+    The screw is bought in packets. The line named no unit, and the requisition
+    wrote the purchase unit, so a shortage counted in screws became a request
+    for the same number of packets.
+    """
+    packet = await seed_uom(
+        ctx.session,
+        company_id=ctx.tenant.company_id,
+        code=f"PKT{uuid.uuid4().hex[:6].upper()}",
+        name="Packet",
+    )
+    ctx.screw.purchase_uom_id = packet.id
+    await ctx.session.flush()
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.screw, "100")])
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+
+    requested = (
+        await ctx.session.execute(
+            select(PurchaseRequisitionLine).where(
+                PurchaseRequisitionLine.requisition_id == result.created_document_id
+            )
+        )
+    ).scalar_one()
+    assert requested.uom_id == ctx.uom.id
+    assert requested.quantity == suggestion.suggested_quantity
 
 
 @pytest.mark.asyncio

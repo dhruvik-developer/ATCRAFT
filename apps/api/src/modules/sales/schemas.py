@@ -73,7 +73,8 @@ class SalesOrderLineIn(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
     quantity: PositiveQuantity
-    #: Defaults to the item's sale unit, falling back to its stock unit.
+    #: Omitted, the line is in the item's stock unit; any other unit is refused
+    #: until documents convert units (docs/assumptions.md §UOM-1).
     uom_id: uuid.UUID | None = None
 
     #: Price override. Omit to let the server resolve the customer's price list.

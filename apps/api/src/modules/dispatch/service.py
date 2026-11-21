@@ -65,16 +65,17 @@ status change is exactly as much a fact as an arrival.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.common.repository import labels_by_id, labels_in_order
+from src.common.stock_units import LineUnit, require_stock_units
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -840,6 +841,59 @@ async def _record_event(
     return event
 
 
+class _ShippedLine(Protocol):
+    """A consignment line as the stock-unit rule reads it: its item and order line."""
+
+    @property
+    def item_id(self) -> uuid.UUID: ...
+
+    @property
+    def sales_order_line_id(self) -> uuid.UUID | None: ...
+
+
+#: What a sales-order line in another unit needs: a confirmed line's unit is
+#: frozen, so the line is closed at what has shipped - or the order cancelled -
+#: and the rest ordered again (docs/assumptions.md §UOM-1).
+_RAISE_IN_STOCK_UNIT = (
+    "reduce that line to what has shipped, or cancel the order, and raise the rest on a "
+    "new order in the stock unit"
+)
+
+
+def _order_line_units(
+    lines: Sequence[_ShippedLine],
+    order_lines: Mapping[uuid.UUID, SalesOrderLine],
+    items: Mapping[uuid.UUID, DispatchItem],
+) -> list[LineUnit]:
+    """The unit of each sales-order line a consignment ships, beside its stock unit.
+
+    A dispatch line carries no unit of its own: it posts its quantity as stock,
+    checked against its order line's quantity. So an order line keyed before
+    documents were held to the stock unit would ship its number unconverted
+    (docs/assumptions.md §UOM-1). A line whose order line or item is missing,
+    or names another item, is left to the checks that report those.
+    """
+    units: list[LineUnit] = []
+    for line in lines:
+        order_line = (
+            order_lines.get(line.sales_order_line_id)
+            if line.sales_order_line_id is not None
+            else None
+        )
+        item = items.get(line.item_id)
+        if order_line is None or item is None or order_line.item_id != line.item_id:
+            continue
+        units.append(
+            LineUnit(
+                subject=f"Sales order line {order_line.line_number}",
+                item_code=item.code,
+                stock_uom_id=item.base_uom_id,
+                uom_id=order_line.uom_id,
+            )
+        )
+    return units
+
+
 def _assert_unique_sales_order_lines(
     lines: Sequence[SalesOrderLineReference], *, input_validation: bool = False
 ) -> None:
@@ -1098,6 +1152,13 @@ async def _validate_lines(
             )
         found = await FulfilledOrderLineRepository(session, tenant).get_many(referenced)
         order_lines = {row.id: row for row in found}
+        # Refused while the consignment is still a plan; the send checks again.
+        await require_stock_units(
+            session,
+            tenant,
+            _order_line_units(lines, order_lines, items),
+            remedy=_RAISE_IN_STOCK_UNIT,
+        )
     live = await live_reservations(session, tenant, list(order_lines.values()))
     planned = (
         await DispatchLineRepository(session, tenant).open_quantities_by_order_line(
@@ -2068,6 +2129,15 @@ async def dispatch_consignment(
             line.sales_order_line_id for line in lines if line.sales_order_line_id is not None
         ]
         order_lines = {row.id: row for row in await order_line_repo.lock_lines(order_line_ids)}
+        # A plan saved before documents were held to the stock unit can name an
+        # order line in another unit, and sending it would post that number as
+        # stock - refused before any reservation is consumed.
+        await require_stock_units(
+            session,
+            tenant,
+            _order_line_units(lines, order_lines, items),
+            remedy=_RAISE_IN_STOCK_UNIT,
+        )
         live = await live_reservations(session, tenant, list(order_lines.values()))
         planned = (
             await line_repo.open_quantities_by_order_line(

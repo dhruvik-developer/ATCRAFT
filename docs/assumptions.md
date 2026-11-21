@@ -6610,20 +6610,24 @@ the stock unit moves - the rule section 39 sets for the brand and the
 manufacturer. The item form posts every unit on every save; a unit it leaves
 alone was checked when it was set.
 
-**Why.** The alternative is discovering it at the goods receipt that cannot
-post, with the vendor's lorry at the gate. Re-checking the units a save leaves
-alone refused an ordinary rename over a conversion removed after the item was
-saved: a refusal about a unit the person saving had not touched.
+**Why.** A trading unit is recorded for the day documents convert units, and a
+conversion checked when the unit is set is one that day can rely on. Until then
+no document reads a trading unit or its conversion: every document line is in
+the stock unit (§UOM-1). The conversion is read only here, when an item is
+saved, and by the "Check a conversion" dialog (`convert_quantity`). Re-checking
+the units a save leaves alone refused an ordinary rename over a conversion
+removed after the item was saved: a refusal about a unit the person saving had
+not touched.
 
 **Where.** `src/modules/products/service.py` - `_validate_item_units`, called
 from `create_item` and `update_item`.
 
-**Impact if wrong.** If an item may be saved before its conversion exists, the
-refusal moves to the first document that converts the unit, where the goods are
-already waiting. Removing a conversion is not refused while an item's trading
-unit relies on it (`delete_conversion`), so such an item keeps its unit until a
-document needs the conversion; if that must be caught sooner, the refusal
-belongs on the removal, as section 39 puts it on retiring a brand in use.
+**Impact if wrong.** No posting depends on this check today, because no
+document converts a unit (§UOM-1). Removing a conversion is not refused while
+an item's trading unit relies on it (`delete_conversion`), so such an item
+keeps a unit that no longer converts; nothing notices until documents convert
+units, and then the refusal belongs on the removal, as section 39 puts it on
+retiring a brand in use.
 
 ## §ITEM-3. An unpriced sale or dealer price falls back to the item master; a distributor price does not
 
@@ -6641,6 +6645,71 @@ distributor channel (§C3-2).
 
 **Impact if wrong.** If distributors should have a master price, add the column
 and map `DISTRIBUTOR` to it.
+
+## §UOM-1. A document line is stated in its item's stock unit
+
+**Assumed.** Until documents convert units, every purchase and sales document
+line is in its item's stock (base) unit - the owner's decision of 20 November
+2026. A requisition, RFQ, vendor quotation, purchase order or sales order line
+that names no unit is written in the stock unit, never in the item's purchase
+or sale unit, and the requisition MRP raises from a purchase suggestion names
+the stock unit. A line naming any other unit is refused, with a message naming
+the line, the item, its stock unit and the unit given, and saying documents do
+not convert units yet; a unit of another company is "not found". A line written
+in another unit before this rule is refused wherever it would be acted on, and
+never posted unconverted:
+
+- converting a requisition into purchase orders lists the line as unresolved,
+  with that sentence as its reason, to be left out (§51); an order line drawing
+  on such a requisition line is refused: leave the link out; either way the
+  demand is raised again in the stock unit;
+- receiving against a purchase order line: amend the line to the stock unit
+  first; posting a draft receipt: cancel it and raise a new purchase order,
+  because a draft receipt is history no amendment may rewrite (§D1-2);
+- returning goods to the vendor from a receipt line in another unit, or raising
+  or receiving a customer return of goods shipped against a sales order line in
+  another unit: refused, because neither source line can be changed any more;
+- confirming a sales order: edit the draft line; planning or sending a
+  consignment against a confirmed line, whose unit is frozen: reduce the line to
+  what has shipped, or cancel the order, and raise the rest on a new order.
+
+Bills of materials follow the same rule (§BOM-3), and production, assembly and
+job-work lines take the stock unit from the structure or the item. MRP still
+plans a sales order line confirmed in another unit before this rule at its
+number, unconverted, and its reservation stands as it was made; the line is
+refused when it is shipped.
+
+**Why.** The inventory engine has no unit of its own: a movement carries a bare
+quantity, and every balance and ledger row is in the stock unit. Before this
+rule a line defaulted to the purchase or sale unit and posted its number
+unconverted, so an item stocked in NOS and bought in packets of ten was received
+as 100 NOS for 100 packets ordered, each at a packet's price, and packets sold
+left as single pieces. Refusing is safer than a partial conversion: a factor
+applied at one posting and not the next would put the two halves of a document
+in different units.
+
+**Where.** `src/common/stock_units.py` - `require_stock_units`, worded by
+`not_in_stock_unit` in `src/core/messages.py`. Called from
+`src/modules/procurement/service.py` - `_assert_stock_units` on every
+requisition, RFQ, quotation and purchase-order write (and on an amendment, in
+`purchase_order_changes._apply_lines`), `create_goods_receipt`,
+`post_goods_receipt`, `create_purchase_return` and `post_purchase_return`, with
+`create_requisition_from_mrp` naming the stock unit, and
+`purchase_order_sources.assert_source_units` for the requisition lines an order
+line draws on, while `_plan_conversion` gives the sentence as an unresolved
+line's reason; `src/modules/sales/service.py` -
+`_build_pricing_context` and `confirm_order`;
+`src/modules/dispatch/service.py` - `_validate_lines` and
+`dispatch_consignment`; `src/modules/sales_returns/service.py` -
+`create_return` and `transition_return`.
+
+**Impact if wrong.** Full conversion at posting is a separate, later change:
+load the unit graph once per document, post each line's quantity converted to
+the stock unit with its unit cost divided by the same factor - goods receipt,
+purchase return, dispatch and customer return - and convert sales-order
+quantities in MRP demand and in reservations. Until then a trading unit on the
+item master is informational only, and a business that buys or sells in packs
+keys the count in the stock unit.
 
 ## §DISPATCH-1. A consignment may name a vendor, and an unapproved vendor is refused
 

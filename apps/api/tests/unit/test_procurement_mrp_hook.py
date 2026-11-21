@@ -37,7 +37,6 @@ def _item(item_id: uuid.UUID, *, default_warehouse_id: uuid.UUID | None) -> Purc
         code="RM-001",
         name="Raw casting",
         base_uom_id=uuid.uuid4(),
-        purchase_uom_id=None,
         gst_rate=Decimal("18"),
         standard_cost=Decimal("10"),
         min_order_quantity=Decimal("0"),
@@ -130,6 +129,27 @@ async def test_the_hook_raises_a_requisition_sourced_from_the_suggestion(
     }
     # Planning carries no principal, so no department or branch is assumed.
     assert captured["scope"] == (None, None)
+
+
+async def test_the_requisition_line_names_the_stock_unit_planning_counted_in(
+    captured: dict[str, Any],
+) -> None:
+    """§UOM-1: the suggested quantity is a stock-unit count, so the line says so.
+
+    A line naming no unit was written in the item's purchase unit, so 100 screws
+    short became a request for 100 packets of ten.
+    """
+    item_id = uuid.uuid4()
+    item = _item(item_id, default_warehouse_id=uuid.uuid4())
+    captured["items"] = {item_id: item}
+
+    await service.create_requisition_from_mrp(
+        None,  # type: ignore[arg-type]
+        _tenant(),
+        _request(item_id, warehouse_ids=[]),
+    )
+
+    assert captured["payload"].lines[0].uom_id == item.base_uom_id
 
 
 async def test_the_items_default_warehouse_is_used_when_the_run_named_none(

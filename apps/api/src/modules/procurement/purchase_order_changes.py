@@ -191,6 +191,10 @@ async def _apply_lines(
         raise ValidationError("Each purchase order line number must be unique.")
     items = await service._load_items(session, tenant, [line.item_id for line in payloads])
     service._assert_purchasable(items)
+    # A retained line keeps the unit it has unless the change names another, so
+    # a line written before documents were held to the stock unit has to be
+    # amended to it here rather than being carried on (docs/assumptions.md §UOM-1).
+    await service._assert_stock_units(session, tenant, payloads, items)
     existing_ids = {source_id for links in old_allocations.values() for source_id in links}
     incoming_ids = {source_id for links in desired for source_id in links}
     requisitions, source_lines = await service._lock_requisition_sources(
@@ -204,8 +208,8 @@ async def _apply_lines(
     service._assert_requisition_links(
         linked_payloads, requisitions, source_lines, already_linked=frozenset(existing_ids)
     )
-    sources.assert_source_units(
-        linked_payloads, source_lines, {key: item.order_uom_id for key, item in items.items()}
+    await sources.assert_source_units(
+        session, tenant, linked_payloads, requisitions, source_lines, items
     )
     await service._assert_quotation_links(
         session, tenant, vendor_id=order.vendor_id, lines=payloads
@@ -710,7 +714,7 @@ async def resolve_duplicate(
                         line,
                         items[line.item_id].gst_rate,
                         candidate,
-                        items[line.item_id].order_uom_id,
+                        items[line.item_id].base_uom_id,
                     )
                     and (payload.action != "INCREASE" or old.id == payload.candidate_line_id)
                 ]

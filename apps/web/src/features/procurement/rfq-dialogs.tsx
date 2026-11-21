@@ -973,7 +973,7 @@ export function RfqFormDialog({
                         />
                         <FieldError message={errors.lines?.[index]?.quantity?.message} />
                         <p className="mt-1 text-xs text-muted-foreground">
-                          In the item&rsquo;s purchase unit.
+                          In the item&rsquo;s stock unit.
                         </p>
                       </div>
 

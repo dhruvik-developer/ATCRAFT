@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.common.repository import labels_by_id, labels_in_order
+from src.common.stock_units import LineUnit, require_stock_units
 from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -36,7 +37,7 @@ from src.core.types import ZERO, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.customers.models import Customer
-from src.modules.dispatch.models import Dispatch, DispatchStatus, DispatchType
+from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
 from src.modules.inventory.models import (
     SerialStatus,
     StockSerial,
@@ -163,6 +164,38 @@ async def _detail(
     return SalesReturnDetail(**summary.model_dump(), lines=reads)
 
 
+async def _assert_shipped_in_stock_units(
+    session: AsyncSession,
+    tenant: TenantContext,
+    repo: SalesReturnRepository,
+    dispatch_lines: Sequence[DispatchLine],
+) -> None:
+    """Refuse a return of goods shipped against an order line in another unit.
+
+    A dispatch line posts its quantity as stock, checked against its order
+    line's quantity, so an order line keyed before documents were held to the
+    stock unit shipped its number unconverted - and a return would bring it
+    back the same way (docs/assumptions.md §UOM-1).
+    """
+    rows = await repo.order_line_units(
+        line.sales_order_line_id for line in dispatch_lines if line.sales_order_line_id
+    )
+    await require_stock_units(
+        session,
+        tenant,
+        (
+            LineUnit(
+                subject=f"Sales order {row.order_code} line {row.line_number}",
+                item_code=row.item_code,
+                stock_uom_id=row.stock_uom_id,
+                uom_id=row.uom_id,
+            )
+            for row in rows
+        ),
+        remedy="what was shipped against it cannot be returned against the dispatch",
+    )
+
+
 async def _lock_source_dispatch(repo: SalesReturnRepository, dispatch_id: uuid.UUID) -> Dispatch:
     """Row-lock the dispatch a return comes back from, or answer 404 Dispatch."""
     dispatch = await repo.lock_dispatch(dispatch_id)
@@ -232,6 +265,7 @@ async def create_return(
     by_id = {line.id: line for line in dispatch_lines}
     if len(by_id) != len(set(line_ids)):
         raise BusinessRuleError("Every return line must belong to the selected dispatch.")
+    await _assert_shipped_in_stock_units(session, tenant, returns, dispatch_lines)
     items = await returns.items(line.item_id for line in dispatch_lines)
     all_serial_ids = [serial_id for line in payload.lines for serial_id in line.serial_ids]
     if len(all_serial_ids) != len(set(all_serial_ids)):
@@ -404,6 +438,8 @@ async def transition_return(
             dispatch_lines = await repo.lock_dispatch_lines(
                 dispatch.id, [line.dispatch_line_id for line in lines]
             )
+            # Again under the locks: a draft raised before the rule existed.
+            await _assert_shipped_in_stock_units(session, tenant, repo, dispatch_lines)
             dispatch_by_id = {line.id: line for line in dispatch_lines}
             ordinary_costs, serial_costs = await return_cost_plans(
                 session, tenant, dispatch.id, lines

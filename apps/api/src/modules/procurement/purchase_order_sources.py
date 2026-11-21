@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.stock_units import LineUnit, require_stock_units
 from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, ConflictError, NotFoundError, ValidationError
@@ -21,11 +22,16 @@ from src.modules.procurement.models import (
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderSourceAllocation,
+    PurchaseRequisition,
     PurchaseRequisitionLine,
     RequisitionLineStatus,
 )
 from src.modules.procurement.purchase_order_changes_repository import SourceAllocationRepository
-from src.modules.procurement.repository import PurchaseOrderRepository, RequisitionLineRepository
+from src.modules.procurement.repository import (
+    PurchasableItem,
+    PurchaseOrderRepository,
+    RequisitionLineRepository,
+)
 from src.modules.procurement.schemas import PurchaseOrderLineIn, PurchaseOrderSourceAllocationIn
 from src.modules.procurement.service_rules import requisition_line_status_for
 
@@ -110,28 +116,44 @@ def flattened_source_lines(lines: Sequence[PurchaseOrderLineIn]) -> list[Purchas
     ]
 
 
-def assert_source_units(
+async def assert_source_units(
+    session: AsyncSession,
+    tenant: TenantContext,
     payloads: Sequence[PurchaseOrderLineIn],
+    requisitions: Mapping[uuid.UUID, PurchaseRequisition],
     source_lines: Mapping[uuid.UUID, PurchaseRequisitionLine],
-    resolved_units: Mapping[uuid.UUID, uuid.UUID],
+    items: Mapping[uuid.UUID, PurchasableItem],
 ) -> None:
-    """The allocation quantity is expressed in the requisition's unit.
+    """The allocation quantity is expressed in the requisition line's unit.
 
     ASSUMPTION (docs/assumptions.md §D1-2): a linked PO cannot silently convert
-    units. Explicit conversion factors are not part of this document contract;
-    incompatible units require a separate request in the same purchasing unit.
+    units. Every order line is in its item's stock unit (§UOM-1), so the
+    requisition line it draws on must be too; one written in another unit
+    before that rule is refused, never converted. Called after the order lines'
+    own units and items are checked, so the source line's item is the line's.
     """
+    sources: list[tuple[PurchaseOrderLineIn, PurchaseRequisitionLine]] = []
     for payload in payloads:
-        unit_id = payload.uom_id or resolved_units[payload.item_id]
         for allocation in allocation_inputs(payload):
             source = source_lines.get(allocation.requisition_line_id)
             if source is None:
                 raise NotFoundError("Purchase requisition line", allocation.requisition_line_id)
-            if source.uom_id != unit_id:
-                raise ValidationError(
-                    "A source allocation must use the requisition line's unit of measure.",
-                    details={"line_number": payload.line_number},
-                )
+            sources.append((payload, source))
+    await require_stock_units(
+        session,
+        tenant,
+        (
+            LineUnit(
+                subject=f"Requisition {requisitions[source.requisition_id].code} "
+                f"line {source.line_number}",
+                item_code=items[payload.item_id].code,
+                stock_uom_id=items[payload.item_id].base_uom_id,
+                uom_id=source.uom_id,
+            )
+            for payload, source in sources
+        ),
+        remedy="leave it out of this order and raise that demand again in the stock unit",
+    )
 
 
 async def effective_allocations(

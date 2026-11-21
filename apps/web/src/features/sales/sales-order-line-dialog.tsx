@@ -326,11 +326,15 @@ export function SalesOrderLineDialog({
                       onValueChange={field.onChange}
                       disabled={!can(P.UOM_VIEW)}
                     >
-                      <SelectTrigger id="line-uom" className="mt-1.5">
+                      <SelectTrigger
+                        id="line-uom"
+                        className="mt-1.5"
+                        aria-describedby="line-uom-hint"
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={ITEM_DEFAULT_UOM}>The item&apos;s sale unit</SelectItem>
+                        <SelectItem value={ITEM_DEFAULT_UOM}>The item&apos;s stock unit</SelectItem>
                         {(uoms.data ?? []).map((uom) => (
                           <SelectItem key={uom.id} value={uom.id}>
                             {uom.code} - {uom.name}
@@ -340,6 +344,9 @@ export function SalesOrderLineDialog({
                     </Select>
                   )}
                 />
+                <p id="line-uom-hint" className="mt-1 text-xs text-muted-foreground">
+                  Orders are entered in the item&apos;s stock unit for now; another unit is refused.
+                </p>
               </div>
 
               <div>

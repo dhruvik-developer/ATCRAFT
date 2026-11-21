@@ -47,7 +47,6 @@ def make_item(
         code="LOCK-001",
         name="Mortise Lock",
         base_uom_id=uuid.uuid4(),
-        sale_uom_id=None,
         gst_rate=gst_rate,
         sale_price=sale_price,
         dealer_price=dealer_price,

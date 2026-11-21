@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import func, select
 
-from src.core.errors import BusinessRuleError, InvalidStateTransitionError
+from src.core.errors import BusinessRuleError, InvalidStateTransitionError, ValidationError
 from src.modules.dispatch.models import DispatchLine
 from src.modules.inventory.models import InventoryBalance, InventoryTransaction, TransactionType
 from src.modules.inventory.repository import CostConsumptionRepository
@@ -13,6 +13,7 @@ from src.modules.sales_returns import service
 from src.modules.sales_returns.models import SalesReturn, SalesReturnStatus
 from src.modules.sales_returns.repository import SalesReturnRepository
 from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLineIn
+from tests import seed_support
 from tests.sales_return_support import receive_goods, shipped_stock
 from tests.statement_support import counted
 
@@ -281,6 +282,59 @@ async def test_a_return_reads_earlier_claims_once_however_many_lines_it_names(
         )
 
     assert claim_reads(four_lines) == claim_reads(two_lines)
+
+
+async def _shipped_against_packets(session, tenant, dispatch, item, warehouse) -> str:
+    """Point the first dispatch line at an order line in packets; return the order's code.
+
+    A consignment that left against an order line keyed before §UOM-1, so the
+    line's number went out as stock in a unit the order did not count in.
+    """
+    packet = await seed_support.seed_uom(session, company_id=tenant.company_id, name="Packet")
+    order = await seed_support.seed_sales_order(
+        session, company_id=tenant.company_id, warehouse_id=warehouse.id
+    )
+    order_line = await seed_support.seed_sales_order_line(
+        session, order=order, item_id=item.id, uom_id=packet.id, quantity=Decimal("10")
+    )
+    shipped = await session.get(DispatchLine, dispatch.lines[0].id)
+    shipped.sales_order_line_id = order_line.id
+    await session.flush()
+    return order.code
+
+
+async def test_goods_shipped_against_an_order_line_in_another_unit_are_not_returned(
+    session, tenant
+):
+    dispatch, item, warehouse = await shipped_stock(session, tenant, [("10", "10")])
+    order_code = await _shipped_against_packets(session, tenant, dispatch, item, warehouse)
+
+    with pytest.raises(ValidationError) as refused:
+        await service.create_return(session, tenant, _claim(dispatch, (0, "4")))
+
+    assert refused.value.message.startswith(f"Sales order {order_code} line 1 is in ")
+    assert refused.value.message.endswith(
+        "so what was shipped against it cannot be returned against the dispatch."
+    )
+
+
+async def test_a_draft_return_raised_before_the_unit_rule_is_not_received(session, tenant):
+    dispatch, item, warehouse = await shipped_stock(session, tenant, [("10", "10")])
+    item_id, warehouse_id = item.id, warehouse.id
+    returned = await service.create_return(session, tenant, _claim(dispatch, (0, "4")))
+    await _shipped_against_packets(session, tenant, dispatch, item, warehouse)
+
+    with pytest.raises(ValidationError, match="cannot be returned against the dispatch"):
+        await service.transition_return(session, tenant, returned.id, SalesReturnStatus.RECEIVED)
+
+    on_hand = await session.scalar(
+        select(InventoryBalance.on_hand_quantity).where(
+            InventoryBalance.company_id == tenant.company_id,
+            InventoryBalance.item_id == item_id,
+            InventoryBalance.warehouse_id == warehouse_id,
+        )
+    )
+    assert on_hand == Decimal("0")
 
 
 async def test_receiving_a_return_holds_every_inspected_line_in_one_posting(

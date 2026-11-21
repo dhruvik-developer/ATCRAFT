@@ -191,13 +191,16 @@ def category_within(
 
 @dataclass(frozen=True, slots=True)
 class PurchasableItem:
-    """The item-master facts procurement needs, and nothing else."""
+    """The item-master facts procurement needs, and nothing else.
+
+    No purchase unit: every purchase document line is in ``base_uom_id``, the
+    stock unit, until documents convert units (docs/assumptions.md §UOM-1).
+    """
 
     id: uuid.UUID
     code: str
     name: str
     base_uom_id: uuid.UUID
-    purchase_uom_id: uuid.UUID | None
     gst_rate: Decimal
     standard_cost: Decimal
     min_order_quantity: Decimal
@@ -212,11 +215,6 @@ class PurchasableItem:
     #: The item's own category - where the procurement category of a line on a
     #: purchase order is resolved from. ``None`` for an uncategorised item.
     category_id: uuid.UUID | None = None
-
-    @property
-    def order_uom_id(self) -> uuid.UUID:
-        """The unit a purchase line defaults to: the purchase unit, else stock."""
-        return self.purchase_uom_id or self.base_uom_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,7 +296,6 @@ class PurchasableItemRepository(BaseRepository[Item]):
             Item.code,
             Item.name,
             Item.base_uom_id,
-            Item.purchase_uom_id,
             Item.gst_rate,
             Item.standard_cost,
             Item.min_order_quantity,
@@ -321,7 +318,6 @@ class PurchasableItemRepository(BaseRepository[Item]):
                 code=row.code,
                 name=row.name,
                 base_uom_id=row.base_uom_id,
-                purchase_uom_id=row.purchase_uom_id,
                 gst_rate=Decimal(row.gst_rate),
                 standard_cost=Decimal(row.standard_cost),
                 min_order_quantity=Decimal(row.min_order_quantity),

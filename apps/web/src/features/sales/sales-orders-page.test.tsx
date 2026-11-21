@@ -596,7 +596,7 @@ describe('what the new-order form sends', () => {
         item_variant_id: null,
         description: null,
         quantity: '12.5',
-        // The item's own sale unit, chosen by leaving the unit alone.
+        // The item's stock unit, chosen by leaving the unit alone.
         uom_id: null,
         unit_price: '340.250000',
         discount_percentage: '0',
@@ -962,7 +962,7 @@ describe('the line editor', () => {
   })
 
   it('disables the unit when the account cannot read the unit master', async () => {
-    // `uom.view` is its own right. Without it the line keeps the item's own sale
+    // `uom.view` is its own right. Without it the line keeps the item's stock
     // unit, which is what the API applies for a null `uom_id` anyway - and no
     // request is fired at a lookup that would answer 403.
     const { user, fetch } = renderScreen(<SalesOrdersPage />, {

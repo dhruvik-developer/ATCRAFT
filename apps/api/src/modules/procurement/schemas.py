@@ -123,7 +123,8 @@ class RequisitionLineIn(BaseModel):
     item_id: uuid.UUID
     description: str | None = Field(default=None, max_length=500)
     quantity: PositiveQuantity
-    #: Defaults to the item's purchase unit, falling back to its stock unit.
+    #: Omitted, the line is in the item's stock unit; any other unit is refused
+    #: until documents convert units (docs/assumptions.md §UOM-1).
     uom_id: uuid.UUID | None = None
     required_date: date | None = None
     #: The requester's expectation, never a committed price.

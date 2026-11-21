@@ -44,6 +44,7 @@ from src.core.errors import (
     InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
+    ValidationError,
 )
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -86,6 +87,7 @@ from src.modules.sales.schemas import (
 )
 from src.modules.users.models import User
 from src.modules.warehouses.models import Warehouse, WarehouseType
+from tests import seed_support
 from tests.private_schema_support import private_schema, rolled_back_session
 
 pytestmark = pytest.mark.integration
@@ -547,6 +549,82 @@ async def test_an_unsellable_item_is_refused(ctx: Ctx):
 
     with pytest.raises(BusinessRuleError, match="sellable"):
         await make_draft(ctx, customer, warehouse, [line(item, "5")])
+
+
+async def _sold_in_packets(ctx: Ctx) -> tuple[Item, UnitOfMeasure, uuid.UUID]:
+    """An item stocked in NOS and sold in packets: its stock unit and the packet's id."""
+    uom = await seed_uom(ctx)
+    packet = await seed_support.seed_uom(
+        ctx.session,
+        company_id=ctx.tenant.company_id,
+        code=f"PKT{uuid.uuid4().hex[:6].upper()}",
+        name="Packet",
+    )
+    item = await seed_item(ctx, uom)
+    item.sale_uom_id = packet.id
+    await ctx.session.flush()
+    return item, uom, packet.id
+
+
+async def test_a_line_naming_no_unit_is_sold_in_the_stock_unit(ctx: Ctx):
+    """§UOM-1: a dispatch posts the line's number as stock, so the line is in it."""
+    item, uom, _ = await _sold_in_packets(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+
+    _, lines = await service.create_order(
+        ctx.session,
+        ctx.tenant,
+        ctx.principal,
+        create_payload(customer, warehouse, [line(item, "5")]),
+    )
+
+    assert lines[0].uom_id == uom.id
+
+
+async def test_a_line_in_the_sale_unit_is_refused_with_both_units_named(ctx: Ctx):
+    item, uom, packet_id = await _sold_in_packets(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    item_code, stock_code = item.code, uom.code
+
+    with pytest.raises(ValidationError) as refused:
+        await make_draft(ctx, customer, warehouse, [line(item, "5", uom_id=packet_id)])
+
+    assert refused.value.message.startswith("Line 1 is in PKT")
+    assert refused.value.message.endswith(
+        f"but item {item_code} is stocked in {stock_code}. Documents do not convert units "
+        f"yet, so enter the quantity in {stock_code}."
+    )
+
+
+async def test_a_draft_line_in_another_unit_is_refused_before_anything_is_reserved(ctx: Ctx):
+    """A draft keyed before the rule: confirming would reserve five packets as five units."""
+    item, _, packet_id = await _sold_in_packets(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    await seed_stock(ctx, item, warehouse, "100")
+    order, lines = await service.create_order(
+        ctx.session,
+        ctx.tenant,
+        ctx.principal,
+        create_payload(customer, warehouse, [line(item, "5")]),
+    )
+    lines[0].uom_id = packet_id
+    await ctx.session.flush()
+    order_id = order.id
+
+    with pytest.raises(ValidationError, match="Line 1 is in PKT"):
+        await service.confirm_order(
+            ctx.session,
+            ctx.tenant,
+            ctx.principal,
+            order_id,
+            reason="Customer confirmed by email",
+            allocation=ctx.allocation,
+        )
+
+    assert ctx.allocation.reserve_calls == []
 
 
 async def test_a_warehouse_from_another_tenant_is_not_found(ctx: Ctx):

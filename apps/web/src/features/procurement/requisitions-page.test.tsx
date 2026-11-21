@@ -673,8 +673,8 @@ describe('the requisition form', () => {
       quantity: '12.5',
       estimated_unit_price: null,
       description: null,
-      // Left to the API, which fills in the item's own order unit - a better
-      // answer than one this form is in any position to invent.
+      // Left to the API, which writes the item's stock unit - the only unit a
+      // document takes for now.
       uom_id: null,
       required_date: null,
       suggested_vendor_id: null,

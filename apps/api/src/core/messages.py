@@ -213,6 +213,26 @@ def duplicate_operation_sequences(sequences: Sequence[int]) -> str:
     return f"Duplicate {noun}: {listed(sequences)}."
 
 
+def not_in_stock_unit(
+    subject: str, item_code: str, stock_unit: str, unit: str, remedy: str | None = None
+) -> str:
+    """A document line in a unit other than its item's stock unit, refused.
+
+    ``"Line 2 is in PKT, but item SCR-10 is stocked in NOS. Documents do not
+    convert units yet, so enter the quantity in NOS."`` - the one sentence
+    procurement, sales, dispatch and sales returns raise for it, through
+    :func:`src.common.stock_units.require_stock_units`, and the reason a
+    requisition conversion gives for a line it cannot order. ``subject`` names
+    the line; ``remedy`` replaces "enter the quantity in" the stock unit for a
+    line copied from another document, where the fix belongs to that document.
+    """
+    advice = remedy if remedy is not None else f"enter the quantity in {stock_unit}"
+    return (
+        f"{subject} is in {unit}, but item {item_code} is stocked in {stock_unit}. "
+        f"Documents do not convert units yet, so {advice}."
+    )
+
+
 # --- authentication -----------------------------------------------------------
 
 CURRENT_PASSWORD_INCORRECT = "The current password is incorrect."  # noqa: S105 - a sentence
@@ -469,6 +489,7 @@ __all__ = [
     "no_longer_editable",
     "no_price_configured",
     "not_for_this_item",
+    "not_in_stock_unit",
     "not_tracked",
     "other_customer_order",
     "output_not_serial_tracked",

@@ -46,6 +46,7 @@ from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.common.document_access import register_document_entity_resolver
 from src.common.repository import BaseRepository
+from src.common.stock_units import LineUnit, require_stock_units
 from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.currency import assert_customer_currency
@@ -1518,7 +1519,7 @@ def price_line(
         item=item,
         unit_price=unit_price,
         price_source=source,
-        uom_id=payload.uom_id or item.order_uom_id,
+        uom_id=payload.uom_id or item.base_uom_id,
         description=payload.description or item.name,
         tax_rate=Decimal(item.gst_rate),
         amounts=amounts,
@@ -1535,6 +1536,27 @@ def price_line(
 # -----------------------------------------------------------------------------
 
 
+def _line_units(
+    lines: Sequence[SalesOrderLineIn] | Sequence[SalesOrderLine],
+    items: Mapping[uuid.UUID, SellableItem],
+) -> list[LineUnit]:
+    """Each line's unit beside its item's stock unit, for the stock-unit rule.
+
+    A line whose item has been retired from the master is not checked here:
+    pricing refuses such an item as not found before it gets this far.
+    """
+    return [
+        LineUnit(
+            subject=f"Line {line.line_number}",
+            item_code=items[line.item_id].code,
+            stock_uom_id=items[line.item_id].base_uom_id,
+            uom_id=line.uom_id,
+        )
+        for line in lines
+        if line.item_id in items
+    ]
+
+
 async def _build_pricing_context(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1544,15 +1566,13 @@ async def _build_pricing_context(
     is_interstate: bool,
     on_date: date,
 ) -> PricingContext:
-    """Load every fact the whole line set needs, in six statements.
+    """Load every fact the whole line set needs, in five statements.
 
     The last two are the dealer schemes: the active offers for this customer's
     channel plus the category tree they match against. Batched once per order,
-    never per line (docs/assumptions.md §C3-3).
+    never per line (docs/assumptions.md §C3-3). A line's unit costs no read
+    unless it is refused (:func:`src.common.stock_units.require_stock_units`).
     """
-    items_repo = ItemLookupRepository(session, tenant)
-    item_ids = [line.item_id for line in lines]
-    variant_ids = [line.item_variant_id for line in lines if line.item_variant_id is not None]
     items_repo = ItemLookupRepository(session, tenant)
     item_ids = [line.item_id for line in lines]
     variant_ids = [line.item_variant_id for line in lines if line.item_variant_id is not None]
@@ -1576,12 +1596,10 @@ async def _build_pricing_context(
                 details={"line_number": line.line_number, "item_code": item.code},
             )
 
-    supplied_uoms = [line.uom_id for line in lines if line.uom_id is not None]
-    if supplied_uoms:
-        known = await items_repo.uom_ids_in_tenant(supplied_uoms)
-        unknown = sorted({str(u) for u in supplied_uoms if u not in known})
-        if unknown:
-            raise NotFoundError("Unit of measure", ", ".join(unknown))
+    # A line naming no unit is priced and written in the stock unit; any other
+    # unit is refused, never converted - a dispatch posts the line's number as
+    # stock (docs/assumptions.md §UOM-1).
+    await require_stock_units(session, tenant, _line_units(lines, items))
 
     variants = await items_repo.variants(variant_ids)
     price_rows = await PriceListRepository(session, tenant).candidates_for_items(
@@ -3043,6 +3061,12 @@ async def confirm_order(
                 f"{order.code} has no lines, so confirming it would promise nothing.",
                 details={"order_id": str(order.id)},
             )
+        # A draft keyed before documents were held to the stock unit is refused
+        # while its lines can still be edited: confirming reserves each line's
+        # number as stock, and a confirmed line's unit is frozen
+        # (docs/assumptions.md §UOM-1).
+        items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
+        await require_stock_units(session, tenant, _line_units(lines, items))
 
         # Locks the customer row: the headroom read here is consumed by this
         # order, and reading it unlocked is the classic credit double-spend.

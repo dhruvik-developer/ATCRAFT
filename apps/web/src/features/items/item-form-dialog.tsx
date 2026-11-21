@@ -642,7 +642,11 @@ export function ItemFormDialog({
                   name="purchase_uom_id"
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="item-purchase-uom" className="mt-1.5">
+                      <SelectTrigger
+                        id="item-purchase-uom"
+                        className="mt-1.5"
+                        aria-describedby="item-trading-units-hint"
+                      >
                         <SelectValue placeholder="Same as base" />
                       </SelectTrigger>
                       <SelectContent>
@@ -665,7 +669,11 @@ export function ItemFormDialog({
                   name="sale_uom_id"
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="item-sale-uom" className="mt-1.5">
+                      <SelectTrigger
+                        id="item-sale-uom"
+                        className="mt-1.5"
+                        aria-describedby="item-trading-units-hint"
+                      >
                         <SelectValue placeholder="Same as base" />
                       </SelectTrigger>
                       <SelectContent>
@@ -680,6 +688,15 @@ export function ItemFormDialog({
                   )}
                 />
               </div>
+
+              {/* docs/assumptions.md §UOM-1: no document converts a unit yet. */}
+              <p
+                id="item-trading-units-hint"
+                className="-mt-2 text-xs text-muted-foreground sm:col-span-2"
+              >
+                Orders and receipts are entered in the base unit for now; no document uses the
+                purchase or sale unit yet.
+              </p>
 
               <div>
                 <Label htmlFor="item-hsn">HSN code</Label>

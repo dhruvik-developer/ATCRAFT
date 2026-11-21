@@ -608,8 +608,8 @@ describe('what the quotation form sends', () => {
       unit_price: '1200',
       discount_percentage: '2.5',
     })
-    // `uom_id` is deliberately absent so the API falls back to the item's own
-    // order unit, and there is no tax field at all - the item master owns it.
+    // `uom_id` is deliberately absent so the API writes the item's stock unit,
+    // and there is no tax field at all - the item master owns it.
     expect(body.lines[0]).not.toHaveProperty('uom_id')
     expect(body.lines[0]).not.toHaveProperty('tax_percentage')
     expect(typeof body.lines[0]!.unit_price).toBe('string')

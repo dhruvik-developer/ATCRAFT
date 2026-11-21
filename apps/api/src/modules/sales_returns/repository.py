@@ -17,8 +17,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable, Sequence
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.engine import Row
 
 from src.common.repository import BaseRepository
 from src.core.pagination import PageParams
@@ -26,6 +28,7 @@ from src.core.responses import OffsetPagination
 from src.modules.dispatch.models import Dispatch, DispatchLine
 from src.modules.inventory.models import InventoryTransaction, TransactionType
 from src.modules.products.models import Item
+from src.modules.sales.models import SalesOrder, SalesOrderLine
 from src.modules.sales_returns.models import (
     SalesReturn,
     SalesReturnLine,
@@ -123,6 +126,46 @@ class SalesReturnRepository(BaseRepository[SalesReturn]):
             return {}
         stmt = select(Item).where(Item.company_id == self.tenant.company_id, Item.id.in_(wanted))
         return {item.id: item for item in (await self.session.execute(stmt)).scalars().all()}
+
+    async def order_line_units(self, order_line_ids: Iterable[uuid.UUID]) -> list[Row[Any]]:
+        """The unit of each named sales-order line, beside its item's stock unit.
+
+        Each row: ``line_number``, ``uom_id``, ``order_code``, ``item_code`` and
+        ``stock_uom_id`` - what the stock-unit rule reads about the order lines
+        a dispatch shipped (docs/assumptions.md §UOM-1). One statement, in
+        order-line id order; nothing named, nothing read.
+        """
+        wanted = list(dict.fromkeys(order_line_ids))
+        if not wanted:
+            return []
+        stmt = (
+            select(
+                SalesOrderLine.line_number,
+                SalesOrderLine.uom_id,
+                SalesOrder.code.label("order_code"),
+                Item.code.label("item_code"),
+                Item.base_uom_id.label("stock_uom_id"),
+            )
+            .join(
+                SalesOrder,
+                and_(
+                    SalesOrder.id == SalesOrderLine.sales_order_id,
+                    SalesOrder.company_id == SalesOrderLine.company_id,
+                ),
+            )
+            .join(
+                Item,
+                and_(
+                    Item.id == SalesOrderLine.item_id, Item.company_id == SalesOrderLine.company_id
+                ),
+            )
+            .where(
+                SalesOrderLine.company_id == self.tenant.company_id,
+                SalesOrderLine.id.in_(wanted),
+            )
+            .order_by(SalesOrderLine.id)
+        )
+        return list((await self.session.execute(stmt)).all())
 
     async def active_warehouse_exists(self, warehouse_id: uuid.UUID) -> bool:
         """Whether this company has an active warehouse with this id."""

@@ -211,8 +211,8 @@ function valuesFrom(detail: RequisitionDetail): RequisitionFormValues {
  *
  * `line_number` is required and comes from the position in the editor, so the
  * numbering always matches what the requester sees. A null `uom_id` is the
- * honest answer for a new line - the API fills in the item's own order unit,
- * which is a better answer than one this form could invent.
+ * honest answer for a new line - the API writes it in the item's stock unit,
+ * the only unit a document takes for now (docs/assumptions.md §UOM-1).
  */
 function buildLines(lines: RequisitionLineValues[]): RequisitionLinePayload[] {
   return lines.map((line, index) => ({

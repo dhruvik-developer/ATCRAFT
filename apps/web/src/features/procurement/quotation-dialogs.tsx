@@ -884,10 +884,10 @@ function emptyValues(rfqId: string | null): QuotationFormValues {
 /**
  * The line payload, exactly as `QuotationLineIn` declares it.
  *
- * Two fields are deliberately absent. `uom_id` is omitted so the API falls back
- * to the item's own order UoM rather than this form guessing one, and there is
- * no tax field at all - the item master owns the GST rate and the payload
- * cannot override it.
+ * Two fields are deliberately absent. `uom_id` is omitted so the API writes the
+ * line in the item's stock unit, the only unit a document takes for now
+ * (docs/assumptions.md §UOM-1), and there is no tax field at all - the item
+ * master owns the GST rate and the payload cannot override it.
  */
 const toLinePayload = (
   line: QuotationFormValues['lines'][number],

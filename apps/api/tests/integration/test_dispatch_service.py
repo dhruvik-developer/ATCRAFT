@@ -682,6 +682,55 @@ async def test_a_plan_overtaken_before_it_leaves_is_refused_and_moves_nothing(
     assert refused.status == DispatchStatus.READY_FOR_DISPATCH
 
 
+async def _in_packets(ctx: Ctx, bench: Bench) -> str:
+    """Move the bench's order line to a packet unit, as a line keyed before §UOM-1 reads."""
+    packet = await seed_support.seed_uom(
+        ctx.session,
+        company_id=ctx.company_id,
+        code=f"PKT{uuid.uuid4().hex[:6].upper()}",
+        name="Packet",
+    )
+    bench.line.uom_id = packet.id
+    await ctx.session.flush()
+    return packet.code
+
+
+async def test_no_consignment_is_planned_against_an_order_line_in_another_unit(
+    ctx: Ctx,
+) -> None:
+    """§UOM-1: a dispatch line posts its number as stock, so five packets would leave as five."""
+    bench = await seed_bench(ctx, ordered="100")
+    packet_code = await _in_packets(ctx, bench)
+    item_code, stock_code = bench.item.code, bench.uom.code
+
+    with pytest.raises(ValidationError) as refused:
+        await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+
+    assert refused.value.message == (
+        f"Sales order line 1 is in {packet_code}, but item {item_code} is stocked in "
+        f"{stock_code}. Documents do not convert units yet, so reduce that line to what has "
+        "shipped, or cancel the order, and raise the rest on a new order in the stock unit."
+    )
+
+
+async def test_a_plan_saved_before_the_unit_rule_is_not_sent_and_moves_nothing(
+    ctx: Ctx,
+) -> None:
+    bench = await seed_bench(ctx, ordered="100")
+    detail = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+    await service.mark_ready(ctx.session, ctx.tenant, detail.id, reason="Loaded")
+    await _in_packets(ctx, bench)
+
+    with pytest.raises(ValidationError, match="Sales order line 1 is in PKT"):
+        await service.dispatch_consignment(
+            ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="Leaving anyway")
+        )
+
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == Decimal("100.0000")
+    assert balance.reserved_quantity == Decimal("100.0000")
+
+
 async def test_legacy_duplicate_demand_links_cannot_ship_or_change_fulfilment(ctx: Ctx) -> None:
     bench = await seed_bench(ctx)
     detail = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))

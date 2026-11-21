@@ -72,8 +72,9 @@ class SellableItem:
     id: uuid.UUID
     code: str
     name: str
+    #: The stock unit, which every sales order line is in until documents
+    #: convert units (docs/assumptions.md §UOM-1) - so there is no sale unit here.
     base_uom_id: uuid.UUID
-    sale_uom_id: uuid.UUID | None
     gst_rate: Decimal
     sale_price: Decimal
     dealer_price: Decimal
@@ -86,11 +87,6 @@ class SellableItem:
     #: which matches only ALL-scoped offers (docs/assumptions.md §C3-3).
     category_id: uuid.UUID | None = None
     brand_id: uuid.UUID | None = None
-
-    @property
-    def order_uom_id(self) -> uuid.UUID:
-        """The unit a line defaults to: the sale unit, else the stock unit."""
-        return self.sale_uom_id or self.base_uom_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +112,6 @@ class ItemLookupRepository(BaseRepository[Item]):
             Item.code,
             Item.name,
             Item.base_uom_id,
-            Item.sale_uom_id,
             Item.gst_rate,
             Item.sale_price,
             Item.dealer_price,
@@ -137,7 +132,6 @@ class ItemLookupRepository(BaseRepository[Item]):
                 code=row.code,
                 name=row.name,
                 base_uom_id=row.base_uom_id,
-                sale_uom_id=row.sale_uom_id,
                 gst_rate=Decimal(row.gst_rate),
                 sale_price=Decimal(row.sale_price),
                 dealer_price=Decimal(row.dealer_price),
@@ -174,19 +168,6 @@ class ItemLookupRepository(BaseRepository[Item]):
             )
             for row in (await self.session.execute(stmt)).all()
         }
-
-    async def uom_ids_in_tenant(self, uom_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
-        """Which of these units actually belong to this tenant. One statement."""
-        if not uom_ids:
-            return set()
-        from src.modules.products.models import UnitOfMeasure
-
-        stmt = select(UnitOfMeasure.id).where(
-            UnitOfMeasure.company_id == self.tenant.company_id,
-            UnitOfMeasure.deleted_at.is_(None),
-            UnitOfMeasure.id.in_(list(dict.fromkeys(uom_ids))),
-        )
-        return {row.id for row in (await self.session.execute(stmt)).all()}
 
 
 class PriceListRepository(BaseRepository[ItemPrice]):

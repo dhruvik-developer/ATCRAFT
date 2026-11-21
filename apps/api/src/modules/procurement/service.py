@@ -48,7 +48,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.common.document_access import register_document_entity_resolver
-from src.common.repository import labels_by_id
+from src.common.repository import labels_by_id, labels_in_order
+from src.common.stock_units import LineUnit, require_stock_units
 from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.actors import actor_id
 from src.core.clock import today, utcnow
@@ -70,6 +71,7 @@ from src.core.messages import (
     inactive_record,
     line_not_serial_tracked,
     no_longer_editable,
+    not_in_stock_unit,
     plural,
 )
 from src.core.pagination import PageParams, SortParams
@@ -642,6 +644,46 @@ def _assert_purchasable(items: dict[uuid.UUID, PurchasableItem]) -> None:
         )
 
 
+class _UnitLine(Protocol):
+    """A requested document line: its number, its item and the unit it names."""
+
+    @property
+    def line_number(self) -> int: ...
+
+    @property
+    def item_id(self) -> uuid.UUID: ...
+
+    @property
+    def uom_id(self) -> uuid.UUID | None: ...
+
+
+async def _assert_stock_units(
+    session: AsyncSession,
+    tenant: TenantContext,
+    lines: Iterable[_UnitLine],
+    items: dict[uuid.UUID, PurchasableItem],
+) -> None:
+    """Every requested line is in its item's stock unit, or names none.
+
+    A line naming no unit is written in the stock unit by its applier. Any
+    other unit is refused rather than converted (docs/assumptions.md §UOM-1):
+    a goods receipt posts the line's number as stock.
+    """
+    await require_stock_units(
+        session,
+        tenant,
+        (
+            LineUnit(
+                subject=f"Line {line.line_number}",
+                item_code=items[line.item_id].code,
+                stock_uom_id=items[line.item_id].base_uom_id,
+                uom_id=line.uom_id,
+            )
+            for line in lines
+        ),
+    )
+
+
 async def _load_vendor(
     session: AsyncSession, tenant: TenantContext, vendor_id: uuid.UUID
 ) -> Vendor:
@@ -1049,7 +1091,7 @@ def _apply_requisition_line(
     line.item_id = payload.item_id
     line.description = payload.description or item.name
     line.quantity = to_quantity(payload.quantity)
-    line.uom_id = payload.uom_id or item.order_uom_id
+    line.uom_id = payload.uom_id or item.base_uom_id
     line.required_date = payload.required_date
     line.estimated_unit_price = payload.estimated_unit_price
     line.suggested_vendor_id = payload.suggested_vendor_id
@@ -1159,10 +1201,14 @@ async def create_requisition_from_mrp(
             source_id=source_id,
             notes=request.notes,
             lines=[
+                # Planning nets every quantity in the stock unit, so the line
+                # says so rather than being read in a purchase unit
+                # (docs/assumptions.md §UOM-1).
                 RequisitionLineIn(
                     line_number=1,
                     item_id=request.item_id,
                     quantity=to_quantity(request.quantity),
+                    uom_id=item.base_uom_id,
                     required_date=request.required_date,
                     source_demand_refs=demand_refs,
                 )
@@ -1200,6 +1246,7 @@ async def _create_requisition(
         )
         items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
         _assert_purchasable(items)
+        await _assert_stock_units(session, tenant, payload.lines, items)
         await _assert_suggested_vendors(session, tenant, payload.lines)
         await validate_source_demand_refs(
             session,
@@ -1308,6 +1355,7 @@ async def update_requisition(
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
+            await _assert_stock_units(session, tenant, payload.lines, items)
             await _assert_suggested_vendors(session, tenant, payload.lines)
             await validate_source_demand_refs(
                 session,
@@ -1527,7 +1575,7 @@ def _apply_rfq_line(line: RfqLine, payload: RfqLineIn, item: PurchasableItem) ->
     line.item_id = payload.item_id
     line.description = payload.description or item.name
     line.quantity = to_quantity(payload.quantity)
-    line.uom_id = payload.uom_id or item.order_uom_id
+    line.uom_id = payload.uom_id or item.base_uom_id
     line.required_date = payload.required_date
     line.requisition_line_id = payload.requisition_line_id
     line.specification = payload.specification
@@ -1607,6 +1655,7 @@ async def create_rfq(
 
         items = await _load_items(session, tenant, [line.item_id for line in line_payloads])
         _assert_purchasable(items)
+        await _assert_stock_units(session, tenant, line_payloads, items)
 
         rfq_date = payload.rfq_date or today()
         code = await next_document_number(session, tenant.company_id, DocTypes.RFQ, on=rfq_date)
@@ -1693,6 +1742,7 @@ async def update_rfq(
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
+            await _assert_stock_units(session, tenant, payload.lines, items)
             await line_repo.delete_for_rfq(rfq.id)
             lines = [
                 _apply_rfq_line(
@@ -1813,7 +1863,7 @@ def _apply_quotation_line(
     line.item_id = payload.item_id
     line.description = payload.description or item.name
     line.quantity = to_quantity(payload.quantity)
-    line.uom_id = payload.uom_id or item.order_uom_id
+    line.uom_id = payload.uom_id or item.base_uom_id
     line.unit_price = payload.unit_price
     line.discount_percentage = payload.discount_percentage or ZERO
     line.discount = amounts.discount_amount
@@ -1900,6 +1950,7 @@ async def create_quotation(
             )
 
         items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+        await _assert_stock_units(session, tenant, payload.lines, items)
         amounts = _price_quotation_lines(payload.lines, items)
         totals = sum_document_totals(amounts, freight_amount=payload.freight_amount)
         payment_terms_days, lead_time_days = quotation_terms(
@@ -2026,6 +2077,7 @@ async def update_quotation(
         lines: list[VendorQuotationLine]
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+            await _assert_stock_units(session, tenant, payload.lines, items)
             amounts = _price_quotation_lines(payload.lines, items)
             await line_repo.delete_for_quotation(quotation.id)
             lines = [
@@ -2601,7 +2653,7 @@ def _apply_order_line(
     line.item_id = payload.item_id
     line.description = payload.description or item.name
     line.quantity = to_quantity(payload.quantity)
-    line.uom_id = payload.uom_id or item.order_uom_id
+    line.uom_id = payload.uom_id or item.base_uom_id
     line.unit_price = payload.unit_price
     line.discount_percentage = payload.discount_percentage or ZERO
     line.discount = amounts.discount_amount
@@ -2706,6 +2758,7 @@ async def _prepare_purchase_order(
 
     items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
     _assert_purchasable(items)
+    await _assert_stock_units(session, tenant, payload.lines, items)
 
     # The links a client names are checked before anything is written (T3),
     # and the requisition rows they touch are locked here - headers, then
@@ -2726,8 +2779,8 @@ async def _prepare_purchase_order(
     _assert_requisition_links(
         order_sources.flattened_source_lines(payload.lines), requisitions, source_lines
     )
-    order_sources.assert_source_units(
-        payload.lines, source_lines, {key: item.order_uom_id for key, item in items.items()}
+    await order_sources.assert_source_units(
+        session, tenant, payload.lines, requisitions, source_lines, items
     )
     await _assert_quotation_links(session, tenant, vendor_id=vendor.id, lines=payload.lines)
 
@@ -3042,6 +3095,7 @@ async def update_purchase_order(
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
+            await _assert_stock_units(session, tenant, payload.lines, items)
             amounts = _price_order_lines(payload.lines, items)
 
             outgoing = await line_repo.lock_for_order(order.id)
@@ -3067,8 +3121,8 @@ async def update_purchase_order(
                 source_lines,
                 already_linked=already_linked,
             )
-            order_sources.assert_source_units(
-                payload.lines, source_lines, {key: item.order_uom_id for key, item in items.items()}
+            await order_sources.assert_source_units(
+                session, tenant, payload.lines, requisitions, source_lines, items
             )
             await _assert_quotation_links(
                 session, tenant, vendor_id=order.vendor_id, lines=payload.lines
@@ -4144,6 +4198,18 @@ async def _plan_conversion(
     item_ids = [line.item_id for line, _, _ in open_lines]
     item_repo = PurchasableItemRepository(session, tenant)
     items = await item_repo.load(item_ids)
+    # An order line takes its requisition line's unit, and its receipt posts the
+    # number as stock, so a line keyed before documents were held to the stock
+    # unit cannot be ordered as it stands (docs/assumptions.md §UOM-1). Like an
+    # item retired since approval, it is listed unresolved, to be left out.
+    off_unit = {
+        line.id: (items[line.item_id].base_uom_id, line.uom_id)
+        for line, _, _ in open_lines
+        if line.item_id in items and line.uom_id != items[line.item_id].base_uom_id
+    }
+    unit_codes = await labels_by_id(
+        session, tenant, {unit for pair in off_unit.values() for unit in pair}, UnitOfMeasure.code
+    )
     retired_codes = await item_repo.codes(
         [item_id for item_id in dict.fromkeys(item_ids) if item_id not in items]
     )
@@ -4204,6 +4270,17 @@ async def _plan_conversion(
         )
         vendor = vendors.get(vendor_id) if vendor_id is not None else None
         reasons = _unorderable_item_reasons(item, item_code)
+        if line.id in off_unit:
+            stock_unit, unit = labels_in_order(off_unit[line.id], unit_codes, "code")
+            reasons.append(
+                not_in_stock_unit(
+                    "This line",
+                    item_code,
+                    stock_unit,
+                    unit,
+                    remedy="leave it out and raise it again in the stock unit",
+                )
+            )
         if vendor_id is None:
             reasons.append(_UNRESOLVED_NO_VENDOR)
         elif vendor is None:
@@ -4699,6 +4776,27 @@ async def create_goods_receipt(
 
         order_lines = {line.id: line for line in await order_line_repo.list_for_order(order.id)}
         items = await _load_items(session, tenant, [line.item_id for line in order_lines.values()])
+        # A receipt line takes its order line's unit and posts its number as
+        # stock, so an order line written before documents were held to the
+        # stock unit is refused, never received unconverted (docs/assumptions.md
+        # §UOM-1).
+        await require_stock_units(
+            session,
+            tenant,
+            (
+                LineUnit(
+                    subject=f"Purchase order {order.code} line {order_line.line_number}",
+                    item_code=items[order_line.item_id].code,
+                    stock_uom_id=items[order_line.item_id].base_uom_id,
+                    uom_id=order_line.uom_id,
+                )
+                for order_line in (
+                    order_lines.get(line.purchase_order_line_id) for line in payload.lines
+                )
+                if order_line is not None
+            ),
+            remedy="amend that line to the stock unit before receiving against it",
+        )
 
         receipt_date = payload.receipt_date or today()
         code = await next_document_number(session, tenant.company_id, DocTypes.GRN, on=receipt_date)
@@ -5036,6 +5134,24 @@ async def post_goods_receipt(
 
         order_lines = {line.id: line for line in await order_line_repo.lock_for_order(order.id)}
         items = await _load_items(session, tenant, [line.item_id for line in lines])
+        # A draft keyed before documents were held to the stock unit carries its
+        # order line's other unit; posting it would book that number as stock
+        # (docs/assumptions.md §UOM-1). The draft is receipt history, which no
+        # amendment may rewrite (§D1-2), so the order is raised again instead.
+        await require_stock_units(
+            session,
+            tenant,
+            (
+                LineUnit(
+                    subject=f"Line {line.line_number} of {receipt.code}",
+                    item_code=items[line.item_id].code,
+                    stock_uom_id=items[line.item_id].base_uom_id,
+                    uom_id=line.uom_id,
+                )
+                for line in lines
+            ),
+            remedy="cancel the receipt and raise a new purchase order in the stock unit",
+        )
 
         context = _ReceiptContext(
             receipt=receipt, order=order, lines=lines, order_lines=order_lines, items=items
@@ -5670,6 +5786,25 @@ async def create_purchase_return(
         items = await _load_items(
             session, tenant, [line.item_id for line in receipt_lines.values()]
         )
+        # A return line takes its receipt line's unit and posts its number as
+        # stock leaving, so a line received before documents were held to the
+        # stock unit cannot be returned through the receipt (docs/assumptions.md
+        # §UOM-1).
+        await require_stock_units(
+            session,
+            tenant,
+            (
+                LineUnit(
+                    subject=f"Goods receipt {receipt.code} line {receipt_line.line_number}",
+                    item_code=items[receipt_line.item_id].code,
+                    stock_uom_id=items[receipt_line.item_id].base_uom_id,
+                    uom_id=receipt_line.uom_id,
+                )
+                for receipt_line in receipt_lines.values()
+                if receipt_line.goods_receipt_id == receipt.id
+            ),
+            remedy="it cannot be returned against the receipt",
+        )
         pool_facts = await _return_pool_facts(
             session, tenant, receipt, list(receipt_lines.values())
         )
@@ -5823,6 +5958,22 @@ async def post_purchase_return(
             )
         }
         items = await _load_items(session, tenant, [line.item_id for line in lines])
+        # A draft raised before documents were held to the stock unit carries
+        # its receipt line's other unit (docs/assumptions.md §UOM-1).
+        await require_stock_units(
+            session,
+            tenant,
+            (
+                LineUnit(
+                    subject=f"Line {line.line_number} of {purchase_return.code}",
+                    item_code=items[line.item_id].code,
+                    stock_uom_id=items[line.item_id].base_uom_id,
+                    uom_id=line.uom_id,
+                )
+                for line in lines
+            ),
+            remedy="it cannot be returned against its receipt; cancel this return",
+        )
         receipt = await GoodsReceiptRepository(session, tenant).get(
             purchase_return.goods_receipt_id
         )

@@ -212,8 +212,9 @@ export type RequisitionDetail = SchemaOf<'RequisitionDetail'>
  * One line of `POST`/`PATCH` (`RequisitionLineIn`).
  *
  * `line_number` is required and the model forbids unknown keys. `uom_id` is
- * optional and best left null on a new line: the API fills in the item's own
- * order unit, which no form here is in a position to guess.
+ * optional and best left null on a new line: the API writes the line in the
+ * item's stock unit, the only unit a document takes until documents convert
+ * units (docs/assumptions.md §UOM-1).
  */
 export type RequisitionLinePayload = SchemaOf<'RequisitionLineIn'>
 
